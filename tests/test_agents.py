@@ -185,3 +185,4 @@ def test_mpo_agent_act_and_update():
     assert "loss/dual_eta" in metrics
     assert "kl/q_pi" in metrics
     assert "eta" in metrics
+    assert "lambda" in metrics

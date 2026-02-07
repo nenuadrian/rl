@@ -168,6 +168,12 @@ class DiagonalGaussianPolicy(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         h = self.encoder(obs)
+        return self.forward_with_features(h)
+
+    def forward_with_features(
+        self, features: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        h = features
         mean = self.policy_mean(h)
         log_std = self.policy_logstd(h)
         mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
@@ -244,6 +250,9 @@ class MPOConfig:
     eta_init: float = 1.0
     eta_lr: float = 1e-3
     kl_epsilon: float = 0.1
+    mstep_kl_epsilon: float = 0.1
+    lambda_init: float = 1.0
+    lambda_lr: float = 1e-3
     max_grad_norm: float = 1.0
     action_samples: int = 16
     retrace_steps: int = 5
@@ -310,6 +319,25 @@ class MPOAgent:
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
 
+        self.lambda_dual = float(self.config.lambda_init)
+
+    def _forward_kl_diag_gaussians(
+        self,
+        mean0: torch.Tensor,
+        log_std0: torch.Tensor,
+        mean1: torch.Tensor,
+        log_std1: torch.Tensor,
+    ) -> torch.Tensor:
+        var0 = torch.exp(2.0 * log_std0)
+        var1 = torch.exp(2.0 * log_std1)
+        kl_per_dim = 0.5 * (
+            var0 / var1
+            + (mean1 - mean0).pow(2) / var1
+            - 1.0
+            + 2.0 * (log_std1 - log_std0)
+        )
+        return kl_per_dim.sum(dim=-1, keepdim=True)
+
     def act_with_logp(
         self, obs: np.ndarray, deterministic: bool = False
     ) -> tuple[np.ndarray, np.ndarray, float]:
@@ -330,20 +358,24 @@ class MPOAgent:
         action_exec, _, _ = self.act_with_logp(obs, deterministic=deterministic)
         return action_exec
 
-    def _expected_q_target(self, obs: torch.Tensor) -> torch.Tensor:
-        actions = self.policy_target.sample_actions(
-            obs, num_actions=self.config.retrace_mc_actions
-        )
-        batch_size = obs.shape[0]
-        obs_rep = obs.unsqueeze(1).expand(
-            batch_size, self.config.retrace_mc_actions, obs.shape[-1]
-        )
-        obs_flat = obs_rep.reshape(-1, obs.shape[-1])
-        act_flat = actions.reshape(-1, actions.shape[-1])
-        q1 = self.q1_target(obs_flat, act_flat)
-        q2 = self.q2_target(obs_flat, act_flat)
-        q = torch.min(q1, q2)
-        return q.reshape(batch_size, self.config.retrace_mc_actions).mean(dim=1, keepdim=True)
+
+    def _expected_q_current(self, obs: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            actions = self.policy.sample_actions(
+                obs, num_actions=self.config.retrace_mc_actions
+            )
+            batch_size = obs.shape[0]
+            obs_rep = obs.unsqueeze(1).expand(
+                batch_size, self.config.retrace_mc_actions, obs.shape[-1]
+            )
+            obs_flat = obs_rep.reshape(-1, obs.shape[-1])
+            act_flat = actions.reshape(-1, actions.shape[-1])
+            q1 = self.q1_target(obs_flat, act_flat)
+            q2 = self.q2_target(obs_flat, act_flat)
+            q = torch.min(q1, q2)
+            return q.reshape(batch_size, self.config.retrace_mc_actions).mean(
+                dim=1, keepdim=True
+            )
 
     def _retrace_q_target(self, batch: dict) -> torch.Tensor:
         obs_seq = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
@@ -375,7 +407,9 @@ class MPOAgent:
             q_t = torch.min(q1_t, q2_t).reshape(batch_size, seq_len, 1)
 
             next_obs_flat = next_obs_seq.reshape(batch_size * seq_len, obs_dim)
-            v_next = self._expected_q_target(next_obs_flat).reshape(batch_size, seq_len, 1)
+            v_next = self._expected_q_current(next_obs_flat).reshape(
+                batch_size, seq_len, 1
+            )
 
             delta = rewards_seq + (1.0 - dones_seq) * self.config.gamma * v_next - q_t
 
@@ -386,22 +420,26 @@ class MPOAgent:
             )
             log_b = behaviour_logp_seq
             log_ratio = log_pi - log_b
-            c = torch.exp(torch.minimum(torch.zeros_like(log_ratio), log_ratio)).squeeze(-1)
-
-            ones = torch.ones(batch_size, 1, device=self.device)
-            c_shift = torch.cat([ones, c[:, 1:]], dim=1)
-            prod_c = torch.cumprod(c_shift, dim=1)
-
-            not_done = (1.0 - dones_seq.squeeze(-1))
-            alive = torch.cumprod(torch.cat([ones, not_done[:, :-1]], dim=1), dim=1)
-
-            gammas = (self.config.gamma ** torch.arange(seq_len, device=self.device)).view(1, seq_len)
-
-            q0 = q_t[:, 0, 0]
-            retrace_sum = torch.sum(
-                gammas * prod_c * alive * delta.squeeze(-1), dim=1
+            c = torch.exp(torch.minimum(torch.zeros_like(log_ratio), log_ratio)).squeeze(
+                -1
             )
-            q_ret = (q0 + retrace_sum).unsqueeze(-1)
+
+            # Correct Retrace recursion:
+            # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
+            q_ret = q_t[:, 0, :].clone()  # (B,1)
+            cont = torch.ones((batch_size, 1), device=self.device)
+            c_prod = torch.ones((batch_size, 1), device=self.device)
+            discount = torch.ones((batch_size, 1), device=self.device)
+
+            dones_flat = dones_seq.squeeze(-1)  # (B,T)
+
+            for t in range(seq_len):
+                if t > 0:
+                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])
+                    c_prod = c_prod * c[:, t : t + 1]
+                    discount = discount * self.config.gamma
+
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
 
         return q_ret
 
@@ -451,58 +489,12 @@ class MPOAgent:
         q1_loss = F.mse_loss(q1, target)
         q2_loss = F.mse_loss(q2, target)
 
-        mean, log_std = self.policy(obs)
-        with torch.no_grad():
-            sampled_actions_raw, sampled_actions_exec = (
-                self.policy_target.sample_actions_raw_and_exec(
-                    obs, num_actions=self.config.action_samples
-                )
-            )
-            batch_size = obs.shape[0]
-            obs_rep = obs.unsqueeze(1).expand(
-                batch_size, self.config.action_samples, obs.shape[-1]
-            )
-            obs_flat = obs_rep.reshape(-1, obs.shape[-1])
-            act_flat = sampled_actions_exec.reshape(-1, sampled_actions_exec.shape[-1])
-            q1_vals = self.q1(obs_flat, act_flat)
-            q2_vals = self.q2(obs_flat, act_flat)
-            q_vals = torch.min(q1_vals, q2_vals)
-            q_vals = q_vals.reshape(batch_size, self.config.action_samples)
-
-        q_vals_detach = q_vals.detach()
-        eta = F.softplus(self.log_eta) + 1e-8
-        dual_loss = (
-            eta * self.config.kl_epsilon
-            + eta * torch.log(torch.mean(torch.exp(q_vals_detach / eta), dim=1) + 1e-8)
-        ).mean()
-        self.eta_opt.zero_grad()
-        dual_loss.backward()
-        self.eta_opt.step()
-        eta = F.softplus(self.log_eta).detach() + 1e-8
-
-        weights = torch.softmax(q_vals_detach / eta, dim=1)
-
-        mean_exp = mean.unsqueeze(1).expand(
-            batch_size, self.config.action_samples, mean.shape[-1]
-        )
-        log_std_exp = log_std.unsqueeze(1).expand_as(mean_exp)
-        log_prob = self.policy.log_prob(
-            mean_exp.reshape(-1, mean.shape[-1]),
-            log_std_exp.reshape(-1, log_std.shape[-1]),
-            sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1]),
-        )
-        log_prob = log_prob.reshape(batch_size, self.config.action_samples)
-
-        policy_loss = -(weights.detach() * log_prob).sum(dim=1).mean()
-        kl_q_pi = (weights * (torch.log(weights + 1e-8) - log_prob)).sum(dim=1).mean()
-
-        total_loss = q1_loss + q2_loss + policy_loss
-
+        # Phase A: critic + encoder update
+        q_loss = q1_loss + q2_loss
         self.q1_opt.zero_grad()
         self.q2_opt.zero_grad()
-        self.policy_opt.zero_grad()
         self.encoder_opt.zero_grad()
-        total_loss.backward()
+        q_loss.backward()
         nn.utils.clip_grad_norm_(
             list(self.q1.head_parameters()), self.config.max_grad_norm
         )
@@ -510,15 +502,98 @@ class MPOAgent:
             list(self.q2.head_parameters()), self.config.max_grad_norm
         )
         nn.utils.clip_grad_norm_(
-            self.policy.head_parameters(), self.config.max_grad_norm
-        )
-        nn.utils.clip_grad_norm_(
             self.shared_encoder.parameters(), self.config.max_grad_norm
         )
         self.q1_opt.step()
         self.q2_opt.step()
-        self.policy_opt.step()
         self.encoder_opt.step()
+
+        # Phase B: E-step weights + M-step policy update (encoder frozen)
+        with torch.no_grad():
+            features_detached = self.shared_encoder(obs).detach()
+
+        mean_new, log_std_new = self.policy.forward_with_features(features_detached)
+
+        with torch.no_grad():
+            sampled_actions_raw, _ = self.policy_target.sample_actions_raw_and_exec(
+                obs, num_actions=self.config.action_samples
+            )
+            batch_size = obs.shape[0]
+
+            obs_rep = obs.unsqueeze(1).expand(
+                batch_size, self.config.action_samples, obs.shape[-1]
+            )
+            obs_flat = obs_rep.reshape(-1, obs.shape[-1])
+            act_raw_flat = sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1])
+
+            q1_vals = self.q1(obs_flat, act_raw_flat)
+            q2_vals = self.q2(obs_flat, act_raw_flat)
+            q_vals = torch.min(q1_vals, q2_vals).reshape(
+                batch_size, self.config.action_samples
+            )
+
+            mean_old, log_std_old = self.policy_target(obs)
+            mean_old_exp = mean_old.unsqueeze(1).expand(
+                batch_size, self.config.action_samples, mean_old.shape[-1]
+            )
+            log_std_old_exp = log_std_old.unsqueeze(1).expand_as(mean_old_exp)
+            log_pi_old = self.policy_target.log_prob(
+                mean_old_exp.reshape(-1, mean_old.shape[-1]),
+                log_std_old_exp.reshape(-1, log_std_old.shape[-1]),
+                act_raw_flat,
+            ).reshape(batch_size, self.config.action_samples)
+
+        q_vals_detach = q_vals.detach()
+        eta = F.softplus(self.log_eta) + 1e-8
+        dual_loss = (
+            eta * self.config.kl_epsilon
+            + eta
+            * torch.log(torch.mean(torch.exp(q_vals_detach / eta), dim=1) + 1e-8)
+        ).mean()
+        self.eta_opt.zero_grad()
+        dual_loss.backward()
+        self.eta_opt.step()
+        eta = F.softplus(self.log_eta).detach() + 1e-8
+
+        # E-step weights: log w~ = log π_old(a|s) + Q(s,a)/η
+        log_w_tilde = log_pi_old + q_vals_detach / eta
+        log_w = log_w_tilde - torch.logsumexp(log_w_tilde, dim=1, keepdim=True)
+        weights = torch.exp(log_w)
+
+        mean_new_exp = mean_new.unsqueeze(1).expand(
+            batch_size, self.config.action_samples, mean_new.shape[-1]
+        )
+        log_std_new_exp = log_std_new.unsqueeze(1).expand_as(mean_new_exp)
+        log_pi_new = self.policy.log_prob(
+            mean_new_exp.reshape(-1, mean_new.shape[-1]),
+            log_std_new_exp.reshape(-1, log_std_new.shape[-1]),
+            sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1]),
+        ).reshape(batch_size, self.config.action_samples)
+
+        policy_loss = -(weights.detach() * log_pi_new).sum(dim=1).mean()
+
+        with torch.no_grad():
+            mean_old, log_std_old = self.policy_target(obs)
+        kl_state = self._forward_kl_diag_gaussians(
+            mean_old, log_std_old, mean_new, log_std_new
+        )
+        avg_kl = kl_state.mean()
+
+        lagrangian = policy_loss + self.lambda_dual * (
+            avg_kl - self.config.mstep_kl_epsilon
+        )
+
+        self.policy_opt.zero_grad()
+        lagrangian.backward()
+        nn.utils.clip_grad_norm_(
+            self.policy.head_parameters(), self.config.max_grad_norm
+        )
+        self.policy_opt.step()
+
+        self.lambda_dual = max(
+            0.0,
+            self.lambda_dual + self.config.lambda_lr * float((avg_kl - self.config.mstep_kl_epsilon).item()),
+        )
 
         self._soft_update(self.q1, self.q1_target)
         self._soft_update(self.q2, self.q2_target)
@@ -529,8 +604,9 @@ class MPOAgent:
             "loss/q2": float(q2_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/dual_eta": float(dual_loss.item()),
-            "kl/q_pi": float(kl_q_pi.item()),
+            "kl/q_pi": float(avg_kl.item()),
             "eta": float(eta.item()),
+            "lambda": float(self.lambda_dual),
         }
 
     def _soft_update(self, net: nn.Module, target: nn.Module) -> None:
