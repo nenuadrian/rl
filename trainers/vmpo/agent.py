@@ -60,7 +60,7 @@ class PopArt(nn.Module):
         self.popart_std.copy_(new_std)
 
 
-class VMPONetwork(nn.Module):
+class SquashedGaussianPolicy(nn.Module):
     def __init__(
         self,
         obs_dim: int,
@@ -78,7 +78,7 @@ class VMPONetwork(nn.Module):
         self.lstm = nn.LSTM(lstm_input_dim, hidden_sizes[-1], batch_first=True)
 
         self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
-        self.policy_logstd = nn.Parameter(torch.zeros(act_dim))
+        self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
         self.value_head = nn.Linear(hidden_sizes[-1], 1)
 
         if action_low is None or action_high is None:
@@ -125,7 +125,8 @@ class VMPONetwork(nn.Module):
         lstm_out, next_hidden = self.lstm(lstm_input, hidden)
         lstm_out = lstm_out.squeeze(1)
         mean = self.policy_mean(lstm_out)
-        log_std = self.policy_logstd.expand_as(mean)
+        log_std = self.policy_logstd(lstm_out)
+        log_std = torch.clamp(log_std, -5.0, 2.0)
         value_norm = self.value_head(lstm_out)
         return mean, log_std, value_norm, next_hidden
 
@@ -212,7 +213,7 @@ class VMPOAgent:
         self.device = device
         self.config = config or VMPOConfig()
 
-        self.policy = VMPONetwork(
+        self.policy = SquashedGaussianPolicy(
             obs_dim,
             act_dim,
             hidden_sizes=hidden_sizes,
@@ -225,9 +226,10 @@ class VMPOAgent:
             list(self.policy.encoder.parameters())
             + list(self.policy.lstm.parameters())
             + list(self.policy.policy_mean.parameters())
-            + [self.policy.policy_logstd],
+            + list(self.policy.policy_logstd.parameters()),
             lr=self.config.policy_lr,
         )
+
         self.value_opt = torch.optim.Adam(
             list(self.policy.encoder.parameters())
             + list(self.policy.lstm.parameters())
@@ -327,7 +329,9 @@ class VMPOAgent:
         policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
 
         # entropy bonus
-        policy_loss -= 1e-2 * log_std.mean()
+        entropy = (log_std + 0.5 * np.log(2 * np.pi * np.e)).sum(dim=-1)
+        entropy_coef = 1e-2
+        policy_loss -= entropy_coef * entropy.mean()
 
         self.policy_opt.zero_grad()
         policy_loss.backward()
