@@ -166,10 +166,8 @@ def test_mpo_agent_act_and_update():
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)
-    action, mean, log_std = agent.act(obs, deterministic=False)
+    action = agent.act(obs, deterministic=False)
     assert action.shape == (act_dim,)
-    assert mean.shape == (act_dim,)
-    assert log_std.shape == (act_dim,)
 
     batch_size = 10
     batch = {
@@ -178,13 +176,12 @@ def test_mpo_agent_act_and_update():
         "rewards": np.random.randn(batch_size, 1).astype(np.float32),
         "next_obs": np.random.randn(batch_size, obs_dim).astype(np.float32),
         "dones": np.zeros((batch_size, 1), dtype=np.float32),
-        "old_means": np.random.randn(batch_size, act_dim).astype(np.float32),
-        "old_log_stds": np.random.randn(batch_size, act_dim).astype(np.float32),
     }
 
     metrics = agent.update(batch)
     assert "loss/q1" in metrics
     assert "loss/q2" in metrics
     assert "loss/policy" in metrics
-    assert "kl/mean" in metrics
-    assert "kl/std" in metrics
+    assert "loss/dual_eta" in metrics
+    assert "kl/q_pi" in metrics
+    assert "eta" in metrics

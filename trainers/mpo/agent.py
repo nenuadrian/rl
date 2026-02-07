@@ -22,16 +22,36 @@ def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
 
 
 class QNetwork(nn.Module):
-    def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: Tuple[int, ...]):
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_sizes: Tuple[int, ...],
+        obs_encoder: nn.Module | None = None,
+        encoder_out_dim: int | None = None,
+    ):
         super().__init__()
+        self.obs_encoder = obs_encoder
+        if self.obs_encoder is None:
+            in_dim = obs_dim + act_dim
+        else:
+            if encoder_out_dim is None:
+                raise ValueError("encoder_out_dim must be provided when using obs_encoder.")
+            in_dim = encoder_out_dim + act_dim
         self.net = nn.Sequential(
-            _mlp(obs_dim + act_dim, hidden_sizes),
+            _mlp(in_dim, hidden_sizes),
             nn.Linear(hidden_sizes[-1], 1),
         )
 
     def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([obs, action], dim=-1)
+        if self.obs_encoder is None:
+            x = torch.cat([obs, action], dim=-1)
+        else:
+            x = torch.cat([self.obs_encoder(obs), action], dim=-1)
         return self.net(x)
+
+    def head_parameters(self):
+        return self.net.parameters()
 
 
 class MPONetwork(nn.Module):
@@ -42,12 +62,13 @@ class MPONetwork(nn.Module):
         hidden_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
+        encoder: nn.Module | None = None,
     ):
         super().__init__()
         if len(hidden_sizes) < 1:
             raise ValueError("hidden_sizes must have at least one layer.")
 
-        self.encoder = _mlp(obs_dim, hidden_sizes)
+        self.encoder = encoder if encoder is not None else _mlp(obs_dim, hidden_sizes)
         self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
         self.policy_logstd = nn.Parameter(torch.zeros(act_dim))
 
@@ -102,6 +123,9 @@ class MPONetwork(nn.Module):
         actions = torch.tanh(eps)
         return actions * self.action_scale + self.action_bias
 
+    def head_parameters(self):
+        return list(self.policy_mean.parameters()) + [self.policy_logstd]
+
 
 @dataclass
 class MPOConfig:
@@ -109,9 +133,9 @@ class MPOConfig:
     tau: float = 0.005
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
-    eta: float = 1.0
-    kl_mean_coef: float = 1.0
-    kl_std_coef: float = 1.0
+    eta_init: float = 1.0
+    eta_lr: float = 1e-3
+    kl_epsilon: float = 0.1
     max_grad_norm: float = 1.0
     action_samples: int = 16
 
@@ -130,15 +154,22 @@ class MPOAgent:
         self.device = device
         self.config = config or MPOConfig()
 
+        self.shared_encoder = _mlp(obs_dim, hidden_sizes)
+
         self.policy = MPONetwork(
             obs_dim,
             act_dim,
             hidden_sizes=hidden_sizes,
             action_low=action_low,
             action_high=action_high,
+            encoder=self.shared_encoder,
         ).to(device)
-        self.q1 = QNetwork(obs_dim, act_dim, hidden_sizes).to(device)
-        self.q2 = QNetwork(obs_dim, act_dim, hidden_sizes).to(device)
+        self.q1 = QNetwork(
+            obs_dim, act_dim, hidden_sizes, obs_encoder=self.shared_encoder, encoder_out_dim=hidden_sizes[-1]
+        ).to(device)
+        self.q2 = QNetwork(
+            obs_dim, act_dim, hidden_sizes, obs_encoder=self.shared_encoder, encoder_out_dim=hidden_sizes[-1]
+        ).to(device)
 
         self.q1_target = copy.deepcopy(self.q1).to(device)
         self.q2_target = copy.deepcopy(self.q2).to(device)
@@ -146,23 +177,25 @@ class MPOAgent:
         self.q2_target.eval()
 
         self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=self.config.policy_lr
+            self.policy.head_parameters(), lr=self.config.policy_lr
         )
-        self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr=self.config.q_lr)
-        self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr=self.config.q_lr)
+        self.q1_opt = torch.optim.Adam(self.q1.head_parameters(), lr=self.config.q_lr)
+        self.q2_opt = torch.optim.Adam(self.q2.head_parameters(), lr=self.config.q_lr)
+        self.encoder_opt = torch.optim.Adam(
+            self.shared_encoder.parameters(), lr=self.config.policy_lr
+        )
 
-    def act(
-        self, obs: np.ndarray, deterministic: bool = False
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self.log_eta = nn.Parameter(
+            torch.log(torch.tensor(self.config.eta_init, device=device))
+        )
+        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+
+    def act(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             mean, log_std = self.policy(obs_t)
             action = self.policy.sample_action(mean, log_std, deterministic)
-        return (
-            action.detach().cpu().numpy().squeeze(0),
-            mean.detach().cpu().numpy().squeeze(0),
-            log_std.detach().cpu().numpy().squeeze(0),
-        )
+        return action.detach().cpu().numpy().squeeze(0)
 
     def update(self, batch: dict) -> dict:
         obs = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
@@ -176,12 +209,6 @@ class MPOAgent:
             batch["next_obs"], dtype=torch.float32, device=self.device
         )
         dones = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
-        old_means = torch.tensor(
-            batch["old_means"], dtype=torch.float32, device=self.device
-        )
-        old_log_stds = torch.tensor(
-            batch["old_log_stds"], dtype=torch.float32, device=self.device
-        )
 
         with torch.no_grad():
             next_mean, next_log_std = self.policy(next_obs)
@@ -199,16 +226,6 @@ class MPOAgent:
         q1_loss = F.mse_loss(q1, target)
         q2_loss = F.mse_loss(q2, target)
 
-        self.q1_opt.zero_grad()
-        q1_loss.backward()
-        nn.utils.clip_grad_norm_(self.q1.parameters(), self.config.max_grad_norm)
-        self.q1_opt.step()
-
-        self.q2_opt.zero_grad()
-        q2_loss.backward()
-        nn.utils.clip_grad_norm_(self.q2.parameters(), self.config.max_grad_norm)
-        self.q2_opt.step()
-
         mean, log_std = self.policy(obs)
         with torch.no_grad():
             sampled_actions = self.policy.sample_actions(
@@ -224,7 +241,19 @@ class MPOAgent:
             q2_vals = self.q2(obs_flat, act_flat)
             q_vals = torch.min(q1_vals, q2_vals)
             q_vals = q_vals.reshape(batch_size, self.config.action_samples)
-            weights = torch.softmax(q_vals / self.config.eta, dim=1)
+
+        q_vals_detach = q_vals.detach()
+        eta = F.softplus(self.log_eta) + 1e-8
+        dual_loss = (
+            eta * self.config.kl_epsilon
+            + eta * torch.log(torch.mean(torch.exp(q_vals_detach / eta), dim=1) + 1e-8)
+        ).mean()
+        self.eta_opt.zero_grad()
+        dual_loss.backward()
+        self.eta_opt.step()
+        eta = F.softplus(self.log_eta).detach() + 1e-8
+
+        weights = torch.softmax(q_vals_detach / eta, dim=1)
 
         mean_exp = mean.unsqueeze(1).expand(
             batch_size, self.config.action_samples, mean.shape[-1]
@@ -237,23 +266,24 @@ class MPOAgent:
         )
         log_prob = log_prob.reshape(batch_size, self.config.action_samples)
 
-        old_std = old_log_stds.exp()
-        new_std = log_std.exp()
-        kl_mean = ((mean - old_means) ** 2 / (2.0 * (old_std**2))).sum(dim=-1)
-        kl_std = 0.5 * (
-            (new_std / old_std) ** 2
-            - 1.0
-            - 2.0 * (log_std - old_log_stds)
-        ).sum(dim=-1)
-
         policy_loss = -(weights.detach() * log_prob).sum(dim=1).mean()
-        policy_loss = policy_loss + self.config.kl_mean_coef * kl_mean.mean()
-        policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
+        kl_q_pi = (weights * (torch.log(weights + 1e-8) - log_prob)).sum(dim=1).mean()
 
+        total_loss = q1_loss + q2_loss + policy_loss
+
+        self.q1_opt.zero_grad()
+        self.q2_opt.zero_grad()
         self.policy_opt.zero_grad()
-        policy_loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
+        self.encoder_opt.zero_grad()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(list(self.q1.head_parameters()), self.config.max_grad_norm)
+        nn.utils.clip_grad_norm_(list(self.q2.head_parameters()), self.config.max_grad_norm)
+        nn.utils.clip_grad_norm_(self.policy.head_parameters(), self.config.max_grad_norm)
+        nn.utils.clip_grad_norm_(self.shared_encoder.parameters(), self.config.max_grad_norm)
+        self.q1_opt.step()
+        self.q2_opt.step()
         self.policy_opt.step()
+        self.encoder_opt.step()
 
         self._soft_update(self.q1, self.q1_target)
         self._soft_update(self.q2, self.q2_target)
@@ -262,8 +292,9 @@ class MPOAgent:
             "loss/q1": float(q1_loss.item()),
             "loss/q2": float(q2_loss.item()),
             "loss/policy": float(policy_loss.item()),
-            "kl/mean": float(kl_mean.mean().item()),
-            "kl/std": float(kl_std.mean().item()),
+            "loss/dual_eta": float(dual_loss.item()),
+            "kl/q_pi": float(kl_q_pi.item()),
+            "eta": float(eta.item()),
         }
 
     def _soft_update(self, net: nn.Module, target: nn.Module) -> None:

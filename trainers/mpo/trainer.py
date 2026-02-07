@@ -33,8 +33,6 @@ class MPOReplayBuffer:
         self.actions = np.zeros((capacity, act_dim), dtype=np.float32)
         self.rewards = np.zeros((capacity, 1), dtype=np.float32)
         self.dones = np.zeros((capacity, 1), dtype=np.float32)
-        self.old_means = np.zeros((capacity, act_dim), dtype=np.float32)
-        self.old_log_stds = np.zeros((capacity, act_dim), dtype=np.float32)
 
     def add(
         self,
@@ -43,16 +41,12 @@ class MPOReplayBuffer:
         reward: float,
         next_obs: np.ndarray,
         done: float,
-        mean: np.ndarray,
-        log_std: np.ndarray,
     ) -> None:
         self.obs[self.ptr] = obs
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
         self.next_obs[self.ptr] = next_obs
         self.dones[self.ptr] = done
-        self.old_means[self.ptr] = mean
-        self.old_log_stds[self.ptr] = log_std
         self.ptr = (self.ptr + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
@@ -64,8 +58,6 @@ class MPOReplayBuffer:
             "rewards": self.rewards[idxs],
             "next_obs": self.next_obs[idxs],
             "dones": self.dones[idxs],
-            "old_means": self.old_means[idxs],
-            "old_log_stds": self.old_log_stds[idxs],
         }
 
 
@@ -124,21 +116,14 @@ class Trainer:
         for step in range(1, total_steps + 1):
             if step < start_steps:
                 action = self.env.action_space.sample()
-                with torch.no_grad():
-                    obs_t = torch.tensor(
-                        obs, dtype=torch.float32, device=self.agent.device
-                    ).unsqueeze(0)
-                    mean_t, log_std_t = self.agent.policy(obs_t)
-                mean = mean_t.detach().cpu().numpy().squeeze(0)
-                log_std = log_std_t.detach().cpu().numpy().squeeze(0)
             else:
-                action, mean, log_std = self.agent.act(obs, deterministic=False)
+                action = self.agent.act(obs, deterministic=False)
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action)
             next_obs = flatten_obs(next_obs)
             done = float(terminated or truncated)
 
-            self.replay.add(obs, action, reward, next_obs, done, mean, log_std)
+            self.replay.add(obs, action, reward, next_obs, done)
             obs = next_obs
 
             self.episode_return += reward
