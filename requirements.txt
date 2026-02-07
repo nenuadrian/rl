@@ -5,3 +5,4 @@ imageio[ffmpeg]
 dm_control
 pytest
 numpy
+shimmy
