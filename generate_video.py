@@ -3,7 +3,7 @@ import os
 
 import gymnasium as gym
 import numpy as np
-import shimmy 
+import shimmy
 import torch
 import imageio
 
