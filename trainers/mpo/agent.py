@@ -87,11 +87,15 @@ class MPONetwork(nn.Module):
         h = self.encoder(obs)
         mean = self.policy_mean(h)
         log_std = self.policy_logstd.expand_as(mean)
+        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
+        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
+        log_std = torch.clamp(log_std, -20.0, 2.0)
         return mean, log_std
 
     def log_prob(
         self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor
     ) -> torch.Tensor:
+        log_std = torch.clamp(log_std, -20.0, 2.0)
         std = log_std.exp()
         normal = Normal(mean, std)
         y_t = (actions - self.action_bias) / self.action_scale
@@ -106,6 +110,7 @@ class MPONetwork(nn.Module):
     def sample_action(
         self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool
     ) -> torch.Tensor:
+        log_std = torch.clamp(log_std, -20.0, 2.0)
         if deterministic:
             action = torch.tanh(mean)
         else:
@@ -116,6 +121,7 @@ class MPONetwork(nn.Module):
 
     def sample_actions(self, obs: torch.Tensor, num_actions: int) -> torch.Tensor:
         mean, log_std = self.forward(obs)
+        log_std = torch.clamp(log_std, -20.0, 2.0)
         std = log_std.exp()
         normal = Normal(mean, std)
         eps = normal.rsample(sample_shape=(num_actions,))
