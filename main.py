@@ -83,6 +83,27 @@ def train(
             save_interval=save_interval,
             out_dir=out_dir,
         )
+    elif algo == "mpo":
+        from trainers.mpo.trainer import Trainer
+
+        trainer = Trainer(
+            domain=domain,
+            task=task,
+            seed=seed,
+            device=device,
+            hidden_sizes=hidden_sizes,
+            replay_size=replay_size,
+        )
+        trainer.train(
+            total_steps=total_steps,
+            start_steps=start_steps,
+            update_after=update_after,
+            batch_size=batch_size,
+            updates_per_step=updates_per_step,
+            eval_interval=eval_interval,
+            save_interval=save_interval,
+            out_dir=out_dir,
+        )
     else:
         raise ValueError(f"Unsupported algorithm: {algo}")
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from typing import Tuple
 
 import gymnasium as gym
@@ -26,64 +25,13 @@ def _infer_obs_dim(obs_space: gym.Space) -> int:
     return int(np.prod(obs_space.shape))
 
 
-@dataclass
-class RolloutBuffer:
-    obs: np.ndarray
-    actions: np.ndarray
-    rewards: np.ndarray
-    dones: np.ndarray
-    values: np.ndarray
-    means: np.ndarray
-    log_stds: np.ndarray
-    ptr: int
-    max_size: int
-
-    @classmethod
-    def create(cls, obs_dim: int, act_dim: int, size: int) -> "RolloutBuffer":
-        return cls(
-            obs=np.zeros((size, obs_dim), dtype=np.float32),
-            actions=np.zeros((size, act_dim), dtype=np.float32),
-            rewards=np.zeros((size, 1), dtype=np.float32),
-            dones=np.zeros((size, 1), dtype=np.float32),
-            values=np.zeros((size, 1), dtype=np.float32),
-            means=np.zeros((size, act_dim), dtype=np.float32),
-            log_stds=np.zeros((size, act_dim), dtype=np.float32),
-            ptr=0,
-            max_size=size,
-        )
-
-    def reset(self) -> None:
-        self.ptr = 0
-
-    def add(
-        self,
-        obs: np.ndarray,
-        action: np.ndarray,
-        reward: float,
-        done: float,
-        value: float,
-        mean: np.ndarray,
-        log_std: np.ndarray,
-    ) -> None:
-        self.obs[self.ptr] = obs
-        self.actions[self.ptr] = action
-        self.rewards[self.ptr] = reward
-        self.dones[self.ptr] = done
-        self.values[self.ptr] = value
-        self.means[self.ptr] = mean
-        self.log_stds[self.ptr] = log_std
-        self.ptr += 1
-
-    def is_full(self) -> bool:
-        return self.ptr >= self.max_size
-
-    def compute_returns(self, last_value: float, gamma: float) -> np.ndarray:
-        returns = np.zeros_like(self.rewards)
-        R = last_value
-        for t in reversed(range(self.max_size)):
-            R = self.rewards[t] + gamma * (1.0 - self.dones[t]) * R
-            returns[t] = R
-        return returns
+def _compute_returns(rewards: np.ndarray, dones: np.ndarray, last_value: float, gamma: float) -> np.ndarray:
+    returns = np.zeros_like(rewards)
+    R = last_value
+    for t in reversed(range(rewards.shape[0])):
+        R = rewards[t] + gamma * (1.0 - dones[t]) * R
+        returns[t] = R
+    return returns
 
 
 class Trainer:
@@ -123,7 +71,14 @@ class Trainer:
         )
 
         self.rollout_steps = rollout_steps
-        self.buffer = RolloutBuffer.create(obs_dim, act_dim, rollout_steps)
+
+        self.obs_buf: list[np.ndarray] = []
+        self.actions_buf: list[np.ndarray] = []
+        self.rewards_buf: list[float] = []
+        self.dones_buf: list[float] = []
+        self.values_buf: list[float] = []
+        self.means_buf: list[np.ndarray] = []
+        self.log_stds_buf: list[np.ndarray] = []
 
         self.episode_return = 0.0
         self.episode_len = 0
@@ -140,6 +95,18 @@ class Trainer:
             prev_actions[t] = actions[t - 1]
             prev_rewards[t] = rewards[t - 1]
         return prev_actions, prev_rewards
+
+    def _reset_rollout(self) -> None:
+        self.obs_buf.clear()
+        self.actions_buf.clear()
+        self.rewards_buf.clear()
+        self.dones_buf.clear()
+        self.values_buf.clear()
+        self.means_buf.clear()
+        self.log_stds_buf.clear()
+
+    def _rollout_full(self) -> bool:
+        return len(self.obs_buf) >= self.rollout_steps
 
     def train(
         self,
@@ -165,15 +132,13 @@ class Trainer:
             next_obs = flatten_obs(next_obs)
             done = float(terminated or truncated)
 
-            self.buffer.add(
-                obs,
-                action,
-                float(reward),
-                float(done),
-                float(value),
-                mean,
-                log_std,
-            )
+            self.obs_buf.append(obs)
+            self.actions_buf.append(action)
+            self.rewards_buf.append(float(reward))
+            self.dones_buf.append(float(done))
+            self.values_buf.append(float(value))
+            self.means_buf.append(mean)
+            self.log_stds_buf.append(log_std)
 
             obs = next_obs
             prev_action = action
@@ -201,25 +166,33 @@ class Trainer:
                 self.episode_return = 0.0
                 self.episode_len = 0
 
-            if self.buffer.is_full():
+            if self._rollout_full():
                 last_value = self.agent.value(
                     obs, prev_action, prev_reward, hidden
                 )
-                returns = self.buffer.compute_returns(
-                    last_value, self.agent.config.gamma
+                obs_arr = np.stack(self.obs_buf)
+                actions_arr = np.stack(self.actions_buf)
+                rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32).reshape(-1, 1)
+                dones_arr = np.asarray(self.dones_buf, dtype=np.float32).reshape(-1, 1)
+                values_arr = np.asarray(self.values_buf, dtype=np.float32).reshape(-1, 1)
+                means_arr = np.stack(self.means_buf)
+                log_stds_arr = np.stack(self.log_stds_buf)
+
+                returns = _compute_returns(
+                    rewards_arr, dones_arr, last_value, self.agent.config.gamma
                 )
-                advantages = returns - self.buffer.values
+                advantages = returns - values_arr
 
                 prev_actions, prev_rewards = self._build_prev_inputs(
-                    self.buffer.actions, self.buffer.rewards, self.buffer.dones
+                    actions_arr, rewards_arr, dones_arr
                 )
 
                 batch = {
                     "obs": torch.tensor(
-                        self.buffer.obs, dtype=torch.float32, device=self.agent.device
+                        obs_arr, dtype=torch.float32, device=self.agent.device
                     ),
                     "actions": torch.tensor(
-                        self.buffer.actions,
+                        actions_arr,
                         dtype=torch.float32,
                         device=self.agent.device,
                     ),
@@ -230,7 +203,7 @@ class Trainer:
                         prev_rewards, dtype=torch.float32, device=self.agent.device
                     ),
                     "dones": torch.tensor(
-                        self.buffer.dones, dtype=torch.float32, device=self.agent.device
+                        dones_arr, dtype=torch.float32, device=self.agent.device
                     ),
                     "returns": torch.tensor(
                         returns, dtype=torch.float32, device=self.agent.device
@@ -239,10 +212,10 @@ class Trainer:
                         advantages, dtype=torch.float32, device=self.agent.device
                     ),
                     "old_means": torch.tensor(
-                        self.buffer.means, dtype=torch.float32, device=self.agent.device
+                        means_arr, dtype=torch.float32, device=self.agent.device
                     ),
                     "old_log_stds": torch.tensor(
-                        self.buffer.log_stds,
+                        log_stds_arr,
                         dtype=torch.float32,
                         device=self.agent.device,
                     ),
@@ -252,7 +225,7 @@ class Trainer:
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
 
-                self.buffer.reset()
+                self._reset_rollout()
 
             if eval_interval > 0 and step % eval_interval == 0:
                 metrics = evaluate(
