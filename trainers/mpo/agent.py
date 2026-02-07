@@ -36,7 +36,9 @@ class QNetwork(nn.Module):
             in_dim = obs_dim + act_dim
         else:
             if encoder_out_dim is None:
-                raise ValueError("encoder_out_dim must be provided when using obs_encoder.")
+                raise ValueError(
+                    "encoder_out_dim must be provided when using obs_encoder."
+                )
             in_dim = encoder_out_dim + act_dim
         self.net = nn.Sequential(
             _mlp(in_dim, hidden_sizes),
@@ -54,7 +56,7 @@ class QNetwork(nn.Module):
         return self.net.parameters()
 
 
-class MPONetwork(nn.Module):
+class SquashedGaussianPolicy(nn.Module):
     def __init__(
         self,
         obs_dim: int,
@@ -70,7 +72,7 @@ class MPONetwork(nn.Module):
 
         self.encoder = encoder if encoder is not None else _mlp(obs_dim, hidden_sizes)
         self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
-        self.policy_logstd = nn.Parameter(torch.zeros(act_dim))
+        self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
 
         if action_low is None or action_high is None:
             action_low = -np.ones(act_dim, dtype=np.float32)
@@ -86,7 +88,7 @@ class MPONetwork(nn.Module):
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         h = self.encoder(obs)
         mean = self.policy_mean(h)
-        log_std = self.policy_logstd.expand_as(mean)
+        log_std = self.policy_logstd(h)
         mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.clamp(log_std, -20.0, 2.0)
@@ -162,7 +164,7 @@ class MPOAgent:
 
         self.shared_encoder = _mlp(obs_dim, hidden_sizes)
 
-        self.policy = MPONetwork(
+        self.policy = SquashedGaussianPolicy(
             obs_dim,
             act_dim,
             hidden_sizes=hidden_sizes,
@@ -171,10 +173,18 @@ class MPOAgent:
             encoder=self.shared_encoder,
         ).to(device)
         self.q1 = QNetwork(
-            obs_dim, act_dim, hidden_sizes, obs_encoder=self.shared_encoder, encoder_out_dim=hidden_sizes[-1]
+            obs_dim,
+            act_dim,
+            hidden_sizes,
+            obs_encoder=self.shared_encoder,
+            encoder_out_dim=hidden_sizes[-1],
         ).to(device)
         self.q2 = QNetwork(
-            obs_dim, act_dim, hidden_sizes, obs_encoder=self.shared_encoder, encoder_out_dim=hidden_sizes[-1]
+            obs_dim,
+            act_dim,
+            hidden_sizes,
+            obs_encoder=self.shared_encoder,
+            encoder_out_dim=hidden_sizes[-1],
         ).to(device)
 
         self.q1_target = copy.deepcopy(self.q1).to(device)
@@ -282,10 +292,18 @@ class MPOAgent:
         self.policy_opt.zero_grad()
         self.encoder_opt.zero_grad()
         total_loss.backward()
-        nn.utils.clip_grad_norm_(list(self.q1.head_parameters()), self.config.max_grad_norm)
-        nn.utils.clip_grad_norm_(list(self.q2.head_parameters()), self.config.max_grad_norm)
-        nn.utils.clip_grad_norm_(self.policy.head_parameters(), self.config.max_grad_norm)
-        nn.utils.clip_grad_norm_(self.shared_encoder.parameters(), self.config.max_grad_norm)
+        nn.utils.clip_grad_norm_(
+            list(self.q1.head_parameters()), self.config.max_grad_norm
+        )
+        nn.utils.clip_grad_norm_(
+            list(self.q2.head_parameters()), self.config.max_grad_norm
+        )
+        nn.utils.clip_grad_norm_(
+            self.policy.head_parameters(), self.config.max_grad_norm
+        )
+        nn.utils.clip_grad_norm_(
+            self.shared_encoder.parameters(), self.config.max_grad_norm
+        )
         self.q1_opt.step()
         self.q2_opt.step()
         self.policy_opt.step()

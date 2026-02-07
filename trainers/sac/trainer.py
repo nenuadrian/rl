@@ -6,15 +6,9 @@ import numpy as np
 import torch
 
 from trainers.sac.agent import SACAgent, SACConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env
+from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 from utils.replay_buffer import ReplayBuffer
-
-
-def _infer_obs_dim(obs_space: gym.Space) -> int:
-    if isinstance(obs_space, gym.spaces.Dict):
-        return int(sum(np.prod(v.shape) for v in obs_space.spaces.values()))
-    return int(np.prod(obs_space.shape))
 
 
 class Trainer:
@@ -29,7 +23,7 @@ class Trainer:
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
-        obs_dim = _infer_obs_dim(self.env.observation_space)
+        obs_dim = infer_obs_dim(self.env.observation_space)
         act_dim = int(np.prod(self.env.action_space.shape))
         action_low = self.env.action_space.low
         action_high = self.env.action_space.high

@@ -8,24 +8,13 @@ import numpy as np
 import torch
 
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env
+from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 
 
-def _infer_obs_dim(obs_space: gym.Space) -> int:
-    if isinstance(obs_space, gym.spaces.Dict):
-        dims = []
-        for v in obs_space.spaces.values():
-            if v.shape is None:
-                raise ValueError("Observation space has no shape.")
-            dims.append(int(np.prod(v.shape)))
-        return int(sum(dims))
-    if obs_space.shape is None:
-        raise ValueError("Observation space has no shape.")
-    return int(np.prod(obs_space.shape))
-
-
-def _compute_returns(rewards: np.ndarray, dones: np.ndarray, last_value: float, gamma: float) -> np.ndarray:
+def _compute_returns(
+    rewards: np.ndarray, dones: np.ndarray, last_value: float, gamma: float
+) -> np.ndarray:
     returns = np.zeros_like(rewards)
     R = last_value
     for t in reversed(range(rewards.shape[0])):
@@ -46,7 +35,7 @@ class Trainer:
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
-        obs_dim = _infer_obs_dim(self.env.observation_space)
+        obs_dim = infer_obs_dim(self.env.observation_space)
         if not isinstance(self.env.action_space, gym.spaces.Box):
             raise ValueError("VMPO only supports continuous action spaces.")
         if self.env.action_space.shape is None:
@@ -167,14 +156,16 @@ class Trainer:
                 self.episode_len = 0
 
             if self._rollout_full():
-                last_value = self.agent.value(
-                    obs, prev_action, prev_reward, hidden
-                )
+                last_value = self.agent.value(obs, prev_action, prev_reward, hidden)
                 obs_arr = np.stack(self.obs_buf)
                 actions_arr = np.stack(self.actions_buf)
-                rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32).reshape(-1, 1)
+                rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32).reshape(
+                    -1, 1
+                )
                 dones_arr = np.asarray(self.dones_buf, dtype=np.float32).reshape(-1, 1)
-                values_arr = np.asarray(self.values_buf, dtype=np.float32).reshape(-1, 1)
+                values_arr = np.asarray(self.values_buf, dtype=np.float32).reshape(
+                    -1, 1
+                )
                 means_arr = np.stack(self.means_buf)
                 log_stds_arr = np.stack(self.log_stds_buf)
 

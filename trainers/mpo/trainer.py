@@ -8,19 +8,8 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent, MPOConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env
+from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
-def _infer_obs_dim(obs_space: gym.Space) -> int:
-    if isinstance(obs_space, gym.spaces.Dict):
-        dims = []
-        for v in obs_space.spaces.values():
-            if v.shape is None:
-                raise ValueError("Observation space has no shape.")
-            dims.append(int(np.prod(v.shape)))
-        return int(sum(dims))
-    if obs_space.shape is None:
-        raise ValueError("Observation space has no shape.")
-    return int(np.prod(obs_space.shape))
 
 
 class MPOReplayBuffer:
@@ -73,7 +62,7 @@ class Trainer:
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
-        obs_dim = _infer_obs_dim(self.env.observation_space)
+        obs_dim = infer_obs_dim(self.env.observation_space)
         if not isinstance(self.env.action_space, gym.spaces.Box):
             raise ValueError("MPO only supports continuous action spaces.")
         if self.env.action_space.shape is None:

@@ -9,273 +9,262 @@ import numpy as np
 import torch
 
 from trainers.ppo.agent import PPOAgent, PPOConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env
+from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
-
-
-def _infer_obs_dim(obs_space: gym.Space) -> int:
-	if isinstance(obs_space, gym.spaces.Dict):
-		dims = []
-		for v in obs_space.spaces.values():
-			if v.shape is None:
-				raise ValueError("Observation space has no shape.")
-			dims.append(int(np.prod(v.shape)))
-		return int(sum(dims))
-	if obs_space.shape is None:
-		raise ValueError("Observation space has no shape.")
-	return int(np.prod(obs_space.shape))
 
 
 @dataclass
 class RolloutBuffer:
-	obs: np.ndarray
-	actions: np.ndarray
-	rewards: np.ndarray
-	dones: np.ndarray
-	values: np.ndarray
-	log_probs: np.ndarray
-	ptr: int
-	max_size: int
+    obs: np.ndarray
+    actions: np.ndarray
+    rewards: np.ndarray
+    dones: np.ndarray
+    values: np.ndarray
+    log_probs: np.ndarray
+    ptr: int
+    max_size: int
 
-	@classmethod
-	def create(cls, obs_dim: int, act_dim: int, size: int) -> "RolloutBuffer":
-		return cls(
-			obs=np.zeros((size, obs_dim), dtype=np.float32),
-			actions=np.zeros((size, act_dim), dtype=np.float32),
-			rewards=np.zeros((size, 1), dtype=np.float32),
-			dones=np.zeros((size, 1), dtype=np.float32),
-			values=np.zeros((size, 1), dtype=np.float32),
-			log_probs=np.zeros((size, 1), dtype=np.float32),
-			ptr=0,
-			max_size=size,
-		)
+    @classmethod
+    def create(cls, obs_dim: int, act_dim: int, size: int) -> "RolloutBuffer":
+        return cls(
+            obs=np.zeros((size, obs_dim), dtype=np.float32),
+            actions=np.zeros((size, act_dim), dtype=np.float32),
+            rewards=np.zeros((size, 1), dtype=np.float32),
+            dones=np.zeros((size, 1), dtype=np.float32),
+            values=np.zeros((size, 1), dtype=np.float32),
+            log_probs=np.zeros((size, 1), dtype=np.float32),
+            ptr=0,
+            max_size=size,
+        )
 
-	def reset(self) -> None:
-		self.ptr = 0
+    def reset(self) -> None:
+        self.ptr = 0
 
-	def add(
-		self,
-		obs: np.ndarray,
-		action: np.ndarray,
-		reward: float,
-		done: float,
-		value: float,
-		log_prob: float,
-	) -> None:
-		self.obs[self.ptr] = obs
-		self.actions[self.ptr] = action
-		self.rewards[self.ptr] = reward
-		self.dones[self.ptr] = done
-		self.values[self.ptr] = value
-		self.log_probs[self.ptr] = log_prob
-		self.ptr += 1
+    def add(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        done: float,
+        value: float,
+        log_prob: float,
+    ) -> None:
+        self.obs[self.ptr] = obs
+        self.actions[self.ptr] = action
+        self.rewards[self.ptr] = reward
+        self.dones[self.ptr] = done
+        self.values[self.ptr] = value
+        self.log_probs[self.ptr] = log_prob
+        self.ptr += 1
 
-	def is_full(self) -> bool:
-		return self.ptr >= self.max_size
+    def is_full(self) -> bool:
+        return self.ptr >= self.max_size
 
-	def compute_returns_advantages(
-		self, last_value: float, gamma: float, gae_lambda: float
-	) -> tuple[np.ndarray, np.ndarray]:
-		advantages = np.zeros_like(self.rewards)
-		last_gae = 0.0
-		for t in reversed(range(self.max_size)):
-			if t == self.max_size - 1:
-				next_value = last_value
-				next_non_terminal = 1.0 - self.dones[t]
-			else:
-				next_value = self.values[t + 1]
-				next_non_terminal = 1.0 - self.dones[t]
+    def compute_returns_advantages(
+        self, last_value: float, gamma: float, gae_lambda: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        advantages = np.zeros_like(self.rewards)
+        last_gae = 0.0
+        for t in reversed(range(self.max_size)):
+            if t == self.max_size - 1:
+                next_value = last_value
+                next_non_terminal = 1.0 - self.dones[t]
+            else:
+                next_value = self.values[t + 1]
+                next_non_terminal = 1.0 - self.dones[t]
 
-			delta = (
-				self.rewards[t]
-				+ gamma * next_value * next_non_terminal
-				- self.values[t]
-			)
-			last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
-			advantages[t] = last_gae
-		returns = advantages + self.values
-		return returns, advantages
+            delta = (
+                self.rewards[t]
+                + gamma * next_value * next_non_terminal
+                - self.values[t]
+            )
+            last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
+            advantages[t] = last_gae
+        returns = advantages + self.values
+        return returns, advantages
 
-	def minibatches(
-		self, batch_size: int
-	) -> Iterator[tuple[np.ndarray, ...]]:
-		indices = np.arange(self.max_size)
-		np.random.shuffle(indices)
-		for start in range(0, self.max_size, batch_size):
-			batch_idx = indices[start : start + batch_size]
-			yield (
-				self.obs[batch_idx],
-				self.actions[batch_idx],
-				self.log_probs[batch_idx],
-				batch_idx,
-			)
+    def minibatches(self, batch_size: int) -> Iterator[tuple[np.ndarray, ...]]:
+        indices = np.arange(self.max_size)
+        np.random.shuffle(indices)
+        for start in range(0, self.max_size, batch_size):
+            batch_idx = indices[start : start + batch_size]
+            yield (
+                self.obs[batch_idx],
+                self.actions[batch_idx],
+                self.log_probs[batch_idx],
+                batch_idx,
+            )
 
 
 class Trainer:
-	def __init__(
-		self,
-		domain: str,
-		task: str,
-		seed: int,
-		device: torch.device,
-		hidden_sizes: Tuple[int, int],
-		rollout_steps: int,
-	):
-		self.env = make_dm_control_env(domain, task, seed=seed)
+    def __init__(
+        self,
+        domain: str,
+        task: str,
+        seed: int,
+        device: torch.device,
+        hidden_sizes: Tuple[int, int],
+        rollout_steps: int,
+    ):
+        self.env = make_dm_control_env(domain, task, seed=seed)
 
-		obs_dim = _infer_obs_dim(self.env.observation_space)
-		if not isinstance(self.env.action_space, gym.spaces.Box):
-			raise ValueError("PPO only supports continuous action spaces.")
-		if self.env.action_space.shape is None:
-			raise ValueError("Action space has no shape.")
-		act_dim = int(np.prod(self.env.action_space.shape))
-		action_low = self.env.action_space.low
-		action_high = self.env.action_space.high
+        obs_dim = infer_obs_dim(self.env.observation_space)
+        if not isinstance(self.env.action_space, gym.spaces.Box):
+            raise ValueError("PPO only supports continuous action spaces.")
+        if self.env.action_space.shape is None:
+            raise ValueError("Action space has no shape.")
+        act_dim = int(np.prod(self.env.action_space.shape))
+        action_low = self.env.action_space.low
+        action_high = self.env.action_space.high
 
-		self.domain = domain
-		self.task = task
+        self.domain = domain
+        self.task = task
 
-		self.agent = PPOAgent(
-			obs_dim=obs_dim,
-			act_dim=act_dim,
-			action_low=action_low,
-			action_high=action_high,
-			device=device,
-			hidden_sizes=hidden_sizes,
-			config=PPOConfig(),
-		)
+        self.agent = PPOAgent(
+            obs_dim=obs_dim,
+            act_dim=act_dim,
+            action_low=action_low,
+            action_high=action_high,
+            device=device,
+            hidden_sizes=hidden_sizes,
+            config=PPOConfig(),
+        )
 
-		self.rollout_steps = rollout_steps
-		self.buffer = RolloutBuffer.create(obs_dim, act_dim, rollout_steps)
+        self.rollout_steps = rollout_steps
+        self.buffer = RolloutBuffer.create(obs_dim, act_dim, rollout_steps)
 
-		self.episode_return = 0.0
-		self.episode_len = 0
+        self.episode_return = 0.0
+        self.episode_len = 0
 
-	def train(
-		self,
-		total_steps: int,
-		batch_size: int,
-		update_epochs: int,
-		eval_interval: int,
-		save_interval: int,
-		out_dir: str,
-	):
-		obs, _ = self.env.reset()
-		obs = flatten_obs(obs)
+    def train(
+        self,
+        total_steps: int,
+        batch_size: int,
+        update_epochs: int,
+        eval_interval: int,
+        save_interval: int,
+        out_dir: str,
+    ):
+        obs, _ = self.env.reset()
+        obs = flatten_obs(obs)
 
-		for step in range(1, total_steps + 1):
-			obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(
-				self.agent.device
-			)
-			action_t, log_prob_t, value_t = self.agent.act(obs_t, deterministic=False)
-			action = action_t.cpu().numpy().squeeze(0)
-			log_prob = float(log_prob_t.item())
-			value = float(value_t.item())
+        for step in range(1, total_steps + 1):
+            obs_t = (
+                torch.tensor(obs, dtype=torch.float32)
+                .unsqueeze(0)
+                .to(self.agent.device)
+            )
+            action_t, log_prob_t, value_t = self.agent.act(obs_t, deterministic=False)
+            action = action_t.cpu().numpy().squeeze(0)
+            log_prob = float(log_prob_t.item())
+            value = float(value_t.item())
 
-			next_obs, reward, terminated, truncated, _ = self.env.step(action)
-			next_obs = flatten_obs(next_obs)
-			done = float(terminated or truncated)
+            next_obs, reward, terminated, truncated, _ = self.env.step(action)
+            next_obs = flatten_obs(next_obs)
+            done = float(terminated or truncated)
 
-			self.buffer.add(
-				obs,
-				action,
-				float(reward),
-				float(done),
-				float(value),
-				float(log_prob),
-			)
-			obs = next_obs
+            self.buffer.add(
+                obs,
+                action,
+                float(reward),
+                float(done),
+                float(value),
+                float(log_prob),
+            )
+            obs = next_obs
 
-			self.episode_return += float(reward)
-			self.episode_len += 1
+            self.episode_return += float(reward)
+            self.episode_len += 1
 
-			if terminated or truncated:
-				print(
-					f"step={step} episode_return={self.episode_return:.2f} episode_len={self.episode_len}"
-				)
-				log_wandb(
-					{
-						"train/episode_return": float(self.episode_return),
-						"train/episode_len": int(self.episode_len),
-					},
-					step=step,
-				)
-				obs, _ = self.env.reset()
-				obs = flatten_obs(obs)
-				self.episode_return = 0.0
-				self.episode_len = 0
+            if terminated or truncated:
+                print(
+                    f"step={step} episode_return={self.episode_return:.2f} episode_len={self.episode_len}"
+                )
+                log_wandb(
+                    {
+                        "train/episode_return": float(self.episode_return),
+                        "train/episode_len": int(self.episode_len),
+                    },
+                    step=step,
+                )
+                obs, _ = self.env.reset()
+                obs = flatten_obs(obs)
+                self.episode_return = 0.0
+                self.episode_len = 0
 
-			if self.buffer.is_full():
-				with torch.no_grad():
-					obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(
-						self.agent.device
-					)
-					last_value = self.agent.value(obs_t).cpu().numpy().squeeze(0)
+            if self.buffer.is_full():
+                with torch.no_grad():
+                    obs_t = (
+                        torch.tensor(obs, dtype=torch.float32)
+                        .unsqueeze(0)
+                        .to(self.agent.device)
+                    )
+                    last_value = self.agent.value(obs_t).cpu().numpy().squeeze(0)
 
-				returns, advantages = self.buffer.compute_returns_advantages(
-					last_value, self.agent.config.gamma, self.agent.config.gae_lambda
-				)
-				advantages = (advantages - advantages.mean()) / (
-					advantages.std() + 1e-8
-				)
+                returns, advantages = self.buffer.compute_returns_advantages(
+                    last_value, self.agent.config.gamma, self.agent.config.gae_lambda
+                )
+                advantages = (advantages - advantages.mean()) / (
+                    advantages.std() + 1e-8
+                )
 
-				for _ in range(update_epochs):
-					for (
-						obs_b,
-						actions_b,
-						log_probs_b,
-						idx_b,
-					) in self.buffer.minibatches(batch_size):
-						batch = {
-							"obs": torch.tensor(
-								obs_b, dtype=torch.float32, device=self.agent.device
-							),
-							"actions": torch.tensor(
-								actions_b,
-								dtype=torch.float32,
-								device=self.agent.device,
-							),
-							"log_probs": torch.tensor(
-								log_probs_b,
-								dtype=torch.float32,
-								device=self.agent.device,
-							),
-							"returns": torch.tensor(
-								returns[idx_b],
-								dtype=torch.float32,
-								device=self.agent.device,
-							),
-							"advantages": torch.tensor(
-								advantages[idx_b],
-								dtype=torch.float32,
-								device=self.agent.device,
-							),
-						}
-						metrics = self.agent.update(batch)
-						log_wandb(metrics, step=step)
+                for _ in range(update_epochs):
+                    for (
+                        obs_b,
+                        actions_b,
+                        log_probs_b,
+                        idx_b,
+                    ) in self.buffer.minibatches(batch_size):
+                        batch = {
+                            "obs": torch.tensor(
+                                obs_b, dtype=torch.float32, device=self.agent.device
+                            ),
+                            "actions": torch.tensor(
+                                actions_b,
+                                dtype=torch.float32,
+                                device=self.agent.device,
+                            ),
+                            "log_probs": torch.tensor(
+                                log_probs_b,
+                                dtype=torch.float32,
+                                device=self.agent.device,
+                            ),
+                            "returns": torch.tensor(
+                                returns[idx_b],
+                                dtype=torch.float32,
+                                device=self.agent.device,
+                            ),
+                            "advantages": torch.tensor(
+                                advantages[idx_b],
+                                dtype=torch.float32,
+                                device=self.agent.device,
+                            ),
+                        }
+                        metrics = self.agent.update(batch)
+                        log_wandb(metrics, step=step)
 
-						if metrics.get("approx_kl", 0.0) > self.agent.config.target_kl:
-							break
+                        if metrics.get("approx_kl", 0.0) > self.agent.config.target_kl:
+                            break
 
-				self.buffer.reset()
+                self.buffer.reset()
 
-			if eval_interval > 0 and step % eval_interval == 0:
-				metrics = evaluate(
-					self.agent.device, self.agent.policy, self.domain, self.task
-				)
-				metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-				print(f"step={step} {metrics_str}")
-				log_wandb(metrics, step=step)
+            if eval_interval > 0 and step % eval_interval == 0:
+                metrics = evaluate(
+                    self.agent.device, self.agent.policy, self.domain, self.task
+                )
+                metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
+                print(f"step={step} {metrics_str}")
+                log_wandb(metrics, step=step)
 
-			if save_interval > 0 and step % save_interval == 0:
-				ckpt_path = os.path.join(out_dir, f"ppo_step_{step}.pt")
-				torch.save(
-					{
-						"policy": self.agent.policy.state_dict(),
-						"value": self.agent.value.state_dict(),
-					},
-					ckpt_path,
-				)
-				print(f"saved checkpoint: {ckpt_path}")
+            if save_interval > 0 and step % save_interval == 0:
+                ckpt_path = os.path.join(out_dir, f"ppo_step_{step}.pt")
+                torch.save(
+                    {
+                        "policy": self.agent.policy.state_dict(),
+                        "value": self.agent.value.state_dict(),
+                    },
+                    ckpt_path,
+                )
+                print(f"saved checkpoint: {ckpt_path}")
 
-		self.env.close()
+        self.env.close()

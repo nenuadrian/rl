@@ -2,8 +2,21 @@ import random
 
 import gymnasium as gym
 import numpy as np
-import shimmy  
+import shimmy
 import torch
+
+
+def infer_obs_dim(obs_space: gym.Space) -> int:
+    if isinstance(obs_space, gym.spaces.Dict):
+        dims = []
+        for v in obs_space.spaces.values():
+            if v.shape is None:
+                raise ValueError("Observation space has no shape.")
+            dims.append(int(np.prod(v.shape)))
+        return int(sum(dims))
+    if obs_space.shape is None:
+        raise ValueError("Observation space has no shape.")
+    return int(np.prod(obs_space.shape))
 
 
 def flatten_obs(obs):
