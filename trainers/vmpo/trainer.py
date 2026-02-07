@@ -72,19 +72,6 @@ class Trainer:
         self.episode_return = 0.0
         self.episode_len = 0
 
-    @staticmethod
-    def _build_prev_inputs(
-        actions: np.ndarray, rewards: np.ndarray, dones: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        prev_actions = np.zeros_like(actions)
-        prev_rewards = np.zeros_like(rewards)
-        for t in range(1, actions.shape[0]):
-            if dones[t - 1] > 0.5:
-                continue
-            prev_actions[t] = actions[t - 1]
-            prev_rewards[t] = rewards[t - 1]
-        return prev_actions, prev_rewards
-
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
         self.actions_buf.clear()
@@ -108,14 +95,8 @@ class Trainer:
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)
 
-        prev_action = np.zeros(self.act_shape, dtype=np.float32)
-        prev_reward = 0.0
-        hidden = self.agent.init_hidden()
-
         for step in range(1, total_steps + 1):
-            action, value, mean, log_std, hidden = self.agent.act(
-                obs, prev_action, prev_reward, hidden, deterministic=False
-            )
+            action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action)
             next_obs = flatten_obs(next_obs)
@@ -130,8 +111,6 @@ class Trainer:
             self.log_stds_buf.append(log_std)
 
             obs = next_obs
-            prev_action = action
-            prev_reward = float(reward)
 
             self.episode_return += float(reward)
             self.episode_len += 1
@@ -149,14 +128,11 @@ class Trainer:
                 )
                 obs, _ = self.env.reset()
                 obs = flatten_obs(obs)
-                prev_action = np.zeros(self.act_shape, dtype=np.float32)
-                prev_reward = 0.0
-                hidden = self.agent.init_hidden()
                 self.episode_return = 0.0
                 self.episode_len = 0
 
             if self._rollout_full():
-                last_value = self.agent.value(obs, prev_action, prev_reward, hidden)
+                last_value = self.agent.value(obs)
                 obs_arr = np.stack(self.obs_buf)
                 actions_arr = np.stack(self.actions_buf)
                 rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32).reshape(
@@ -174,10 +150,6 @@ class Trainer:
                 )
                 advantages = returns - values_arr
 
-                prev_actions, prev_rewards = self._build_prev_inputs(
-                    actions_arr, rewards_arr, dones_arr
-                )
-
                 batch = {
                     "obs": torch.tensor(
                         obs_arr, dtype=torch.float32, device=self.agent.device
@@ -186,15 +158,6 @@ class Trainer:
                         actions_arr,
                         dtype=torch.float32,
                         device=self.agent.device,
-                    ),
-                    "prev_actions": torch.tensor(
-                        prev_actions, dtype=torch.float32, device=self.agent.device
-                    ),
-                    "prev_rewards": torch.tensor(
-                        prev_rewards, dtype=torch.float32, device=self.agent.device
-                    ),
-                    "dones": torch.tensor(
-                        dones_arr, dtype=torch.float32, device=self.agent.device
                     ),
                     "returns": torch.tensor(
                         returns, dtype=torch.float32, device=self.agent.device
@@ -212,10 +175,12 @@ class Trainer:
                     ),
                 }
 
+                metrics = {}
                 for _ in range(update_epochs):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
-                print(metrics)
+                if metrics:
+                    print(metrics)
 
                 self._reset_rollout()
 

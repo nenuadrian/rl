@@ -104,13 +104,8 @@ def test_vmpo_agent_act_and_update():
         hidden_sizes=(32, 32),
     )
 
-    hidden = agent.init_hidden()
     obs = np.random.randn(obs_dim).astype(np.float32)
-    prev_action = np.zeros(act_dim, dtype=np.float32)
-    prev_reward = 0.0
-    action, value, mean, log_std, hidden = agent.act(
-        obs, prev_action, prev_reward, hidden, deterministic=False
-    )
+    action, value, mean, log_std = agent.act(obs, deterministic=False)
 
     assert action.shape == (act_dim,)
     assert mean.shape == (act_dim,)
@@ -120,9 +115,6 @@ def test_vmpo_agent_act_and_update():
     batch_size = 12
     obs = torch.randn(batch_size, obs_dim)
     actions = torch.randn(batch_size, act_dim)
-    prev_actions = torch.zeros_like(actions)
-    prev_rewards = torch.zeros(batch_size, 1)
-    dones = torch.zeros(batch_size, 1)
     returns = torch.randn(batch_size, 1)
     advantages = torch.randn(batch_size, 1)
     old_means = torch.randn(batch_size, act_dim)
@@ -131,9 +123,6 @@ def test_vmpo_agent_act_and_update():
     batch = {
         "obs": obs,
         "actions": actions,
-        "prev_actions": prev_actions,
-        "prev_rewards": prev_rewards,
-        "dones": dones,
         "returns": returns,
         "advantages": advantages,
         "old_means": old_means,

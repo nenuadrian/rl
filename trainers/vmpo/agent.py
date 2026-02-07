@@ -60,7 +60,7 @@ class PopArt(nn.Module):
         self.popart_std.copy_(new_std)
 
 
-class SquashedGaussianPolicy(nn.Module):
+class GaussianMLPPolicy(nn.Module):
     def __init__(
         self,
         obs_dim: int,
@@ -74,9 +74,6 @@ class SquashedGaussianPolicy(nn.Module):
             raise ValueError("hidden_sizes must have at least one layer.")
 
         self.encoder = _mlp(obs_dim, hidden_sizes)
-        lstm_input_dim = hidden_sizes[-1] + act_dim + 1
-        self.lstm = nn.LSTM(lstm_input_dim, hidden_sizes[-1], batch_first=True)
-
         self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
         self.value_head = nn.Linear(hidden_sizes[-1], 1)
@@ -93,72 +90,22 @@ class SquashedGaussianPolicy(nn.Module):
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        batch = obs.shape[0]
-        prev_action = torch.zeros(
-            (batch, self.action_scale.shape[0]),
-            dtype=obs.dtype,
-            device=obs.device,
-        )
-        prev_reward = torch.zeros((batch, 1), dtype=obs.dtype, device=obs.device)
-        hidden = self.init_hidden(batch, obs.device)
-        mean, log_std, _, _ = self.forward_step(obs, prev_action, prev_reward, hidden)
+        encoded = self.encoder(obs)
+        mean = self.policy_mean(encoded)
+        log_std = self.policy_logstd(encoded)
+        log_std = torch.clamp(log_std, -5.0, 2.0)
         return mean, log_std
 
-    def init_hidden(
-        self, batch_size: int, device: torch.device
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        h = torch.zeros(1, batch_size, self.lstm.hidden_size, device=device)
-        c = torch.zeros(1, batch_size, self.lstm.hidden_size, device=device)
-        return h, c
-
-    def forward_step(
-        self,
-        obs: torch.Tensor,
-        prev_action: torch.Tensor,
-        prev_reward: torch.Tensor,
-        hidden: Tuple[torch.Tensor, torch.Tensor],
-    ) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]
-    ]:
+    def value_norm(self, obs: torch.Tensor) -> torch.Tensor:
         encoded = self.encoder(obs)
-        lstm_input = torch.cat([encoded, prev_action, prev_reward], dim=-1).unsqueeze(1)
-        lstm_out, next_hidden = self.lstm(lstm_input, hidden)
-        lstm_out = lstm_out.squeeze(1)
-        mean = self.policy_mean(lstm_out)
-        log_std = self.policy_logstd(lstm_out)
-        log_std = torch.clamp(log_std, -5.0, 2.0)
-        value_norm = self.value_head(lstm_out)
-        return mean, log_std, value_norm, next_hidden
+        return self.value_head(encoded)
 
-    def forward_sequence(
-        self,
-        obs: torch.Tensor,
-        prev_actions: torch.Tensor,
-        prev_rewards: torch.Tensor,
-        dones: torch.Tensor,
+    def forward_all(
+        self, obs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        batch_size = 1
-        hidden = self.init_hidden(batch_size, obs.device)
-        means = []
-        log_stds = []
-        values = []
-        for t in range(obs.shape[0]):
-            if t > 0 and dones[t - 1].item() > 0.5:
-                hidden = self.init_hidden(batch_size, obs.device)
-            mean, log_std, value_norm, hidden = self.forward_step(
-                obs[t : t + 1],
-                prev_actions[t : t + 1],
-                prev_rewards[t : t + 1],
-                hidden,
-            )
-            means.append(mean)
-            log_stds.append(log_std)
-            values.append(value_norm)
-        return (
-            torch.cat(means, dim=0),
-            torch.cat(log_stds, dim=0),
-            torch.cat(values, dim=0),
-        )
+        mean, log_std = self.forward(obs)
+        value_norm = self.value_norm(obs)
+        return mean, log_std, value_norm
 
     def log_prob(
         self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor
@@ -197,6 +144,7 @@ class VMPOConfig:
     kl_std_coef: float = 1e-3
     popart_beta: float = 0.99999
     max_grad_norm: float = 0.5
+    no_popart: bool = False
 
 
 class VMPOAgent:
@@ -213,7 +161,7 @@ class VMPOAgent:
         self.device = device
         self.config = config or VMPOConfig()
 
-        self.policy = SquashedGaussianPolicy(
+        self.policy = GaussianMLPPolicy(
             obs_dim,
             act_dim,
             hidden_sizes=hidden_sizes,
@@ -222,9 +170,7 @@ class VMPOAgent:
         ).to(device)
         self.popart = PopArt(beta=self.config.popart_beta).to(device)
 
-        shared_params = list(self.policy.encoder.parameters()) + list(
-            self.policy.lstm.parameters()
-        )
+        shared_params = list(self.policy.encoder.parameters())
         policy_params = list(self.policy.policy_mean.parameters()) + list(
             self.policy.policy_logstd.parameters()
         )
@@ -238,31 +184,15 @@ class VMPOAgent:
             ]
         )
 
-    def init_hidden(self, batch_size: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.policy.init_hidden(batch_size, self.device)
-
     def act(
         self,
         obs: np.ndarray,
-        prev_action: np.ndarray,
-        prev_reward: float,
-        hidden: Tuple[torch.Tensor, torch.Tensor],
         deterministic: bool = False,
-    ) -> Tuple[
-        np.ndarray, float, np.ndarray, np.ndarray, Tuple[torch.Tensor, torch.Tensor]
-    ]:
+    ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-        prev_action_t = torch.tensor(
-            prev_action, dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
-        prev_reward_t = torch.tensor(
-            [prev_reward], dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
 
         with torch.no_grad():
-            mean, log_std, value_norm, next_hidden = self.policy.forward_step(
-                obs_t, prev_action_t, prev_reward_t, hidden
-            )
+            mean, log_std, value_norm = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
             value = self.popart.denormalize(value_norm)
 
@@ -271,36 +201,18 @@ class VMPOAgent:
             float(value.item()),
             mean.detach().cpu().numpy().squeeze(0),
             log_std.detach().cpu().numpy().squeeze(0),
-            next_hidden,
         )
 
-    def value(
-        self,
-        obs: np.ndarray,
-        prev_action: np.ndarray,
-        prev_reward: float,
-        hidden: Tuple[torch.Tensor, torch.Tensor],
-    ) -> float:
+    def value(self, obs: np.ndarray) -> float:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-        prev_action_t = torch.tensor(
-            prev_action, dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
-        prev_reward_t = torch.tensor(
-            [prev_reward], dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
         with torch.no_grad():
-            _, _, value_norm, _ = self.policy.forward_step(
-                obs_t, prev_action_t, prev_reward_t, hidden
-            )
+            value_norm = self.policy.value_norm(obs_t)
             value = self.popart.denormalize(value_norm)
         return float(value.item())
 
     def update(self, batch: dict) -> dict:
         obs = batch["obs"]
         actions = batch["actions"]
-        prev_actions = batch["prev_actions"]
-        prev_rewards = batch["prev_rewards"]
-        dones = batch["dones"]
         returns = batch["returns"]
         advantages = batch["advantages"].squeeze(-1)
         old_means = batch["old_means"]
@@ -308,15 +220,14 @@ class VMPOAgent:
 
         adv = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
         # E-step
-        # k = max(1, int(self.config.topk_fraction * advantages.numel()))
-        # topk_vals, _ = torch.topk(advantages, k)
-        # threshold = topk_vals.min()
-        # mask = (advantages >= threshold).float()
+        k = max(1, int(self.config.topk_fraction * advantages.numel()))
+        topk_vals, _ = torch.topk(advantages, k)
+        threshold = topk_vals.min()
+        mask = (advantages >= threshold).float()
+        adv = adv * mask
         weights = torch.softmax(adv / self.config.eta, dim=0)
 
-        mean, log_std, _ = self.policy.forward_sequence(
-            obs, prev_actions, prev_rewards, dones
-        )
+        mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
 
         old_std = old_log_stds.exp()
@@ -328,23 +239,16 @@ class VMPOAgent:
 
         # M-step
         policy_loss = -(weights.detach() * log_prob).sum()
-        policy_loss = policy_loss  # + self.config.kl_mean_coef * kl_mean.mean()
-        policy_loss = policy_loss  # + self.config.kl_std_coef * kl_std.mean()
+        policy_loss = policy_loss + self.config.kl_mean_coef * kl_mean.mean()
+        policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
 
-        # Entropy bonus
-        entropy = (log_std + 0.5 * np.log(2 * np.pi * np.e)).sum(dim=-1)
-        entropy_coef = 1e-2
-        # policy_loss -= entropy_coef * entropy.mean()
+        if not self.config.no_popart:
+            with torch.no_grad():
+                self.popart.update(returns, self.policy.value_head)
+            returns = self.popart.normalize(returns)
 
-        # with torch.no_grad():
-        #    self.popart.update(returns, self.policy.value_head)
-        # returns_norm = self.popart.normalize(returns)
-        returns_norm = returns
-
-        _, _, value_norm = self.policy.forward_sequence(
-            obs, prev_actions, prev_rewards, dones
-        )
-        value_loss = F.mse_loss(value_norm, returns_norm)
+        value_norm = self.policy.value_norm(obs)
+        value_loss = F.mse_loss(value_norm, returns)
 
         total_loss = policy_loss + value_loss
 
