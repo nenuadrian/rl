@@ -54,13 +54,24 @@ def make_dm_control_env(domain, task, seed=None, render_mode=None):
     return env
 
 
-def evaluate(device, policy, domain: str, task: str, n_episodes=10, max_steps=1000):
+def evaluate(
+    device,
+    policy,
+    domain: str,
+    task: str,
+    n_episodes=10,
+    max_steps=1000,
+    obs_normalizer=None,
+):
     env = make_dm_control_env(domain, task)
+    assert isinstance(env.action_space, gym.spaces.Box)
     returns = []
 
     for _ in range(n_episodes):
         obs, _ = env.reset()
         obs = flatten_obs(obs)
+        if obs_normalizer is not None:
+            obs = obs_normalizer.normalize(obs)
         ep_return = 0.0
 
         for _ in range(max_steps):
@@ -81,6 +92,8 @@ def evaluate(device, policy, domain: str, task: str, n_episodes=10, max_steps=10
 
             obs, reward, terminated, truncated, _ = env.step(action)
             obs = flatten_obs(obs)
+            if obs_normalizer is not None:
+                obs = obs_normalizer.normalize(obs)
 
             ep_return += reward
             if terminated or truncated:

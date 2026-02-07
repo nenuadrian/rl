@@ -153,6 +153,38 @@ class PPOAgent:
             self.value.parameters(), lr=self.config.value_lr
         )
 
+    def set_hparams(
+        self,
+        *,
+        clip_ratio: float | None = None,
+        policy_lr: float | None = None,
+        value_lr: float | None = None,
+        ent_coef: float | None = None,
+        vf_coef: float | None = None,
+        max_grad_norm: float | None = None,
+        target_kl: float | None = None,
+    ) -> None:
+        if clip_ratio is not None:
+            self.config.clip_ratio = float(clip_ratio)
+        if ent_coef is not None:
+            self.config.ent_coef = float(ent_coef)
+        if vf_coef is not None:
+            self.config.vf_coef = float(vf_coef)
+        if max_grad_norm is not None:
+            self.config.max_grad_norm = float(max_grad_norm)
+        if target_kl is not None:
+            self.config.target_kl = float(target_kl)
+
+        if policy_lr is not None:
+            self.config.policy_lr = float(policy_lr)
+            for group in self.policy_opt.param_groups:
+                group["lr"] = self.config.policy_lr
+
+        if value_lr is not None:
+            self.config.value_lr = float(value_lr)
+            for group in self.value_opt.param_groups:
+                group["lr"] = self.config.value_lr
+
     def act(
         self, obs: torch.Tensor, deterministic: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -171,6 +203,7 @@ class PPOAgent:
         old_log_probs = batch["log_probs"]
         returns = batch["returns"]
         advantages = batch["advantages"]
+        values_old = batch.get("values_old", None)
 
         log_probs = self.policy.log_prob(obs, actions)
         ratio = torch.exp(log_probs - old_log_probs)
@@ -183,7 +216,32 @@ class PPOAgent:
         policy_loss = policy_loss - self.config.ent_coef * entropy
 
         values = self.value(obs)
-        value_loss = F.mse_loss(values, returns) * self.config.vf_coef
+        if values_old is None:
+            value_loss = F.mse_loss(values, returns)
+        else:
+            values_old_t = values_old
+            values_clipped = values_old_t + torch.clamp(
+                values - values_old_t,
+                -self.config.clip_ratio,
+                self.config.clip_ratio,
+            )
+            value_loss_unclipped = (values - returns).pow(2)
+            value_loss_clipped = (values_clipped - returns).pow(2)
+            value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
+
+        value_loss = value_loss * self.config.vf_coef
+
+        # --- logging extras ---
+        with torch.no_grad():
+            _, log_std = self.policy.forward(obs)
+            log_std_mean = log_std.mean()
+            log_std_std = log_std.std(unbiased=False)
+
+            ratio_mean = ratio.mean()
+            ratio_std = ratio.std(unbiased=False)
+
+            value_mae = (values - returns).abs().mean()
+        # --- end logging extras ---
 
         self.policy_opt.zero_grad()
         policy_loss.backward()
@@ -202,4 +260,9 @@ class PPOAgent:
             "loss/value": float(value_loss.item()),
             "entropy": float(entropy.item()),
             "approx_kl": float(approx_kl.item()),
+            "policy/log_std_mean": float(log_std_mean.item()),
+            "policy/log_std_std": float(log_std_std.item()),
+            "policy/ratio_mean": float(ratio_mean.item()),
+            "policy/ratio_std": float(ratio_std.item()),
+            "value/mae": float(value_mae.item()),
         }
