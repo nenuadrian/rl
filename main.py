@@ -134,11 +134,13 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(args.out_dir, exist_ok=True)
 
-    group = args.wandb_group or f"{args.domain}-{args.task}"
+    group = args.wandb_group or f"{args.algo}-{args.domain}-{args.task}"
+    run_name = f"{args.algo}-{args.domain}-{args.task}"
     init_wandb(
         project=args.wandb_project,
         entity=args.wandb_entity,
         group=group,
+        name=run_name,
         config=vars(args),
     )
 

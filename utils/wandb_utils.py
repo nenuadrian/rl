@@ -10,11 +10,12 @@ def init_wandb(
     project: str | None,
     entity: str | None,
     group: str | None,
+    name: str | None = None,
     config: Mapping[str, Any] | None,
 ) -> bool:
     if wandb is None:
         return False
-    wandb.init(project=project, entity=entity, group=group, config=config)
+    wandb.init(project=project, entity=entity, group=group, config=config, name=name)
     return wandb.run is not None
 
 
