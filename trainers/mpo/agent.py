@@ -246,6 +246,8 @@ class MPOConfig:
     kl_epsilon: float = 0.1
     max_grad_norm: float = 1.0
     action_samples: int = 16
+    retrace_steps: int = 5
+    retrace_mc_actions: int = 16
 
 
 class MPOAgent:
@@ -308,43 +310,140 @@ class MPOAgent:
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
 
-    def act(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
+    def act_with_logp(
+        self, obs: np.ndarray, deterministic: bool = False
+    ) -> tuple[np.ndarray, np.ndarray, float]:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             mean, log_std = self.policy(obs_t)
-            action = self.policy.sample_action(mean, log_std, deterministic)
-        return action.detach().cpu().numpy().squeeze(0)
-
-    def update(self, batch: dict) -> dict:
-        obs = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
-        actions = torch.tensor(
-            batch["actions"], dtype=torch.float32, device=self.device
+            action_raw, action_exec = self.policy.sample_action_raw_and_exec(
+                mean, log_std, deterministic
+            )
+            logp = self.policy.log_prob(mean, log_std, action_raw)
+        return (
+            action_exec.detach().cpu().numpy().squeeze(0),
+            action_raw.detach().cpu().numpy().squeeze(0),
+            float(logp.item()),
         )
-        rewards = torch.tensor(
+
+    def act(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
+        action_exec, _, _ = self.act_with_logp(obs, deterministic=deterministic)
+        return action_exec
+
+    def _expected_q_target(self, obs: torch.Tensor) -> torch.Tensor:
+        actions = self.policy_target.sample_actions(
+            obs, num_actions=self.config.retrace_mc_actions
+        )
+        batch_size = obs.shape[0]
+        obs_rep = obs.unsqueeze(1).expand(
+            batch_size, self.config.retrace_mc_actions, obs.shape[-1]
+        )
+        obs_flat = obs_rep.reshape(-1, obs.shape[-1])
+        act_flat = actions.reshape(-1, actions.shape[-1])
+        q1 = self.q1_target(obs_flat, act_flat)
+        q2 = self.q2_target(obs_flat, act_flat)
+        q = torch.min(q1, q2)
+        return q.reshape(batch_size, self.config.retrace_mc_actions).mean(dim=1, keepdim=True)
+
+    def _retrace_q_target(self, batch: dict) -> torch.Tensor:
+        obs_seq = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
+        actions_exec_seq = torch.tensor(
+            batch["actions_exec"], dtype=torch.float32, device=self.device
+        )
+        actions_raw_seq = torch.tensor(
+            batch["actions_raw"], dtype=torch.float32, device=self.device
+        )
+        rewards_seq = torch.tensor(
             batch["rewards"], dtype=torch.float32, device=self.device
         )
-        next_obs = torch.tensor(
+        next_obs_seq = torch.tensor(
             batch["next_obs"], dtype=torch.float32, device=self.device
         )
-        dones = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
+        dones_seq = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
+        behaviour_logp_seq = torch.tensor(
+            batch["behaviour_logp"], dtype=torch.float32, device=self.device
+        )
+
+        batch_size, seq_len, obs_dim = obs_seq.shape
+        act_dim = actions_exec_seq.shape[-1]
 
         with torch.no_grad():
-            next_actions = self.policy_target.sample_actions(
-                next_obs, num_actions=self.config.action_samples
+            obs_flat = obs_seq.reshape(batch_size * seq_len, obs_dim)
+            act_exec_flat = actions_exec_seq.reshape(batch_size * seq_len, act_dim)
+            q1_t = self.q1_target(obs_flat, act_exec_flat)
+            q2_t = self.q2_target(obs_flat, act_exec_flat)
+            q_t = torch.min(q1_t, q2_t).reshape(batch_size, seq_len, 1)
+
+            next_obs_flat = next_obs_seq.reshape(batch_size * seq_len, obs_dim)
+            v_next = self._expected_q_target(next_obs_flat).reshape(batch_size, seq_len, 1)
+
+            delta = rewards_seq + (1.0 - dones_seq) * self.config.gamma * v_next - q_t
+
+            mean, log_std = self.policy(obs_flat)
+            actions_raw_flat = actions_raw_seq.reshape(batch_size * seq_len, act_dim)
+            log_pi = self.policy.log_prob(mean, log_std, actions_raw_flat).reshape(
+                batch_size, seq_len, 1
             )
-            batch_size = next_obs.shape[0]
-            next_obs_rep = next_obs.unsqueeze(1).expand(
-                batch_size, self.config.action_samples, next_obs.shape[-1]
+            log_b = behaviour_logp_seq
+            log_ratio = log_pi - log_b
+            c = torch.exp(torch.minimum(torch.zeros_like(log_ratio), log_ratio)).squeeze(-1)
+
+            ones = torch.ones(batch_size, 1, device=self.device)
+            c_shift = torch.cat([ones, c[:, 1:]], dim=1)
+            prod_c = torch.cumprod(c_shift, dim=1)
+
+            not_done = (1.0 - dones_seq.squeeze(-1))
+            alive = torch.cumprod(torch.cat([ones, not_done[:, :-1]], dim=1), dim=1)
+
+            gammas = (self.config.gamma ** torch.arange(seq_len, device=self.device)).view(1, seq_len)
+
+            q0 = q_t[:, 0, 0]
+            retrace_sum = torch.sum(
+                gammas * prod_c * alive * delta.squeeze(-1), dim=1
             )
-            next_obs_flat = next_obs_rep.reshape(-1, next_obs.shape[-1])
-            next_act_flat = next_actions.reshape(-1, next_actions.shape[-1])
-            q1_target = self.q1_target(next_obs_flat, next_act_flat)
-            q2_target = self.q2_target(next_obs_flat, next_act_flat)
-            q_target = torch.min(q1_target, q2_target)
-            q_target = q_target.reshape(batch_size, self.config.action_samples).mean(
-                dim=1, keepdim=True
+            q_ret = (q0 + retrace_sum).unsqueeze(-1)
+
+        return q_ret
+
+    def update(self, batch: dict) -> dict:
+        is_sequence_batch = isinstance(batch.get("obs"), np.ndarray) and batch["obs"].ndim == 3
+
+        if is_sequence_batch and self.config.retrace_steps > 1:
+            target = self._retrace_q_target(batch)
+            obs = torch.tensor(batch["obs"][:, 0, :], dtype=torch.float32, device=self.device)
+            actions = torch.tensor(
+                batch["actions_exec"][:, 0, :], dtype=torch.float32, device=self.device
             )
-            target = rewards + (1.0 - dones) * self.config.gamma * q_target
+        else:
+            obs = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
+            actions = torch.tensor(
+                batch["actions"], dtype=torch.float32, device=self.device
+            )
+            rewards = torch.tensor(
+                batch["rewards"], dtype=torch.float32, device=self.device
+            )
+            next_obs = torch.tensor(
+                batch["next_obs"], dtype=torch.float32, device=self.device
+            )
+            dones = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
+
+            with torch.no_grad():
+                next_actions = self.policy_target.sample_actions(
+                    next_obs, num_actions=self.config.action_samples
+                )
+                batch_size = next_obs.shape[0]
+                next_obs_rep = next_obs.unsqueeze(1).expand(
+                    batch_size, self.config.action_samples, next_obs.shape[-1]
+                )
+                next_obs_flat = next_obs_rep.reshape(-1, next_obs.shape[-1])
+                next_act_flat = next_actions.reshape(-1, next_actions.shape[-1])
+                q1_target = self.q1_target(next_obs_flat, next_act_flat)
+                q2_target = self.q2_target(next_obs_flat, next_act_flat)
+                q_target = torch.min(q1_target, q2_target)
+                q_target = q_target.reshape(batch_size, self.config.action_samples).mean(
+                    dim=1, keepdim=True
+                )
+                target = rewards + (1.0 - dones) * self.config.gamma * q_target
 
         q1 = self.q1(obs, actions)
         q2 = self.q2(obs, actions)
