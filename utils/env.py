@@ -68,7 +68,7 @@ def evaluate(device, policy, domain: str, task: str, n_episodes=10, max_steps=10
 
             with torch.no_grad():
                 mean, log_std = policy(obs_t)
-                action = policy.sample_action(mean, log_std, deterministic=True)
+                action = policy.sample_action(mean, log_std, deterministic=False)
                 action = action.cpu().numpy().squeeze(0)
 
             action = np.clip(
