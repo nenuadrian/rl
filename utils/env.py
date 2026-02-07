@@ -67,8 +67,9 @@ def evaluate(device, policy, domain: str, task: str, n_episodes=10, max_steps=10
             obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
 
             with torch.no_grad():
-                mean, _ = policy(obs_t)
-                action = mean.cpu().numpy().squeeze(0)
+                mean, log_std = policy(obs_t)
+                action = policy.sample_action(mean, log_std, deterministic=True)
+                action = action.cpu().numpy().squeeze(0)
 
             action = np.clip(
                 action,

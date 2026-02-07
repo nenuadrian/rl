@@ -9,7 +9,6 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 
 
-
 def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...], out_dim: int) -> nn.Sequential:
     layers = []
     last_dim = in_dim
@@ -78,7 +77,9 @@ class GaussianPolicy(nn.Module):
 
         return action, log_prob
 
-    def act(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+    def sample_action(
+        self, obs: torch.Tensor, deterministic: bool = False
+    ) -> torch.Tensor:
         mean, log_std = self.forward(obs)
         if deterministic:
             action = torch.tanh(mean)
@@ -89,8 +90,7 @@ class GaussianPolicy(nn.Module):
         return action * self.action_scale + self.action_bias
 
     def act_deterministic(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.act(obs, deterministic=True)
-
+        return self.sample_action(obs, deterministic=True)
 
 
 @dataclass
@@ -153,7 +153,7 @@ class SACAgent:
     def act(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action = self.policy.act(obs_t, deterministic=deterministic)
+            action = self.policy.sample_action(obs_t, deterministic=deterministic)
         return action.cpu().numpy().squeeze(0)
 
     def update(self, batch: dict) -> dict:

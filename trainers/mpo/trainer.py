@@ -95,7 +95,6 @@ class Trainer:
         start_steps: int,
         update_after: int,
         batch_size: int,
-        updates_per_step: int,
         eval_interval: int,
         save_interval: int,
         out_dir: str,
@@ -135,10 +134,9 @@ class Trainer:
                 self.episode_len = 0
 
             if step >= update_after and self.replay.size >= batch_size:
-                for _ in range(updates_per_step):
-                    batch = self.replay.sample(batch_size)
-                    losses = self.agent.update(batch)
-                    log_wandb(losses, step=step)
+                batch = self.replay.sample(batch_size)
+                metrics = self.agent.update(batch)
+                log_wandb(metrics, step=step)
 
             if eval_interval > 0 and step % eval_interval == 0:
                 metrics = evaluate(

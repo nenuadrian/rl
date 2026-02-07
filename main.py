@@ -99,7 +99,6 @@ def train(
             start_steps=start_steps,
             update_after=update_after,
             batch_size=batch_size,
-            updates_per_step=updates_per_step,
             eval_interval=eval_interval,
             save_interval=save_interval,
             out_dir=out_dir,

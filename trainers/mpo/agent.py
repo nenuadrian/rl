@@ -132,7 +132,10 @@ class SquashedGaussianPolicy(nn.Module):
         return actions * self.action_scale + self.action_bias
 
     def head_parameters(self):
-        return list(self.policy_mean.parameters()) + [self.policy_logstd]
+        return (
+            list(self.policy_mean.parameters())
+            + list(self.policy_logstd.parameters())
+        )
 
 
 @dataclass
@@ -172,6 +175,8 @@ class MPOAgent:
             action_high=action_high,
             encoder=self.shared_encoder,
         ).to(device)
+        self.policy_target = copy.deepcopy(self.policy).to(device)
+        self.policy_target.eval()
         self.q1 = QNetwork(
             obs_dim,
             act_dim,
@@ -227,13 +232,21 @@ class MPOAgent:
         dones = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            next_mean, next_log_std = self.policy(next_obs)
-            next_actions = self.policy.sample_action(
-                next_mean, next_log_std, deterministic=False
+            next_actions = self.policy_target.sample_actions(
+                next_obs, num_actions=self.config.action_samples
             )
-            q1_target = self.q1_target(next_obs, next_actions)
-            q2_target = self.q2_target(next_obs, next_actions)
+            batch_size = next_obs.shape[0]
+            next_obs_rep = next_obs.unsqueeze(1).expand(
+                batch_size, self.config.action_samples, next_obs.shape[-1]
+            )
+            next_obs_flat = next_obs_rep.reshape(-1, next_obs.shape[-1])
+            next_act_flat = next_actions.reshape(-1, next_actions.shape[-1])
+            q1_target = self.q1_target(next_obs_flat, next_act_flat)
+            q2_target = self.q2_target(next_obs_flat, next_act_flat)
             q_target = torch.min(q1_target, q2_target)
+            q_target = q_target.reshape(batch_size, self.config.action_samples).mean(
+                dim=1, keepdim=True
+            )
             target = rewards + (1.0 - dones) * self.config.gamma * q_target
 
         q1 = self.q1(obs, actions)
@@ -244,7 +257,7 @@ class MPOAgent:
 
         mean, log_std = self.policy(obs)
         with torch.no_grad():
-            sampled_actions = self.policy.sample_actions(
+            sampled_actions = self.policy_target.sample_actions(
                 obs, num_actions=self.config.action_samples
             )
             batch_size = obs.shape[0]
@@ -311,6 +324,7 @@ class MPOAgent:
 
         self._soft_update(self.q1, self.q1_target)
         self._soft_update(self.q2, self.q2_target)
+        self._soft_update(self.policy, self.policy_target)
 
         return {
             "loss/q1": float(q1_loss.item()),

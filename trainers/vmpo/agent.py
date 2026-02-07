@@ -45,7 +45,7 @@ class PopArt(nn.Module):
         old_std = self.popart_std.clone()
 
         new_mean = self.beta * self.popart_mean + (1.0 - self.beta) * batch_mean
-        new_var = self.beta * (self.popart_std ** 2) + (1.0 - self.beta) * batch_var
+        new_var = self.beta * (self.popart_std**2) + (1.0 - self.beta) * batch_var
         new_std = torch.sqrt(new_var + self.eps)
 
         weight = value_head.weight.data
@@ -104,7 +104,9 @@ class VMPONetwork(nn.Module):
         mean, log_std, _, _ = self.forward_step(obs, prev_action, prev_reward, hidden)
         return mean, log_std
 
-    def init_hidden(self, batch_size: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    def init_hidden(
+        self, batch_size: int, device: torch.device
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         h = torch.zeros(1, batch_size, self.lstm.hidden_size, device=device)
         c = torch.zeros(1, batch_size, self.lstm.hidden_size, device=device)
         return h, c
@@ -115,7 +117,9 @@ class VMPONetwork(nn.Module):
         prev_action: torch.Tensor,
         prev_reward: torch.Tensor,
         hidden: Tuple[torch.Tensor, torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]
+    ]:
         encoded = self.encoder(obs)
         lstm_input = torch.cat([encoded, prev_action, prev_reward], dim=-1).unsqueeze(1)
         lstm_out, next_hidden = self.lstm(lstm_input, hidden)
@@ -155,7 +159,9 @@ class VMPONetwork(nn.Module):
             torch.cat(values, dim=0),
         )
 
-    def log_prob(self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    def log_prob(
+        self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
         std = log_std.exp()
         normal = Normal(mean, std)
         y_t = (actions - self.action_bias) / self.action_scale
@@ -185,9 +191,9 @@ class VMPOConfig:
     policy_lr: float = 1e-4
     value_lr: float = 1e-4
     topk_fraction: float = 0.5
-    eta: float = 1.0
-    kl_mean_coef: float = 1.0
-    kl_std_coef: float = 1.0
+    eta: float = 5.0
+    kl_mean_coef: float = 1e-3
+    kl_std_coef: float = 1e-3
     popart_beta: float = 0.99999
     max_grad_norm: float = 0.5
 
@@ -239,7 +245,9 @@ class VMPOAgent:
         prev_reward: float,
         hidden: Tuple[torch.Tensor, torch.Tensor],
         deterministic: bool = False,
-    ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> Tuple[
+        np.ndarray, float, np.ndarray, np.ndarray, Tuple[torch.Tensor, torch.Tensor]
+    ]:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         prev_action_t = torch.tensor(
             prev_action, dtype=torch.float32, device=self.device
@@ -311,14 +319,15 @@ class VMPOAgent:
         new_std = log_std.exp()
         kl_mean = ((mean - old_means) ** 2 / (2.0 * (old_std**2))).sum(dim=-1)
         kl_std = 0.5 * (
-            (new_std / old_std) ** 2
-            - 1.0
-            - 2.0 * (log_std - old_log_stds)
+            (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
         policy_loss = -(weights.detach() * log_prob).mean()
         policy_loss = policy_loss + self.config.kl_mean_coef * kl_mean.mean()
         policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
+
+        # entropy bonus
+        policy_loss -= 1e-2 * log_std.mean()
 
         self.policy_opt.zero_grad()
         policy_loss.backward()
