@@ -65,12 +65,30 @@ def train(
             save_interval=save_interval,
             out_dir=out_dir,
         )
+    elif algo == "vmpo":
+        from trainers.vmpo.trainer import Trainer
+
+        trainer = Trainer(
+            domain=domain,
+            task=task,
+            seed=seed,
+            device=device,
+            hidden_sizes=hidden_sizes,
+            rollout_steps=update_after,
+        )
+        trainer.train(
+            total_steps=total_steps,
+            update_epochs=updates_per_step,
+            eval_interval=eval_interval,
+            save_interval=save_interval,
+            out_dir=out_dir,
+        )
     else:
         raise ValueError(f"Unsupported algorithm: {algo}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SAC/PPO for dm_control")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--algo", type=str, required=True)
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)

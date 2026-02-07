@@ -3,6 +3,7 @@ import torch
 
 from trainers.sac.agent import SACAgent
 from trainers.ppo.agent import PPOAgent
+from trainers.vmpo.agent import VMPOAgent
 
 
 def test_sac_agent_act_and_update():
@@ -82,3 +83,64 @@ def test_ppo_agent_act_and_update():
     assert "loss/value" in metrics
     assert "entropy" in metrics
     assert "approx_kl" in metrics
+
+
+def test_vmpo_agent_act_and_update():
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    obs_dim = 6
+    act_dim = 2
+    action_low = -np.ones(act_dim, dtype=np.float32)
+    action_high = np.ones(act_dim, dtype=np.float32)
+
+    agent = VMPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        action_low=action_low,
+        action_high=action_high,
+        device=torch.device("cpu"),
+        hidden_sizes=(32, 32),
+    )
+
+    hidden = agent.init_hidden()
+    obs = np.random.randn(obs_dim).astype(np.float32)
+    prev_action = np.zeros(act_dim, dtype=np.float32)
+    prev_reward = 0.0
+    action, value, mean, log_std, hidden = agent.act(
+        obs, prev_action, prev_reward, hidden, deterministic=False
+    )
+
+    assert action.shape == (act_dim,)
+    assert mean.shape == (act_dim,)
+    assert log_std.shape == (act_dim,)
+    assert isinstance(value, float)
+
+    batch_size = 12
+    obs = torch.randn(batch_size, obs_dim)
+    actions = torch.randn(batch_size, act_dim)
+    prev_actions = torch.zeros_like(actions)
+    prev_rewards = torch.zeros(batch_size, 1)
+    dones = torch.zeros(batch_size, 1)
+    returns = torch.randn(batch_size, 1)
+    advantages = torch.randn(batch_size, 1)
+    old_means = torch.randn(batch_size, act_dim)
+    old_log_stds = torch.randn(batch_size, act_dim)
+
+    batch = {
+        "obs": obs,
+        "actions": actions,
+        "prev_actions": prev_actions,
+        "prev_rewards": prev_rewards,
+        "dones": dones,
+        "returns": returns,
+        "advantages": advantages,
+        "old_means": old_means,
+        "old_log_stds": old_log_stds,
+    }
+
+    metrics = agent.update(batch)
+    assert "loss/policy" in metrics
+    assert "loss/value" in metrics
+    assert "kl/mean" in metrics
+    assert "kl/std" in metrics
