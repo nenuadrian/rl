@@ -1,7 +1,6 @@
 import os
 from typing import Tuple
 
-import gymnasium as gym
 import numpy as np
 import torch
 

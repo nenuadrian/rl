@@ -138,7 +138,7 @@ class VMPOConfig:
     gamma: float = 0.99
     policy_lr: float = 1e-4
     value_lr: float = 1e-4
-    topk_fraction: float = 1.0
+    topk_fraction: float = 0.3
     eta: float = 5.0
     kl_mean_coef: float = 1e-3
     kl_std_coef: float = 1e-3
@@ -213,12 +213,13 @@ class VMPOAgent:
     def update(self, batch: dict) -> dict:
         obs = batch["obs"]
         actions = batch["actions"]
-        returns = batch["returns"]
+        returns_raw = batch["returns"]
         advantages = batch["advantages"].squeeze(-1)
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        adv = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+        adv = advantages
+
         # E-step
         k = max(1, int(self.config.topk_fraction * advantages.numel()))
         topk_vals, _ = torch.topk(advantages, k)
@@ -238,28 +239,87 @@ class VMPOAgent:
         ).sum(dim=-1)
 
         # M-step
-        policy_loss = -(weights.detach() * log_prob).sum()
-        policy_loss = policy_loss + self.config.kl_mean_coef * kl_mean.mean()
-        policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
+        weighted_nll = -(weights.detach() * log_prob).sum()
+        kl_mean_pen = self.config.kl_mean_coef * kl_mean.mean()
+        kl_std_pen = self.config.kl_std_coef * kl_std.mean()
+        policy_loss = weighted_nll + kl_mean_pen + kl_std_pen
 
+        returns_for_loss = returns_raw
         if not self.config.no_popart:
             with torch.no_grad():
-                self.popart.update(returns, self.policy.value_head)
-            returns = self.popart.normalize(returns)
+                self.popart.update(returns_raw, self.policy.value_head)
+            returns_for_loss = self.popart.normalize(returns_raw)
 
         value_norm = self.policy.value_norm(obs)
-        value_loss = F.mse_loss(value_norm, returns)
+        value_loss = F.mse_loss(value_norm, returns_for_loss)
 
         total_loss = policy_loss + value_loss
 
         self.opt.zero_grad(set_to_none=True)
         total_loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
+        grad_norm = nn.utils.clip_grad_norm_(
+            self.policy.parameters(), self.config.max_grad_norm
+        )
         self.opt.step()
 
+        with torch.no_grad():
+            # pre-tanh Gaussian entropy: sum over action dims, mean over batch
+            entropy = (
+                (
+                    0.5
+                    * (
+                        1.0
+                        + torch.log(torch.tensor(2.0 * torch.pi, device=log_std.device))
+                    )
+                    + log_std
+                )
+                .sum(dim=-1)
+                .mean()
+            )
+
+            # weight diagnostics
+            w = weights.detach()
+            ess = 1.0 / (w.pow(2).sum() + 1e-12)
+            selected_frac = mask.mean()
+
+            # value diagnostics in raw (denormalized) space
+            v_pred_raw = (
+                self.popart.denormalize(value_norm)
+                if not self.config.no_popart
+                else value_norm
+            )
+            y = returns_raw.squeeze(-1)
+            yhat = v_pred_raw.squeeze(-1)
+            var_y = y.var(unbiased=False)
+            explained_var = 1.0 - (y - yhat).var(unbiased=False) / (var_y + 1e-8)
+
         return {
+            "loss/total": float(total_loss.item()),
             "loss/policy": float(policy_loss.item()),
+            "loss/policy_weighted_nll": float(weighted_nll.item()),
+            "loss/policy_kl_mean_pen": float(kl_mean_pen.item()),
+            "loss/policy_kl_std_pen": float(kl_std_pen.item()),
             "loss/value": float(value_loss.item()),
             "kl/mean": float(kl_mean.mean().item()),
             "kl/std": float(kl_std.mean().item()),
+            "policy/logp_mean": float(log_prob.mean().item()),
+            "policy/entropy": float(entropy.item()),
+            "policy/std_mean": float(new_std.mean().item()),
+            "vmpo/eta": float(self.config.eta),
+            "vmpo/topk_k": int(k),
+            "vmpo/selected_frac": float(selected_frac.item()),
+            "vmpo/threshold": float(threshold.item()),
+            "vmpo/ess": float(ess.item()),
+            "adv/raw_mean": float(advantages.mean().item()),
+            "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),
+            "returns/raw_mean": float(returns_raw.mean().item()),
+            "returns/raw_std": float((returns_raw.std(unbiased=False) + 1e-8).item()),
+            "value/raw_mean": float(v_pred_raw.mean().item()),
+            "value/raw_std": float((v_pred_raw.std(unbiased=False) + 1e-8).item()),
+            "value/explained_var": float(explained_var.item()),
+            "popart/mean": float(self.popart.popart_mean.item()),
+            "popart/std": float(self.popart.popart_std.item()),
+            "grad/norm": float(
+                grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
+            ),
         }

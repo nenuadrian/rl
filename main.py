@@ -108,7 +108,7 @@ def train(
             seed=seed,
             device=device,
             hidden_sizes=hidden_sizes,
-            rollout_steps=update_after,
+            rollout_steps=float(_CLI_ARGS.vmpo_rollout_steps),
         )
         trainer.train(
             total_steps=total_steps,
@@ -149,13 +149,6 @@ if __name__ == "__main__":
         choices=["sac", "ppo", "vmpo", "mpo"],
         help="Optional subcommand; e.g. `python main.py ppo --domain ... --task ...`",
     )
-    parser.add_argument(
-        "--algo",
-        type=str,
-        choices=["sac", "ppo", "vmpo", "mpo"],
-        default=None,
-        help="Algorithm (alternative to subcommand)",
-    )
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--seed", type=int, default=0)
@@ -186,15 +179,14 @@ if __name__ == "__main__":
     parser.add_argument("--ppo_target_kl", type=float, default=0.02)
     parser.add_argument("--ppo_normalize_obs", action="store_true", default=True)
 
+    # VMPO-specific args (only used when algo == 'vmpo')
+    parser.add_argument("--vmpo_rollout_steps", type=int, default=4096)
+
     args = parser.parse_args()
 
     _CLI_ARGS = args
 
-    algo = args.command or args.algo
-    if algo is None:
-        parser.error("Must provide either a subcommand (ppo/sac/vmpo/mpo) or --algo")
-    if args.command is not None and args.algo is not None and args.command != args.algo:
-        parser.error("If both command and --algo are provided, they must match")
+    algo = args.command
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
