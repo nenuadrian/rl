@@ -118,12 +118,12 @@ if __name__ == "__main__":
     parser.add_argument("--update_after", type=int, default=1_000)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--replay_size", type=int, default=1_000_000)
-    parser.add_argument("--updates_per_step", type=int, default=1)
+    parser.add_argument("--updates_per_step", type=int, default=4)
     parser.add_argument("--eval_interval", type=int, default=10_000)
     parser.add_argument("--save_interval", type=int, default=50_000)
     parser.add_argument("--hidden_sizes", type=int, nargs=2, default=[256, 256])
     parser.add_argument("--out_dir", type=str, default="checkpoints")
-    parser.add_argument("--wandb_project", type=str, default="dm_control")
+    parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_entity", type=str, default=None)
     parser.add_argument("--wandb_group", type=str, default=None)
 
@@ -135,8 +135,9 @@ if __name__ == "__main__":
 
     group = args.wandb_group or f"{args.algo}-{args.domain}-{args.task}"
     run_name = f"{args.algo}-{args.domain}-{args.task}"
+    project = args.wandb_project or f"dm_control-{args.algo}"
     init_wandb(
-        project=args.wandb_project,
+        project=project,
         entity=args.wandb_entity,
         group=group,
         name=run_name,

@@ -175,7 +175,7 @@ class SquashedGaussianPolicy(nn.Module):
         return log_prob
 
     def sample_action(
-        self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool
+        self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool, **kwargs
     ) -> torch.Tensor:
         if deterministic:
             action = torch.tanh(mean)
@@ -191,7 +191,7 @@ class VMPOConfig:
     gamma: float = 0.99
     policy_lr: float = 1e-4
     value_lr: float = 1e-4
-    topk_fraction: float = 0.5
+    topk_fraction: float = 1.0
     eta: float = 5.0
     kl_mean_coef: float = 1e-3
     kl_std_coef: float = 1e-3
@@ -222,19 +222,20 @@ class VMPOAgent:
         ).to(device)
         self.popart = PopArt(beta=self.config.popart_beta).to(device)
 
-        self.policy_opt = torch.optim.Adam(
-            list(self.policy.encoder.parameters())
-            + list(self.policy.lstm.parameters())
-            + list(self.policy.policy_mean.parameters())
-            + list(self.policy.policy_logstd.parameters()),
-            lr=self.config.policy_lr,
+        shared_params = list(self.policy.encoder.parameters()) + list(
+            self.policy.lstm.parameters()
         )
+        policy_params = list(self.policy.policy_mean.parameters()) + list(
+            self.policy.policy_logstd.parameters()
+        )
+        value_params = list(self.policy.value_head.parameters())
 
-        self.value_opt = torch.optim.Adam(
-            list(self.policy.encoder.parameters())
-            + list(self.policy.lstm.parameters())
-            + list(self.policy.value_head.parameters()),
-            lr=self.config.value_lr,
+        self.opt = torch.optim.Adam(
+            [
+                {"params": shared_params, "lr": self.config.policy_lr},
+                {"params": policy_params, "lr": self.config.policy_lr},
+                {"params": value_params, "lr": self.config.value_lr},
+            ]
         )
 
     def init_hidden(self, batch_size: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -305,12 +306,13 @@ class VMPOAgent:
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        k = max(1, int(self.config.topk_fraction * advantages.numel()))
-        topk_vals, _ = torch.topk(advantages, k)
-        threshold = topk_vals.min()
-        mask = (advantages >= threshold).float()
-        weights = torch.exp(advantages / self.config.eta) * mask
-        weights = weights / (weights.sum() + 1e-10)
+        adv = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+        # E-step
+        # k = max(1, int(self.config.topk_fraction * advantages.numel()))
+        # topk_vals, _ = torch.topk(advantages, k)
+        # threshold = topk_vals.min()
+        # mask = (advantages >= threshold).float()
+        weights = torch.softmax(adv / self.config.eta, dim=0)
 
         mean, log_std, _ = self.policy.forward_sequence(
             obs, prev_actions, prev_rewards, dones
@@ -324,33 +326,32 @@ class VMPOAgent:
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
-        policy_loss = -(weights.detach() * log_prob).mean()
-        policy_loss = policy_loss + self.config.kl_mean_coef * kl_mean.mean()
-        policy_loss = policy_loss + self.config.kl_std_coef * kl_std.mean()
+        # M-step
+        policy_loss = -(weights.detach() * log_prob).sum()
+        policy_loss = policy_loss  # + self.config.kl_mean_coef * kl_mean.mean()
+        policy_loss = policy_loss  # + self.config.kl_std_coef * kl_std.mean()
 
-        # entropy bonus
+        # Entropy bonus
         entropy = (log_std + 0.5 * np.log(2 * np.pi * np.e)).sum(dim=-1)
         entropy_coef = 1e-2
-        policy_loss -= entropy_coef * entropy.mean()
+        # policy_loss -= entropy_coef * entropy.mean()
 
-        self.policy_opt.zero_grad()
-        policy_loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
-        self.policy_opt.step()
-
-        with torch.no_grad():
-            self.popart.update(returns, self.policy.value_head)
-        returns_norm = self.popart.normalize(returns)
+        # with torch.no_grad():
+        #    self.popart.update(returns, self.policy.value_head)
+        # returns_norm = self.popart.normalize(returns)
+        returns_norm = returns
 
         _, _, value_norm = self.policy.forward_sequence(
             obs, prev_actions, prev_rewards, dones
         )
         value_loss = F.mse_loss(value_norm, returns_norm)
 
-        self.value_opt.zero_grad()
-        value_loss.backward()
+        total_loss = policy_loss + value_loss
+
+        self.opt.zero_grad(set_to_none=True)
+        total_loss.backward()
         nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
-        self.value_opt.step()
+        self.opt.step()
 
         return {
             "loss/policy": float(policy_loss.item()),

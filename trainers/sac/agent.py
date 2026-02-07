@@ -78,7 +78,7 @@ class GaussianPolicy(nn.Module):
         return action, log_prob
 
     def sample_action(
-        self, obs: torch.Tensor, deterministic: bool = False
+        self, obs: torch.Tensor, deterministic: bool = False, **kwargs
     ) -> torch.Tensor:
         mean, log_std = self.forward(obs)
         if deterministic:

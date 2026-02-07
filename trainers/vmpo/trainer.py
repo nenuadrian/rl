@@ -215,6 +215,7 @@ class Trainer:
                 for _ in range(update_epochs):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
+                print(metrics)
 
                 self._reset_rollout()
 

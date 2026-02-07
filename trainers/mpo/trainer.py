@@ -113,7 +113,7 @@ class Trainer:
 
             self.replay.add(obs, action, reward, next_obs, done)
             obs = next_obs
-
+            
             self.episode_return += reward
             self.episode_len += 1
 

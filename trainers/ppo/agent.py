@@ -89,7 +89,7 @@ class GaussianPolicy(nn.Module):
         return normal.entropy().sum(dim=-1, keepdim=True)
 
     def sample_action(
-        self, obs: torch.Tensor, deterministic: bool = False
+        self, obs: torch.Tensor, deterministic: bool = False, **kwargs
     ) -> torch.Tensor:
         mean, log_std = self.forward(obs)
         if deterministic:
