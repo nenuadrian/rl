@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass
 from typing import Tuple
 
@@ -319,7 +320,10 @@ class MPOAgent:
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
 
-        self.lambda_dual = float(self.config.lambda_init)
+        lambda_init_t = torch.tensor(self.config.lambda_init, device=device)
+        lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
+        self.log_lambda = nn.Parameter(torch.log(torch.expm1(lambda_init_t)))
+        self.lambda_opt = torch.optim.Adam([self.log_lambda], lr=self.config.lambda_lr)
 
     def _forward_kl_diag_gaussians(
         self,
@@ -515,8 +519,10 @@ class MPOAgent:
         mean_new, log_std_new = self.policy.forward_with_features(features_detached)
 
         with torch.no_grad():
-            sampled_actions_raw, _ = self.policy_target.sample_actions_raw_and_exec(
-                obs, num_actions=self.config.action_samples
+            sampled_actions_raw, sampled_actions_exec = (
+                self.policy_target.sample_actions_raw_and_exec(
+                    obs, num_actions=self.config.action_samples
+                )
             )
             batch_size = obs.shape[0]
 
@@ -525,9 +531,11 @@ class MPOAgent:
             )
             obs_flat = obs_rep.reshape(-1, obs.shape[-1])
             act_raw_flat = sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1])
+            act_exec_flat = sampled_actions_exec.reshape(-1, sampled_actions_exec.shape[-1])
 
-            q1_vals = self.q1(obs_flat, act_raw_flat)
-            q2_vals = self.q2(obs_flat, act_raw_flat)
+            # Critic is trained on executed (clipped) actions, so evaluate Q on executed actions.
+            q1_vals = self.q1(obs_flat, act_exec_flat)
+            q2_vals = self.q2(obs_flat, act_exec_flat)
             q_vals = torch.min(q1_vals, q2_vals).reshape(
                 batch_size, self.config.action_samples
             )
@@ -544,19 +552,19 @@ class MPOAgent:
             ).reshape(batch_size, self.config.action_samples)
 
         q_vals_detach = q_vals.detach()
+        q_adv = q_vals_detach - q_vals_detach.mean(dim=1, keepdim=True)
         eta = F.softplus(self.log_eta) + 1e-8
-        dual_loss = (
-            eta * self.config.kl_epsilon
-            + eta
-            * torch.log(torch.mean(torch.exp(q_vals_detach / eta), dim=1) + 1e-8)
-        ).mean()
+        log_mean_exp = (
+            torch.logsumexp(q_adv / eta, dim=1) - math.log(self.config.action_samples)
+        )
+        dual_loss = (eta * self.config.kl_epsilon + eta * log_mean_exp).mean()
         self.eta_opt.zero_grad()
         dual_loss.backward()
         self.eta_opt.step()
         eta = F.softplus(self.log_eta).detach() + 1e-8
 
-        # E-step weights: log w~ = log π_old(a|s) + Q(s,a)/η
-        log_w_tilde = log_pi_old + q_vals_detach / eta
+        # E-step weights: log w~ = log π_old(a|s) + (Q(s,a) - E[Q])/η
+        log_w_tilde = log_pi_old + q_adv / eta
         log_w = log_w_tilde - torch.logsumexp(log_w_tilde, dim=1, keepdim=True)
         weights = torch.exp(log_w)
 
@@ -579,7 +587,8 @@ class MPOAgent:
         )
         avg_kl = kl_state.mean()
 
-        lagrangian = policy_loss + self.lambda_dual * (
+        lambda_val = F.softplus(self.log_lambda) + 1e-8
+        lagrangian = policy_loss + lambda_val.detach() * (
             avg_kl - self.config.mstep_kl_epsilon
         )
 
@@ -590,10 +599,11 @@ class MPOAgent:
         )
         self.policy_opt.step()
 
-        self.lambda_dual = max(
-            0.0,
-            self.lambda_dual + self.config.lambda_lr * float((avg_kl - self.config.mstep_kl_epsilon).item()),
-        )
+        # Dual ascent on lambda, with avg_kl treated as a constant.
+        self.lambda_opt.zero_grad()
+        lambda_loss = -lambda_val * (avg_kl.detach() - self.config.mstep_kl_epsilon)
+        lambda_loss.backward()
+        self.lambda_opt.step()
 
         self._soft_update(self.q1, self.q1_target)
         self._soft_update(self.q2, self.q2_target)
@@ -606,7 +616,7 @@ class MPOAgent:
             "loss/dual_eta": float(dual_loss.item()),
             "kl/q_pi": float(avg_kl.item()),
             "eta": float(eta.item()),
-            "lambda": float(self.lambda_dual),
+            "lambda": float((F.softplus(self.log_lambda) + 1e-8).item()),
         }
 
     def _soft_update(self, net: nn.Module, target: nn.Module) -> None:
