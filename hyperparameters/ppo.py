@@ -7,7 +7,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cheetah", "run"): {
         "total_steps": 3_000_000,
         "eval_interval": 10_000,
-        "save_interval": 50_000,
+        "save_interval": 1_000_000,
         "hidden_sizes": (256, 256),
         "rollout_steps": 8192,
         "update_epochs": 4,
@@ -26,7 +26,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("humanoid", "run"): {
         "total_steps": 10_000_000,
         "eval_interval": 25_000,
-        "save_interval": 100_000,
+        "save_interval": 1_000_000,
         "hidden_sizes": (512, 256),
         "rollout_steps": 8192,
         "update_epochs": 12,
@@ -45,7 +45,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("humanoid", "walk"): {
         "total_steps": 5_000_000,
         "eval_interval": 20_000,
-        "save_interval": 100_000,
+        "save_interval": 1_000_000,
         "hidden_sizes": (512, 256),
         "rollout_steps": 4096,
         "update_epochs": 10,
@@ -64,7 +64,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("hopper", "stand"): {
         "total_steps": 2_000_000,
         "eval_interval": 10_000,
-        "save_interval": 50_000,
+        "save_interval": 1_000_000,
         "hidden_sizes": (256, 256),
         "rollout_steps": 2048,
         "update_epochs": 10,
@@ -83,7 +83,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cartpole", "swingup"): {
         "total_steps": 1_000_000,
         "eval_interval": 5_000,
-        "save_interval": 25_000,
+        "save_interval": 1_000_000,
         "hidden_sizes": (128, 128),
         "rollout_steps": 2048,
         "update_epochs": 10,
