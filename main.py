@@ -318,7 +318,6 @@ if __name__ == "__main__":
             gamma=float(args.gamma),
             policy_lr=float(args.policy_lr),
             value_lr=float(args.value_lr),
-            topk_fraction=float(args.topk_fraction),
             eta=float(args.eta),
             eta_lr=float(args.eta_lr),
             epsilon_eta=float(args.epsilon_eta),
