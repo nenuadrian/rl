@@ -126,14 +126,14 @@ class VMPOAgent:
         self,
         obs_dim: int,
         act_dim: int,
+        config: VMPOConfig,
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
         hidden_sizes: Tuple[int, ...] = (256, 256),
-        config: VMPOConfig | None = None,
     ):
         self.device = device
-        self.config = config or VMPOConfig()
+        self.config = config
 
         self.policy = GaussianMLPPolicy(
             obs_dim,
