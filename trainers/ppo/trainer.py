@@ -225,7 +225,7 @@ class Trainer:
             if self.obs_normalizer is not None:
                 self.obs_normalizer.update(next_obs)
                 next_obs = self.obs_normalizer.normalize(next_obs)
-            done = float(terminated or truncated)
+            done = float(terminated)
 
             self.buffer.add(
                 obs,
