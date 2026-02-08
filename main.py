@@ -65,7 +65,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--total_steps", type=int, default=500_000)
     parser.add_argument("--start_steps", type=int, default=10_000)
     parser.add_argument("--update_after", type=int, default=1_000)
