@@ -141,12 +141,6 @@ class VMPOLightAgent:
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
-        # Removed: trust-region KL constraints and alpha dual updates
-        # kl_mu = ...
-        # kl_sigma = ...
-        # alpha_loss = ...
-        # self.alpha_opt.step()
-
         # M-step: weighted negative log-likelihood over full batch
         weighted_nll = -(weights.detach() * log_prob).sum()
 
@@ -174,7 +168,6 @@ class VMPOLightAgent:
             param_delta = torch.norm(params_after - params_before).item()
 
         with torch.no_grad():
-            # weight diagnostics
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
             selected_frac = torch.tensor(1.0, device=advantages.device)
@@ -199,7 +192,6 @@ class VMPOLightAgent:
             "loss/total": float(total_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
-            # Removed KL penalties/dual loss; keep keys as zeros for log compatibility
             "kl/mean": float(kl_mean.mean().item()),
             "kl/std": float(kl_std.mean().item()),
             "vmpo/dual_loss": float(dual_loss.item()),
