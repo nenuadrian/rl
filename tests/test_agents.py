@@ -3,7 +3,7 @@ import torch
 
 from trainers.sac.agent import SACAgent
 from trainers.ppo.agent import PPOAgent
-from trainers.vmpo.agent import VMPOAgent
+from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.mpo.agent import MPOAgent
 
 
@@ -102,6 +102,21 @@ def test_vmpo_agent_act_and_update():
         action_high=action_high,
         device=torch.device("cpu"),
         hidden_sizes=(32, 32),
+        config=VMPOConfig(
+            gamma=0.99,
+            policy_lr=3e-4,
+            value_lr=1e-3,
+            topk_fraction=0.2,
+            eta=0.1,
+            eta_lr=1e-3,
+            epsilon_eta=0.1,
+            epsilon_mu=0.1,
+            epsilon_sigma=0.1,
+            alpha_lr=1e-3,
+            kl_mean_coef=1.0,
+            kl_std_coef=1.0,
+            max_grad_norm=0.5,
+        ),
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)

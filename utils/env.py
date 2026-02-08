@@ -30,9 +30,21 @@ def flatten_obs(obs):
         if not parts:
             return np.asarray([], dtype=np.float32)
 
-        # Vector env: dict values have a shared leading dimension (num_envs, ...)
-        if parts[0].ndim >= 2 and all(p.ndim >= 2 and p.shape[0] == parts[0].shape[0] for p in parts):
-            flat_parts = [p.reshape(p.shape[0], -1) for p in parts]
+        # Vector env: values typically have shape (N, k) but some keys may be
+        # per-env scalars with shape (N,). Treat those as (N, 1).
+        if any(p.ndim >= 2 for p in parts):
+            n = next(int(p.shape[0]) for p in parts if p.ndim >= 2)
+            for p in parts:
+                if p.ndim == 0:
+                    raise ValueError(
+                        "Unexpected scalar in dict observation for vector env; expected per-env arrays"
+                    )
+                if int(p.shape[0]) != n:
+                    raise ValueError(
+                        f"Mismatched leading dims in dict observation: expected {n}, got {p.shape}"
+                    )
+
+            flat_parts = [p.reshape(n, 1) if p.ndim == 1 else p.reshape(n, -1) for p in parts]
             return np.concatenate(flat_parts, axis=1)
 
         # Single env
@@ -40,9 +52,12 @@ def flatten_obs(obs):
         return np.concatenate(flat_parts_1d, axis=0)
 
     arr = np.asarray(obs, dtype=np.float32)
-    if arr.ndim >= 2:
-        return arr.reshape(arr.shape[0], -1)
-    return arr.reshape(-1)
+    if arr.ndim == 0:
+        return arr.reshape(1)
+    if arr.ndim == 1:
+        return arr
+    # Already batched (N, obs_dim) or higher-rank: keep batch dim and flatten the rest.
+    return arr.reshape(arr.shape[0], -1)
 
 
 def set_seed(seed: int):

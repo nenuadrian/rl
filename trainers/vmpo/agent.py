@@ -202,7 +202,22 @@ class VMPOAgent:
             mean: (N, act_dim)
             log_std: (N, act_dim)
         """
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
+        obs_arr = np.asarray(obs, dtype=np.float32)
+        if obs_arr.ndim != 2:
+            raise ValueError(
+                f"obs must be a 2D array shaped (N, obs_dim); got {obs_arr.shape}. "
+                "(This often means a vector-env dict observation was flattened incorrectly.)"
+            )
+        first_layer = self.policy.encoder[0] if len(self.policy.encoder) > 0 else None
+        expected_obs_dim = (
+            int(first_layer.in_features) if isinstance(first_layer, nn.Linear) else None
+        )
+        if expected_obs_dim is not None and obs_arr.shape[1] != expected_obs_dim:
+            raise ValueError(
+                f"obs has wrong feature dimension: got obs_dim={obs_arr.shape[1]}, "
+                f"expected {expected_obs_dim}. If you use num_envs>1, ensure obs is (N, obs_dim)."
+            )
+        obs_t = torch.tensor(obs_arr, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             mean, log_std, value_norm = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
