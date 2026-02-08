@@ -20,6 +20,12 @@ def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
     return nn.Sequential(*layers)
 
 
+def orthogonal_init(module: nn.Module, gain: float = 1.0):
+    if isinstance(module, nn.Linear):
+        nn.init.orthogonal_(module.weight, gain)
+        nn.init.constant_(module.bias, 0.0)
+
+
 class GaussianMLPPolicy(nn.Module):
     def __init__(
         self,
@@ -48,6 +54,11 @@ class GaussianMLPPolicy(nn.Module):
         self.action_bias: torch.Tensor
         self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
+
+        self.encoder.apply(lambda m: orthogonal_init(m, gain=np.sqrt(2)))
+        orthogonal_init(self.policy_mean, gain=0.01)
+        orthogonal_init(self.policy_logstd, gain=0.01)
+        orthogonal_init(self.value_head, gain=1.0)
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         encoded = self.encoder(obs)
