@@ -131,7 +131,6 @@ def test_vmpo_agent_act_and_update():
 
     metrics = agent.update(batch)
     assert "loss/policy" in metrics
-    assert "loss/value" in metrics
     assert "kl/mean" in metrics
     assert "kl/std" in metrics
 

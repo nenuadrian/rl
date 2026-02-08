@@ -28,6 +28,8 @@ def train(
     device: torch.device,
     out_dir: str,
 ):
+    if _CLI_ARGS is None:
+        raise RuntimeError("CLI args not initialized")
     if algo == "sac":
         from trainers.sac.trainer import Trainer
 
@@ -52,29 +54,15 @@ def train(
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer
 
-        if _CLI_ARGS is None:
-            raise RuntimeError("CLI args not initialized")
-
-        ppo_rollout_steps = int(_CLI_ARGS.ppo_rollout_steps)
-        ppo_update_epochs = int(_CLI_ARGS.ppo_update_epochs)
-        ppo_minibatch_size = int(_CLI_ARGS.ppo_minibatch_size)
-
         trainer = Trainer(
             domain=domain,
             task=task,
             seed=seed,
             device=device,
             hidden_sizes=hidden_sizes,
-            rollout_steps=ppo_rollout_steps,
-            update_epochs=ppo_update_epochs,
-            minibatch_size=  # `ppo_minibatch_size` is a command-line argument used specifically for the
-            # Proximal Policy Optimization (PPO) algorithm. It defines the size of the
-            # mini-batches used during training when applying the PPO algorithm.
-            # Mini-batches are subsets of the training data that are used to update the
-            # policy and value functions in PPO. The `ppo_minibatch_size` argument
-            # allows you to specify the number of samples in each mini-batch during the
-            # training process.
-            ppo_minibatch_size,
+            rollout_steps=int(_CLI_ARGS.ppo_rollout_steps),
+            update_epochs=int(_CLI_ARGS.ppo_update_epochs),
+            minibatch_size=int(_CLI_ARGS.ppo_minibatch_size),
             policy_lr=float(_CLI_ARGS.ppo_policy_lr),
             value_lr=float(_CLI_ARGS.ppo_value_lr),
             clip_ratio=float(_CLI_ARGS.ppo_clip_ratio),
@@ -86,8 +74,8 @@ def train(
         )
         trainer.train(
             total_steps=total_steps,
-            update_epochs=ppo_update_epochs,
-            minibatch_size=ppo_minibatch_size,
+            update_epochs=int(_CLI_ARGS.ppo_update_epochs),
+            minibatch_size=int(_CLI_ARGS.ppo_minibatch_size),
             policy_lr=float(_CLI_ARGS.ppo_policy_lr),
             value_lr=float(_CLI_ARGS.ppo_value_lr),
             clip_ratio=float(_CLI_ARGS.ppo_clip_ratio),
@@ -108,7 +96,7 @@ def train(
             seed=seed,
             device=device,
             hidden_sizes=hidden_sizes,
-            rollout_steps=float(_CLI_ARGS.vmpo_rollout_steps),
+            rollout_steps=_CLI_ARGS.vmpo_rollout_steps,
         )
         trainer.train(
             total_steps=total_steps,

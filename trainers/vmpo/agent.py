@@ -20,46 +20,6 @@ def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
     return nn.Sequential(*layers)
 
 
-class PopArt(nn.Module):
-    def __init__(self, beta: float = 0.99999, eps: float = 1e-5):
-        super().__init__()
-        self.beta = beta
-        self.eps = eps
-        self.popart_mean: torch.Tensor
-        self.popart_std: torch.Tensor
-        self.register_buffer("popart_mean", torch.zeros(1))
-        self.register_buffer("popart_std", torch.ones(1))
-
-    def normalize(self, targets: torch.Tensor) -> torch.Tensor:
-        return (targets - self.popart_mean) / (self.popart_std + self.eps)
-
-    def denormalize(self, values: torch.Tensor) -> torch.Tensor:
-        return values * self.popart_std + self.popart_mean
-
-    @torch.no_grad()
-    def update(self, targets: torch.Tensor, value_head: nn.Linear) -> None:
-        batch_mean = targets.mean()
-        batch_var = targets.var(unbiased=False)
-
-        old_mean = self.popart_mean.clone()
-        old_std = self.popart_std.clone()
-
-        new_mean = self.beta * self.popart_mean + (1.0 - self.beta) * batch_mean
-        new_var = self.beta * (self.popart_std**2) + (1.0 - self.beta) * batch_var
-        new_std = torch.sqrt(new_var + self.eps)
-
-        weight = value_head.weight.data
-        bias = value_head.bias.data
-
-        weight.mul_(old_std / new_std)
-        bias.mul_(old_std)
-        bias.add_(old_mean - new_mean)
-        bias.div_(new_std)
-
-        self.popart_mean.copy_(new_mean)
-        self.popart_std.copy_(new_std)
-
-
 class GaussianMLPPolicy(nn.Module):
     def __init__(
         self,
@@ -138,15 +98,16 @@ class VMPOConfig:
     gamma: float = 0.99
     policy_lr: float = 1e-4
     value_lr: float = 1e-4
-    topk_fraction: float = 0.3
+    topk_fraction: float = 0.8
     eta: float = 5.0
     eta_lr: float = 1e-3
     epsilon_eta: float = 0.1
+    epsilon_mu: float = 0.01
+    epsilon_sigma: float = 1e-5
+    alpha_lr: float = 1e-3
     kl_mean_coef: float = 1e-3
     kl_std_coef: float = 1e-3
-    popart_beta: float = 0.99999
     max_grad_norm: float = 0.5
-    no_popart: bool = False
 
 
 class VMPOAgent:
@@ -170,7 +131,6 @@ class VMPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
-        self.popart = PopArt(beta=self.config.popart_beta).to(device)
 
         shared_params = list(self.policy.encoder.parameters())
         policy_params = list(self.policy.policy_mean.parameters()) + list(
@@ -192,6 +152,13 @@ class VMPOAgent:
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
 
+        # Learnable KL multipliers (dual variables), kept positive via exp(log_alpha_*).
+        self.log_alpha_mu = torch.nn.Parameter(torch.zeros(1, device=device))
+        self.log_alpha_sigma = torch.nn.Parameter(torch.zeros(1, device=device))
+        self.alpha_opt = torch.optim.Adam(
+            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
+        )
+
     def act(
         self,
         obs: np.ndarray,
@@ -202,7 +169,7 @@ class VMPOAgent:
         with torch.no_grad():
             mean, log_std, value_norm = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
-            value = self.popart.denormalize(value_norm)
+            value = value_norm
 
         return (
             action_t.detach().cpu().numpy().squeeze(0),
@@ -215,8 +182,7 @@ class VMPOAgent:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             value_norm = self.policy.value_norm(obs_t)
-            value = self.popart.denormalize(value_norm)
-        return float(value.item())
+        return float(value_norm.item())
 
     def update(self, batch: dict) -> dict:
         obs = batch["obs"]
@@ -238,7 +204,9 @@ class VMPOAgent:
         # Dual descent on eta (optimize log_eta)
         eta = self.log_eta.exp()
         logK = torch.log(torch.tensor(float(K), device=A.device))
-        dual_loss = eta * self.config.epsilon_eta + eta * (torch.logsumexp(A / eta, dim=0) - logK)
+        dual_loss = eta * self.config.epsilon_eta + eta * (
+            torch.logsumexp(A / eta, dim=0) - logK
+        )
 
         self.eta_opt.zero_grad(set_to_none=True)
         dual_loss.backward()
@@ -260,19 +228,58 @@ class VMPOAgent:
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
+        # --- Trust-region (decoupled) KL constraints on selected samples ---
+        mean_sel = mean[mask_bool]
+        log_std_sel = log_std[mask_bool]
+        old_mean_sel = old_means[mask_bool]
+        old_log_std_sel = old_log_stds[mask_bool]
+
+        old_std_sel = old_log_std_sel.exp()
+        new_std_sel = log_std_sel.exp()
+
+        # KL_mu: KL(N(old_mu, old_std) || N(new_mu, old_std))  (std fixed to old)
+        kl_mu_sel = (
+            (0.5 * ((mean_sel - old_mean_sel).pow(2) / (old_std_sel.pow(2) + 1e-8)))
+            .sum(dim=-1)
+            .mean()
+        )
+
+        # KL_sigma: KL(N(old_mu, old_std) || N(old_mu, new_std)) (mean fixed to old)
+        kl_sigma_sel = (
+            (
+                (log_std_sel - old_log_std_sel)
+                + (old_std_sel.pow(2) / (2.0 * (new_std_sel.pow(2) + 1e-8)))
+                - 0.5
+            )
+            .sum(dim=-1)
+            .mean()
+        )
+
+        alpha_mu = self.log_alpha_mu.exp()
+        alpha_sigma = self.log_alpha_sigma.exp()
+
+        # Dual update for alphas: minimize alpha * (epsilon - KL_detached)
+        alpha_loss = alpha_mu * (
+            self.config.epsilon_mu - kl_mu_sel.detach()
+        ) + alpha_sigma * (self.config.epsilon_sigma - kl_sigma_sel.detach())
+        self.alpha_opt.zero_grad(set_to_none=True)
+        alpha_loss.backward()
+        self.alpha_opt.step()
+
         # M-step: weighted negative log-likelihood over selected samples only
         log_prob_sel = log_prob[mask_bool]
         weighted_nll = -(weights.detach() * log_prob_sel).sum()
-        policy_loss = weighted_nll
 
-        returns_for_loss = returns_raw
-        if not self.config.no_popart:
-            with torch.no_grad():
-                self.popart.update(returns_raw, self.policy.value_head)
-            returns_for_loss = self.popart.normalize(returns_raw)
+        # Policy loss with trust-region penalties (stop-grad on alphas)
+        with torch.no_grad():
+            alpha_mu_det = self.log_alpha_mu.exp()
+            alpha_sigma_det = self.log_alpha_sigma.exp()
+        policy_loss = (
+            weighted_nll + alpha_mu_det * kl_mu_sel + alpha_sigma_det * kl_sigma_sel
+        )
 
         value_norm = self.policy.value_norm(obs)
-        value_loss = F.mse_loss(value_norm, returns_for_loss)
+        value_loss = F.mse_loss(value_norm, returns_raw)
 
         total_loss = policy_loss + value_loss
 
@@ -284,31 +291,14 @@ class VMPOAgent:
         self.opt.step()
 
         with torch.no_grad():
-            # pre-tanh Gaussian entropy: sum over action dims, mean over batch
-            entropy = (
-                (
-                    0.5
-                    * (
-                        1.0
-                        + torch.log(torch.tensor(2.0 * torch.pi, device=log_std.device))
-                    )
-                    + log_std
-                )
-                .sum(dim=-1)
-                .mean()
-            )
-
             # weight diagnostics
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
-            selected_frac = torch.tensor(float(K) / float(advantages.numel()), device=advantages.device)
-
-            # value diagnostics in raw (denormalized) space
-            v_pred_raw = (
-                self.popart.denormalize(value_norm)
-                if not self.config.no_popart
-                else value_norm
+            selected_frac = torch.tensor(
+                float(K) / float(advantages.numel()), device=advantages.device
             )
+
+            v_pred_raw = value_norm
             y = returns_raw.squeeze(-1)
             yhat = v_pred_raw.squeeze(-1)
             var_y = y.var(unbiased=False)
@@ -318,14 +308,15 @@ class VMPOAgent:
             "loss/total": float(total_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
-            "loss/policy_kl_mean_pen": 0.0,
-            "loss/policy_kl_std_pen": 0.0,
-            "loss/value": float(value_loss.item()),
+            "loss/policy_kl_mean_pen": float((alpha_mu_det * kl_mu_sel).item()),
+            "loss/policy_kl_std_pen": float((alpha_sigma_det * kl_sigma_sel).item()),
+            "loss/alpha": float(alpha_loss.item()),
             "kl/mean": float(kl_mean.mean().item()),
             "kl/std": float(kl_std.mean().item()),
-            "policy/logp_mean": float(log_prob.mean().item()),
-            "policy/entropy": float(entropy.item()),
-            "policy/std_mean": float(new_std.mean().item()),
+            "kl/mean_sel": float(kl_mu_sel.item()),
+            "kl/std_sel": float(kl_sigma_sel.item()),
+            "vmpo/alpha_mu": float(alpha_mu_det.item()),
+            "vmpo/alpha_sigma": float(alpha_sigma_det.item()),
             "vmpo/dual_loss": float(dual_loss.item()),
             "vmpo/epsilon_eta": float(self.config.epsilon_eta),
             "vmpo/eta": float(eta.item()),
@@ -340,8 +331,6 @@ class VMPOAgent:
             "value/raw_mean": float(v_pred_raw.mean().item()),
             "value/raw_std": float((v_pred_raw.std(unbiased=False) + 1e-8).item()),
             "value/explained_var": float(explained_var.item()),
-            "popart/mean": float(self.popart.popart_mean.item()),
-            "popart/std": float(self.popart.popart_std.item()),
             "grad/norm": float(
                 grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
             ),

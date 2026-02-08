@@ -197,8 +197,6 @@ class Trainer:
                 torch.save(
                     {
                         "policy": self.agent.policy.state_dict(),
-                        "popart_mean": self.agent.popart.popart_mean.detach().cpu(),
-                        "popart_std": self.agent.popart.popart_std.detach().cpu(),
                     },
                     ckpt_path,
                 )
