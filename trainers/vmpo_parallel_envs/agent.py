@@ -131,7 +131,7 @@ class VMPOParallelAgent:
         action_high: np.ndarray,
         device: torch.device,
         hidden_sizes: Tuple[int, ...],
-        config: VMPOConfig,
+        config: VMPOParallelConfig,
     ):
         self.device = device
         self.config = config

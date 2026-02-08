@@ -58,6 +58,7 @@ class GaussianMLPPolicy(nn.Module):
         self.encoder.apply(lambda m: orthogonal_init(m, gain=np.sqrt(2)))
         orthogonal_init(self.policy_mean, gain=0.01)
         orthogonal_init(self.policy_logstd, gain=0.01)
+        self.policy_logstd.bias.data.fill_(0.0)
         orthogonal_init(self.value_head, gain=1.0)
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
