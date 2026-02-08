@@ -83,9 +83,14 @@ if __name__ == "__main__":
     # On-policy (PPO/VMPO)
     parser.add_argument("--rollout_steps", type=int, default=4096)
     parser.add_argument("--update_epochs", type=int, default=10)
-    
-    # VMPO-only (safe to ignore for other algos)
+
+    # Shared discounting
     parser.add_argument("--gamma", type=float, default=0.99)
+
+    # PPO-only (safe to ignore for other algos)
+    parser.add_argument("--gae_lambda", type=float, default=0.95)
+
+    # VMPO-only (safe to ignore for other algos)
     parser.add_argument("--topk_fraction", type=float, default=1.0)
     parser.add_argument("--eta", type=float, default=5.0)
     parser.add_argument("--eta_lr", type=float, default=1e-3)
@@ -96,8 +101,35 @@ if __name__ == "__main__":
     parser.add_argument("--kl_mean_coef", type=float, default=1e-3)
     parser.add_argument("--kl_std_coef", type=float, default=1e-3)
 
-    # Shared by PPO/VMPO configs (but PPO currently wires these directly)
+    # Shared by PPO/VMPO/MPO
     parser.add_argument("--max_grad_norm", type=float, default=0.5)
+
+    # Off-policy shared (SAC/MPO)
+    parser.add_argument("--tau", type=float, default=0.005)
+    parser.add_argument("--q_lr", type=float, default=3e-4)
+
+    # SAC-only (safe to ignore for other algos)
+    parser.add_argument(
+        "--automatic_entropy_tuning",
+        dest="automatic_entropy_tuning",
+        action="store_true",
+        default=True,
+    )
+    parser.add_argument(
+        "--no_automatic_entropy_tuning",
+        dest="automatic_entropy_tuning",
+        action="store_false",
+    )
+
+    # MPO-only (safe to ignore for other algos)
+    parser.add_argument("--eta_init", type=float, default=1.0)
+    parser.add_argument("--kl_epsilon", type=float, default=0.1)
+    parser.add_argument("--mstep_kl_epsilon", type=float, default=0.1)
+    parser.add_argument("--lambda_init", type=float, default=1.0)
+    parser.add_argument("--lambda_lr", type=float, default=1e-3)
+    parser.add_argument("--action_samples", type=int, default=16)
+    parser.add_argument("--retrace_steps", type=int, default=5)
+    parser.add_argument("--retrace_mc_actions", type=int, default=16)
 
     # PPO-only (safe to ignore for other algos)
     parser.add_argument("--minibatch_size", type=int, default=64)
@@ -141,6 +173,16 @@ if __name__ == "__main__":
         raise RuntimeError("CLI args not initialized")
     if algo == "sac":
         from trainers.sac.trainer import Trainer
+        from trainers.sac.agent import SACConfig
+
+        sac_config = SACConfig(
+            gamma=float(args.gamma),
+            tau=float(args.tau),
+            policy_lr=float(args.policy_lr),
+            q_lr=float(args.q_lr),
+            alpha_lr=float(args.alpha_lr),
+            automatic_entropy_tuning=bool(args.automatic_entropy_tuning),
+        )
 
         trainer = Trainer(
             domain=args.domain,
@@ -149,6 +191,7 @@ if __name__ == "__main__":
             device=device,
             hidden_sizes=tuple(args.hidden_sizes),
             replay_size=args.replay_size,
+            config=sac_config,
         )
         trainer.train(
             total_steps=args.total_steps,
@@ -170,6 +213,8 @@ if __name__ == "__main__":
             device=device,
             hidden_sizes=tuple(args.hidden_sizes),
             rollout_steps=int(args.rollout_steps),
+            gamma=float(args.gamma),
+            gae_lambda=float(args.gae_lambda),
             update_epochs=int(args.update_epochs),
             minibatch_size=int(args.minibatch_size),
             policy_lr=float(args.policy_lr),
@@ -234,6 +279,24 @@ if __name__ == "__main__":
         )
     elif algo == "mpo":
         from trainers.mpo.trainer import Trainer
+        from trainers.mpo.agent import MPOConfig
+
+        mpo_config = MPOConfig(
+            gamma=float(args.gamma),
+            tau=float(args.tau),
+            policy_lr=float(args.policy_lr),
+            q_lr=float(args.q_lr),
+            eta_init=float(args.eta_init),
+            eta_lr=float(args.eta_lr),
+            kl_epsilon=float(args.kl_epsilon),
+            mstep_kl_epsilon=float(args.mstep_kl_epsilon),
+            lambda_init=float(args.lambda_init),
+            lambda_lr=float(args.lambda_lr),
+            max_grad_norm=float(args.max_grad_norm),
+            action_samples=int(args.action_samples),
+            retrace_steps=int(args.retrace_steps),
+            retrace_mc_actions=int(args.retrace_mc_actions),
+        )
 
         trainer = Trainer(
             domain=args.domain,
@@ -242,6 +305,7 @@ if __name__ == "__main__":
             device=device,
             hidden_sizes=tuple(args.hidden_sizes),
             replay_size=args.replay_size,
+            config=mpo_config,
         )
         trainer.train(
             total_steps=args.total_steps,
