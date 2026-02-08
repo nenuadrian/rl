@@ -7,7 +7,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
 
 from trainers.vmpo.gaussian_mlp_policy import GaussianMLPPolicy
 
