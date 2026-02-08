@@ -306,7 +306,6 @@ if __name__ == "__main__":
             seed=args.seed,
             device=device,
             hidden_sizes=tuple(args.hidden_sizes),
-            num_envs=int(args.num_envs),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
         )
