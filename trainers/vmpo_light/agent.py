@@ -22,8 +22,6 @@ class VMPOLightConfig:
     epsilon_mu: float
     epsilon_sigma: float
     alpha_lr: float
-    kl_mean_coef: float
-    kl_std_coef: float
 
 
 class VMPOLightAgent:

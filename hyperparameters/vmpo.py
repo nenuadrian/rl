@@ -21,8 +21,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.01,
         "epsilon_sigma": 1e-4,
         "alpha_lr": 1e-3,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
     ("humanoid", "run"): {
@@ -42,8 +40,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.05,
         "epsilon_sigma": 3e-4,
         "alpha_lr": 1e-4,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
     ("humanoid", "walk"): {
@@ -63,8 +59,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.05,
         "epsilon_sigma": 3e-4,
         "alpha_lr": 1e-4,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
     ("hopper", "stand"): {
@@ -84,8 +78,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.01,
         "epsilon_sigma": 1e-4,
         "alpha_lr": 1e-3,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
     ("cartpole", "swingup"): {
@@ -127,8 +119,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.01,
         "epsilon_sigma": 1e-4,
         "alpha_lr": 5e-4,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
     ("walker", "run"): {
@@ -136,8 +126,8 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "total_steps": 5_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
-        "hidden_sizes": (256, 256),  # (512, 256) also works if value is stable
-        "rollout_steps": 24_576,  # can go up to 32_768 if learning is noisy
+        "hidden_sizes": (256, 256),
+        "rollout_steps": 24_576,
         "update_epochs": 1,
         "gamma": 0.995,
         "policy_lr": 2e-4,
@@ -149,8 +139,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "epsilon_mu": 0.02,
         "epsilon_sigma": 2e-4,
         "alpha_lr": 3e-4,
-        "kl_mean_coef": 1e-3,
-        "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
 }

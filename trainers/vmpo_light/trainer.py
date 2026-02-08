@@ -87,7 +87,6 @@ class Trainer:
     def train(
         self,
         total_steps: int,
-        update_epochs: int,
         eval_interval: int,
         save_interval: int,
         out_dir: str,
@@ -170,10 +169,8 @@ class Trainer:
                     ),
                 }
 
-                metrics = {}
-                for _ in range(update_epochs):
-                    metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step)
+                metrics = self.agent.update(batch)
+                log_wandb(metrics, step=step)
                 if metrics:
                     print(metrics)
 

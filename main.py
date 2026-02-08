@@ -96,8 +96,6 @@ if __name__ == "__main__":
     parser.add_argument("--epsilon_mu", type=float, default=0.01)
     parser.add_argument("--epsilon_sigma", type=float, default=1e-4)
     parser.add_argument("--alpha_lr", type=float, default=1e-3)
-    parser.add_argument("--kl_mean_coef", type=float, default=1e-3)
-    parser.add_argument("--kl_std_coef", type=float, default=1e-3)
 
     # Shared by PPO/VMPO/MPO
     parser.add_argument("--max_grad_norm", type=float, default=0.5)
@@ -258,8 +256,6 @@ if __name__ == "__main__":
             epsilon_mu=float(args.epsilon_mu),
             epsilon_sigma=float(args.epsilon_sigma),
             alpha_lr=float(args.alpha_lr),
-            kl_mean_coef=float(args.kl_mean_coef),
-            kl_std_coef=float(args.kl_std_coef),
             max_grad_norm=float(args.max_grad_norm),
         )
 
@@ -295,8 +291,6 @@ if __name__ == "__main__":
             epsilon_mu=float(args.epsilon_mu),
             epsilon_sigma=float(args.epsilon_sigma),
             alpha_lr=float(args.alpha_lr),
-            kl_mean_coef=float(args.kl_mean_coef),
-            kl_std_coef=float(args.kl_std_coef),
             max_grad_norm=float(args.max_grad_norm),
         )
 
@@ -331,9 +325,6 @@ if __name__ == "__main__":
             epsilon_mu=float(args.epsilon_mu),
             epsilon_sigma=float(args.epsilon_sigma),
             alpha_lr=float(args.alpha_lr),
-            kl_mean_coef=float(args.kl_mean_coef),
-            kl_std_coef=float(args.kl_std_coef),
-            max_grad_norm=float(args.max_grad_norm),
         )
 
         trainer = VMPOLightTrainer(
@@ -347,7 +338,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            update_epochs=int(args.update_epochs),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
