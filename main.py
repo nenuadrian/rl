@@ -316,6 +316,42 @@ if __name__ == "__main__":
             save_interval=args.save_interval,
             out_dir=args.out_dir,
         )
+    elif algo == "vmpo_light":
+        from trainers.vmpo_light.trainer import Trainer as VMPOLightTrainer
+        from trainers.vmpo_light.agent import VMPOLightConfig
+
+        vmpo_config = VMPOLightConfig(
+            gamma=float(args.gamma),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            topk_fraction=float(args.topk_fraction),
+            eta=float(args.eta),
+            eta_lr=float(args.eta_lr),
+            epsilon_eta=float(args.epsilon_eta),
+            epsilon_mu=float(args.epsilon_mu),
+            epsilon_sigma=float(args.epsilon_sigma),
+            alpha_lr=float(args.alpha_lr),
+            kl_mean_coef=float(args.kl_mean_coef),
+            kl_std_coef=float(args.kl_std_coef),
+            max_grad_norm=float(args.max_grad_norm),
+        )
+
+        trainer = VMPOLightTrainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            rollout_steps=int(args.rollout_steps),
+            config=vmpo_config,
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            update_epochs=int(args.update_epochs),
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
     elif algo == "mpo":
         from trainers.mpo.trainer import Trainer as MPOTrainer
         from trainers.mpo.agent import MPOConfig
