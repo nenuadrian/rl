@@ -32,7 +32,7 @@ class Trainer:
         device: torch.device,
         hidden_sizes: Tuple[int, int],
         rollout_steps: int,
-        config: VMPOConfig | None = None,
+        config: VMPOConfig,
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
@@ -57,7 +57,7 @@ class Trainer:
             action_high=action_high,
             device=device,
             hidden_sizes=hidden_sizes,
-            config=config or VMPOConfig(),
+            config=config,
         )
 
         self.rollout_steps = rollout_steps

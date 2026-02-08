@@ -106,19 +106,19 @@ class GaussianMLPPolicy(nn.Module):
 
 @dataclass
 class VMPOConfig:
-    gamma: float = 0.99
-    policy_lr: float = 1e-4
-    value_lr: float = 1e-4
-    topk_fraction: float = 1.0
-    eta: float = 5.0
-    eta_lr: float = 1e-3
-    epsilon_eta: float = 0.1
-    epsilon_mu: float = 0.01
-    epsilon_sigma: float = 1e-4
-    alpha_lr: float = 1e-3
-    kl_mean_coef: float = 1e-3
-    kl_std_coef: float = 1e-3
-    max_grad_norm: float = 0.5
+    gamma: float
+    policy_lr: float
+    value_lr: float
+    topk_fraction: float 
+    eta: float
+    eta_lr: float 
+    epsilon_eta: float 
+    epsilon_mu: float 
+    epsilon_sigma: float 
+    alpha_lr: float 
+    kl_mean_coef: float 
+    kl_std_coef: float 
+    max_grad_norm: float
 
 
 class VMPOAgent:
