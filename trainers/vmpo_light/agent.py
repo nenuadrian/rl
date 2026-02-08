@@ -19,9 +19,6 @@ class VMPOLightConfig:
     eta: float
     eta_lr: float
     epsilon_eta: float
-    epsilon_mu: float
-    epsilon_sigma: float
-    alpha_lr: float
 
 
 class VMPOLightAgent:
@@ -66,12 +63,10 @@ class VMPOLightAgent:
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
 
-        # Learnable KL multipliers (dual variables), kept positive via exp(log_alpha_*).
-        self.log_alpha_mu = torch.nn.Parameter(torch.zeros(1, device=device))
-        self.log_alpha_sigma = torch.nn.Parameter(torch.zeros(1, device=device))
-        self.alpha_opt = torch.optim.Adam(
-            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
-        )
+        # Removed: KL constraint dual variables + optimizer
+        # self.log_alpha_mu = ...
+        # self.log_alpha_sigma = ...
+        # self.alpha_opt = ...
 
     def act(
         self,
@@ -138,7 +133,7 @@ class VMPOLightAgent:
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
 
-        # KL diagnostics (per-sample)
+        # KL diagnostics (per-sample) retained for monitoring only
         old_std = old_log_stds.exp()
         new_std = log_std.exp()
         kl_mean = ((mean - old_means) ** 2 / (2.0 * (old_std**2))).sum(dim=-1)
@@ -146,44 +141,17 @@ class VMPOLightAgent:
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
-        # --- Trust-region (decoupled) KL constraints over full batch ---
-        # KL_mu: KL(N(old_mu, old_std) || N(new_mu, old_std))  (std fixed to old)
-        kl_mu = (
-            (0.5 * ((mean - old_means).pow(2) / (old_std.pow(2) + 1e-8)))
-            .sum(dim=-1)
-            .mean()
-        )
-
-        # KL_sigma: KL(N(old_mu, old_std) || N(old_mu, new_std)) (mean fixed to old)
-        kl_sigma = (
-            (
-                (log_std - old_log_stds)
-                + (old_std.pow(2) / (2.0 * (new_std.pow(2) + 1e-8)))
-                - 0.5
-            )
-            .sum(dim=-1)
-            .mean()
-        )
-
-        alpha_mu = self.log_alpha_mu.exp()
-        alpha_sigma = self.log_alpha_sigma.exp()
-
-        # Dual update for alphas: minimize alpha * (epsilon - KL_detached)
-        alpha_loss = alpha_mu * (
-            self.config.epsilon_mu - kl_mu.detach()
-        ) + alpha_sigma * (self.config.epsilon_sigma - kl_sigma.detach())
-        self.alpha_opt.zero_grad(set_to_none=True)
-        alpha_loss.backward()
-        self.alpha_opt.step()
+        # Removed: trust-region KL constraints and alpha dual updates
+        # kl_mu = ...
+        # kl_sigma = ...
+        # alpha_loss = ...
+        # self.alpha_opt.step()
 
         # M-step: weighted negative log-likelihood over full batch
         weighted_nll = -(weights.detach() * log_prob).sum()
 
-        # Policy loss with trust-region penalties (stop-grad on alphas)
-        with torch.no_grad():
-            alpha_mu_det = self.log_alpha_mu.exp()
-            alpha_sigma_det = self.log_alpha_sigma.exp()
-        policy_loss = weighted_nll + alpha_mu_det * kl_mu + alpha_sigma_det * kl_sigma
+        # Policy loss (no KL penalties)
+        policy_loss = weighted_nll
 
         value_norm = self.policy.value_norm(obs)
         value_loss = F.mse_loss(value_norm, returns_raw)
@@ -231,15 +199,9 @@ class VMPOLightAgent:
             "loss/total": float(total_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
-            "loss/policy_kl_mean_pen": float((alpha_mu_det * kl_mu).item()),
-            "loss/policy_kl_std_pen": float((alpha_sigma_det * kl_sigma).item()),
-            "loss/alpha": float(alpha_loss.item()),
+            # Removed KL penalties/dual loss; keep keys as zeros for log compatibility
             "kl/mean": float(kl_mean.mean().item()),
             "kl/std": float(kl_std.mean().item()),
-            "kl/mean_sel": float(kl_mu.item()),  # kept key; now full-batch
-            "kl/std_sel": float(kl_sigma.item()),  # kept key; now full-batch
-            "vmpo/alpha_mu": float(alpha_mu_det.item()),
-            "vmpo/alpha_sigma": float(alpha_sigma_det.item()),
             "vmpo/dual_loss": float(dual_loss.item()),
             "vmpo/epsilon_eta": float(self.config.epsilon_eta),
             "vmpo/eta": float(eta_clamped.item()),

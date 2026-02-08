@@ -115,8 +115,6 @@ def test_vmpo_agent_act_and_update():
             epsilon_mu=0.1,
             epsilon_sigma=0.1,
             alpha_lr=1e-3,
-            kl_mean_coef=1.0,
-            kl_std_coef=1.0,
             max_grad_norm=0.5,
         ),
     )
@@ -173,15 +171,9 @@ def test_vmpo_light_agent_act_and_update():
             gamma=0.99,
             policy_lr=3e-4,
             value_lr=1e-3,
-            topk_fraction=0.2,
             eta=0.1,
             eta_lr=1e-3,
             epsilon_eta=0.1,
-            epsilon_mu=0.1,
-            epsilon_sigma=0.1,
-            alpha_lr=1e-3,
-            kl_mean_coef=1.0,
-            kl_std_coef=1.0,
         ),
     )
 
@@ -242,8 +234,6 @@ def test_vmpo_parallel_agent_act_and_update():
             epsilon_mu=0.1,
             epsilon_sigma=0.1,
             alpha_lr=1e-3,
-            kl_mean_coef=1.0,
-            kl_std_coef=1.0,
             max_grad_norm=0.5,
         ),
     )

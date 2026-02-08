@@ -16,9 +16,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 5.0,
         "eta_lr": 1e-3,
         "epsilon_eta": 0.1,
-        "epsilon_mu": 0.01,
-        "epsilon_sigma": 1e-4,
-        "alpha_lr": 1e-3,
     },
     ("humanoid", "run"): {
         "total_steps": 30_000_000,
@@ -32,9 +29,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 10.0,
         "eta_lr": 5e-4,
         "epsilon_eta": 0.3,
-        "epsilon_mu": 0.05,
-        "epsilon_sigma": 3e-4,
-        "alpha_lr": 1e-4,
     },
     ("humanoid", "walk"): {
         "total_steps": 30_000_000,
@@ -48,9 +42,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 10.0,
         "eta_lr": 5e-4,
         "epsilon_eta": 0.3,
-        "epsilon_mu": 0.05,
-        "epsilon_sigma": 3e-4,
-        "alpha_lr": 1e-4,
     },
     ("hopper", "stand"): {
         "total_steps": 5_000_000,
@@ -64,9 +55,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 5.0,
         "eta_lr": 1e-3,
         "epsilon_eta": 0.1,
-        "epsilon_mu": 0.01,
-        "epsilon_sigma": 1e-4,
-        "alpha_lr": 1e-3,
     },
     ("cartpole", "swingup"): {
         "total_steps": 2_000_000,
@@ -80,9 +68,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 5.0,
         "eta_lr": 1e-3,
         "epsilon_eta": 0.1,
-        "epsilon_mu": 0.01,
-        "epsilon_sigma": 1e-4,
-        "alpha_lr": 1e-3,
     },
     ("walker", "walk"): {
         "num_envs": 1,
@@ -97,9 +82,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 5.0,
         "eta_lr": 5e-4,
         "epsilon_eta": 0.1,
-        "epsilon_mu": 0.01,
-        "epsilon_sigma": 1e-4,
-        "alpha_lr": 5e-4,
     },
     ("walker", "run"): {
         "num_envs": 1,
@@ -114,9 +96,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "eta": 8.0,
         "eta_lr": 3e-4,
         "epsilon_eta": 0.2,
-        "epsilon_mu": 0.02,
-        "epsilon_sigma": 2e-4,
-        "alpha_lr": 3e-4,
     },
 }
 

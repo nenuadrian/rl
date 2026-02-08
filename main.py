@@ -321,9 +321,6 @@ if __name__ == "__main__":
             eta=float(args.eta),
             eta_lr=float(args.eta_lr),
             epsilon_eta=float(args.epsilon_eta),
-            epsilon_mu=float(args.epsilon_mu),
-            epsilon_sigma=float(args.epsilon_sigma),
-            alpha_lr=float(args.alpha_lr),
         )
 
         trainer = VMPOLightTrainer(
