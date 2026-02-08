@@ -20,7 +20,7 @@ def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
     return nn.Sequential(*layers)
 
 
-def orthogonal_init(module: nn.Module, gain: float = 1.0):
+def orthogonal_init(module: nn.Module, gain: float = 0.01):
     if isinstance(module, nn.Linear):
         nn.init.orthogonal_(module.weight, gain)
         nn.init.constant_(module.bias, 0.0)
@@ -109,15 +109,15 @@ class VMPOConfig:
     gamma: float
     policy_lr: float
     value_lr: float
-    topk_fraction: float 
+    topk_fraction: float
     eta: float
-    eta_lr: float 
-    epsilon_eta: float 
-    epsilon_mu: float 
-    epsilon_sigma: float 
-    alpha_lr: float 
-    kl_mean_coef: float 
-    kl_std_coef: float 
+    eta_lr: float
+    epsilon_eta: float
+    epsilon_mu: float
+    epsilon_sigma: float
+    alpha_lr: float
+    kl_mean_coef: float
+    kl_std_coef: float
     max_grad_norm: float
 
 
@@ -129,11 +129,11 @@ class VMPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
-        config: VMPOConfig | None = None,
+        hidden_sizes: Tuple[int, ...],
+        config: VMPOConfig,
     ):
         self.device = device
-        self.config = config or VMPOConfig()
+        self.config = config
 
         self.policy = GaussianMLPPolicy(
             obs_dim,
@@ -175,46 +175,123 @@ class VMPOAgent:
         obs: np.ndarray,
         deterministic: bool = False,
     ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        action, value, mean, log_std = self.act_batch(
+            obs=np.asarray(obs, dtype=np.float32)[None, :],
+            deterministic=deterministic,
+        )
+        return (
+            action.squeeze(0),
+            float(value.squeeze(0).item()),
+            mean.squeeze(0),
+            log_std.squeeze(0),
+        )
 
+    def act_batch(
+        self,
+        obs: np.ndarray,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Vectorized action selection.
+
+        Args:
+            obs: (N, obs_dim) numpy array.
+
+        Returns:
+            action: (N, act_dim)
+            value: (N, 1)
+            mean: (N, act_dim)
+            log_std: (N, act_dim)
+        """
+        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             mean, log_std, value_norm = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
-            value = value_norm
 
         return (
-            action_t.detach().cpu().numpy().squeeze(0),
-            float(value.item()),
-            mean.detach().cpu().numpy().squeeze(0),
-            log_std.detach().cpu().numpy().squeeze(0),
+            action_t.detach().cpu().numpy(),
+            value_norm.detach().cpu().numpy(),
+            mean.detach().cpu().numpy(),
+            log_std.detach().cpu().numpy(),
         )
 
     def value(self, obs: np.ndarray) -> float:
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        values = self.value_batch(np.asarray(obs, dtype=np.float32)[None, :])
+        return float(values.squeeze(0).item())
+
+    def value_batch(self, obs: np.ndarray) -> np.ndarray:
+        """Vectorized value prediction.
+
+        Args:
+            obs: (N, obs_dim) numpy array.
+
+        Returns:
+            values: (N,) numpy array.
+        """
+        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             value_norm = self.policy.value_norm(obs_t)
-        return float(value_norm.item())
+        return value_norm.squeeze(-1).detach().cpu().numpy()
 
     def update(self, batch: dict) -> dict:
         obs = batch["obs"]
         actions = batch["actions"]
         returns_raw = batch["returns"]
         advantages = batch["advantages"].squeeze(-1)
+        group_ids = batch.get("group_ids", None)
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        # >>> normalize advantages (stabilises E-step)
-        adv = advantages.squeeze(-1)  # shape (N,)
-        adv_mean = adv.mean()
-        adv_std = adv.std(unbiased=False) + 1e-8
-        adv_norm = (adv - adv_mean) / adv_std
+        adv = advantages.reshape(-1)  # (B,)
 
-        # E-step: top-k selection
-        # use adv_norm for selection and weighting
-        k = max(1, int(self.config.topk_fraction * adv_norm.numel()))
-        topk_vals, _ = torch.topk(adv_norm, k)
-        threshold = topk_vals.min()
-        mask_bool = adv_norm >= threshold
+        if group_ids is None:
+            # >>> normalize advantages (stabilises E-step)
+            adv_mean = adv.mean()
+            adv_std = adv.std(unbiased=False) + 1e-8
+            adv_norm = (adv - adv_mean) / adv_std
+
+            # E-step: top-k selection (global)
+            k = max(1, int(self.config.topk_fraction * adv_norm.numel()))
+            topk_vals, _ = torch.topk(adv_norm, k)
+            threshold = topk_vals.min()
+            mask_bool = adv_norm >= threshold
+        else:
+            # Per-environment normalization and top-k selection.
+            # This prevents different envs/episodes from competing in the same rank list.
+            gids = group_ids.reshape(-1).long()
+            if gids.numel() != adv.numel():
+                raise ValueError(
+                    f"group_ids must have same length as advantages: {gids.numel()} vs {adv.numel()}"
+                )
+
+            n_groups = int(gids.max().item()) + 1 if gids.numel() > 0 else 0
+            ones = torch.ones_like(adv)
+            count = torch.zeros(n_groups, device=adv.device, dtype=adv.dtype)
+            count = count.scatter_add(0, gids, ones)
+            sum_adv = torch.zeros(n_groups, device=adv.device, dtype=adv.dtype)
+            sum_adv = sum_adv.scatter_add(0, gids, adv)
+            sum_sq = torch.zeros(n_groups, device=adv.device, dtype=adv.dtype)
+            sum_sq = sum_sq.scatter_add(0, gids, adv * adv)
+
+            mean_g = sum_adv / (count + 1e-8)
+            var_g = sum_sq / (count + 1e-8) - mean_g * mean_g
+            std_g = torch.sqrt(torch.clamp(var_g, min=0.0) + 1e-8)
+            adv_norm = (adv - mean_g[gids]) / std_g[gids]
+
+            mask_bool = torch.zeros_like(adv_norm, dtype=torch.bool)
+            thresholds = []
+            for g in range(n_groups):
+                idx = torch.nonzero(gids == g, as_tuple=False).squeeze(-1)
+                if idx.numel() == 0:
+                    continue
+                k = max(1, int(self.config.topk_fraction * idx.numel()))
+                vals, pos = torch.topk(adv_norm[idx], k)
+                mask_bool[idx[pos]] = True
+                thresholds.append(vals.min())
+            threshold = (
+                torch.stack(thresholds).mean()
+                if thresholds
+                else torch.tensor(0.0, device=adv.device, dtype=adv.dtype)
+            )
 
         A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
         K = A.numel()
@@ -300,7 +377,7 @@ class VMPOAgent:
         )
 
         value_norm = self.policy.value_norm(obs)
-        value_loss = F.mse_loss(value_norm, returns_raw)
+        value_loss = F.mse_loss(value_norm.squeeze(-1), returns_raw.squeeze(-1))
 
         total_loss = policy_loss + value_loss
 

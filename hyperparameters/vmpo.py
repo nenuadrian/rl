@@ -5,6 +5,7 @@ from typing import Any
 
 PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cheetah", "run"): {
+        "num_envs": 32,
         "total_steps": 10_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -26,6 +27,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("humanoid", "run"): {
+        "num_envs": 32,
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -47,6 +49,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("humanoid", "walk"): {
+        "num_envs": 32,
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -68,6 +71,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("hopper", "stand"): {
+        "num_envs": 32,
         "total_steps": 5_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -89,6 +93,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("cartpole", "swingup"): {
+        "num_envs": 32,
         "total_steps": 2_000_000,
         "eval_interval": 10_000,
         "save_interval": 25_000,

@@ -90,6 +90,7 @@ if __name__ == "__main__":
     parser.add_argument("--gae_lambda", type=float, default=0.95)
 
     # VMPO-only (safe to ignore for other algos)
+    parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--topk_fraction", type=float, default=1.0)
     parser.add_argument("--eta", type=float, default=5.0)
     parser.add_argument("--eta_lr", type=float, default=1e-3)
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     if _CLI_ARGS is None:
         raise RuntimeError("CLI args not initialized")
     if algo == "sac":
-        from trainers.sac.trainer import Trainer
+        from trainers.sac.trainer import Trainer as SACTrainer
         from trainers.sac.agent import SACConfig
 
         sac_config = SACConfig(
@@ -183,7 +184,7 @@ if __name__ == "__main__":
             automatic_entropy_tuning=bool(args.automatic_entropy_tuning),
         )
 
-        trainer = Trainer(
+        trainer = SACTrainer(
             domain=args.domain,
             task=args.task,
             seed=args.seed,
@@ -203,9 +204,9 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "ppo":
-        from trainers.ppo.trainer import Trainer
+        from trainers.ppo.trainer import Trainer as PPOTrainer
 
-        trainer = Trainer(
+        trainer = PPOTrainer(
             domain=args.domain,
             task=args.task,
             seed=args.seed,
@@ -241,7 +242,7 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "vmpo":
-        from trainers.vmpo.trainer import Trainer
+        from trainers.vmpo.trainer import Trainer as VMPOTrainer
         from trainers.vmpo.agent import VMPOConfig
 
         vmpo_config = VMPOConfig(
@@ -260,12 +261,13 @@ if __name__ == "__main__":
             max_grad_norm=float(args.max_grad_norm),
         )
 
-        trainer = Trainer(
+        trainer = VMPOTrainer(
             domain=args.domain,
             task=args.task,
             seed=args.seed,
             device=device,
             hidden_sizes=tuple(args.hidden_sizes),
+            num_envs=int(args.num_envs),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
         )
@@ -277,7 +279,7 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
-        from trainers.mpo.trainer import Trainer
+        from trainers.mpo.trainer import Trainer as MPOTrainer
         from trainers.mpo.agent import MPOConfig
 
         mpo_config = MPOConfig(
@@ -297,7 +299,7 @@ if __name__ == "__main__":
             retrace_mc_actions=int(args.retrace_mc_actions),
         )
 
-        trainer = Trainer(
+        trainer = MPOTrainer(
             domain=args.domain,
             task=args.task,
             seed=args.seed,

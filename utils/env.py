@@ -20,13 +20,29 @@ def infer_obs_dim(obs_space: gym.Space) -> int:
 
 
 def flatten_obs(obs):
-    """Flatten a dm_control observation dict/OrderedDict into a 1-D numpy array."""
+    """Flatten dm_control observations.
+
+    Supports both single-env observations (returns shape (obs_dim,)) and
+    vector-env observations (returns shape (num_envs, obs_dim,)).
+    """
     if isinstance(obs, dict):
-        parts = []
-        for key in sorted(obs.keys()):
-            parts.append(np.asarray(obs[key], dtype=np.float32).flatten())
-        return np.concatenate(parts)
-    return np.asarray(obs, dtype=np.float32).flatten()
+        parts = [np.asarray(obs[key], dtype=np.float32) for key in sorted(obs.keys())]
+        if not parts:
+            return np.asarray([], dtype=np.float32)
+
+        # Vector env: dict values have a shared leading dimension (num_envs, ...)
+        if parts[0].ndim >= 2 and all(p.ndim >= 2 and p.shape[0] == parts[0].shape[0] for p in parts):
+            flat_parts = [p.reshape(p.shape[0], -1) for p in parts]
+            return np.concatenate(flat_parts, axis=1)
+
+        # Single env
+        flat_parts_1d = [p.reshape(-1) for p in parts]
+        return np.concatenate(flat_parts_1d, axis=0)
+
+    arr = np.asarray(obs, dtype=np.float32)
+    if arr.ndim >= 2:
+        return arr.reshape(arr.shape[0], -1)
+    return arr.reshape(-1)
 
 
 def set_seed(seed: int):
