@@ -44,7 +44,6 @@ class Trainer:
         self.replay = ReplayBuffer(obs_dim, act_dim, capacity=replay_size)
 
         self.episode_return = 0.0
-        self.episode_len = 0
 
     def train(
         self,
@@ -73,23 +72,18 @@ class Trainer:
             obs = next_obs
 
             self.episode_return += reward
-            self.episode_len += 1
 
             if terminated or truncated:
-                print(
-                    f"step={step} episode_return={self.episode_return:.2f} episode_len={self.episode_len}"
-                )
+                print(f"step={step} episode_return={self.episode_return:.2f}")
                 log_wandb(
                     {
                         "train/episode_return": float(self.episode_return),
-                        "train/episode_len": int(self.episode_len),
                     },
                     step=step,
                 )
                 obs, _ = self.env.reset()
                 obs = flatten_obs(obs)
                 self.episode_return = 0.0
-                self.episode_len = 0
 
             if step >= update_after and self.replay.size >= batch_size:
                 for _ in range(updates_per_step):

@@ -164,7 +164,6 @@ class Trainer:
         self.buffer = RolloutBuffer.create(obs_dim, act_dim, self.rollout_steps)
 
         self.episode_return = 0.0
-        self.episode_len = 0
 
     def train(
         self,
@@ -200,7 +199,9 @@ class Trainer:
                 target_kl=target_kl,
             )
 
-        effective_update_epochs = int(update_epochs) if update_epochs is not None else self.update_epochs
+        effective_update_epochs = (
+            int(update_epochs) if update_epochs is not None else self.update_epochs
+        )
         if minibatch_size is not None:
             effective_minibatch_size = int(minibatch_size)
         elif batch_size is not None:
@@ -237,16 +238,12 @@ class Trainer:
             obs = next_obs
 
             self.episode_return += float(reward)
-            self.episode_len += 1
 
             if terminated or truncated:
-                print(
-                    f"step={step} episode_return={self.episode_return:.2f} episode_len={self.episode_len}"
-                )
+                print(f"step={step} episode_return={self.episode_return:.2f}")
                 log_wandb(
                     {
                         "train/episode_return": float(self.episode_return),
-                        "train/episode_len": int(self.episode_len),
                     },
                     step=step,
                 )
@@ -256,7 +253,6 @@ class Trainer:
                     self.obs_normalizer.update(obs)
                     obs = self.obs_normalizer.normalize(obs)
                 self.episode_return = 0.0
-                self.episode_len = 0
 
             if self.buffer.is_full():
                 with torch.no_grad():
