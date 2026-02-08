@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from gaussian_mlp_policy import GaussianMLPPolicy
+from trainers.vmpo.gaussian_mlp_policy import GaussianMLPPolicy
 
 @dataclass
 class VMPOConfig:
