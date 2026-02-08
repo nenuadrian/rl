@@ -26,7 +26,9 @@ def _compute_returns(
         last_values: (N,) bootstrap values for obs_{T}.
     """
     if rewards.ndim != 2 or dones.ndim != 2:
-        raise ValueError(f"rewards/dones must be (T, N); got {rewards.shape=} {dones.shape=}")
+        raise ValueError(
+            f"rewards/dones must be (T, N); got {rewards.shape=} {dones.shape=}"
+        )
     if last_values.ndim != 1:
         raise ValueError(f"last_values must be (N,); got {last_values.shape=}")
 
@@ -141,7 +143,9 @@ class Trainer:
         next_save_at = int(save_interval) if save_interval > 0 else None
 
         while global_step < total_steps:
-            action, value, mean, log_std = self.agent.act_batch(obs, deterministic=False)
+            action, value, mean, log_std = self.agent.act_batch(
+                obs, deterministic=False
+            )
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action)
             next_obs = flatten_obs(next_obs)
@@ -235,7 +239,9 @@ class Trainer:
                     ),
                 }
 
-                metrics = {}
+                metrics = {
+                    "train/step_without_envs": int(global_step / self.num_envs),
+                }
                 for _ in range(update_epochs):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=global_step)
