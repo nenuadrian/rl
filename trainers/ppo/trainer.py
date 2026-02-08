@@ -107,6 +107,8 @@ class Trainer:
         device: torch.device,
         hidden_sizes: Tuple[int, int],
         rollout_steps: int,
+        gamma: float = 0.99,
+        gae_lambda: float = 0.95,
         update_epochs: int = 10,
         minibatch_size: int = 64,
         policy_lr: float = 3e-4,
@@ -140,6 +142,8 @@ class Trainer:
             device=device,
             hidden_sizes=hidden_sizes,
             config=PPOConfig(
+                gamma=gamma,
+                gae_lambda=gae_lambda,
                 clip_ratio=clip_ratio,
                 policy_lr=policy_lr,
                 value_lr=value_lr,

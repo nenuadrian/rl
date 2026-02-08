@@ -19,6 +19,7 @@ class Trainer:
         device: torch.device,
         hidden_sizes: Tuple[int, int],
         replay_size: int,
+        config: SACConfig | None = None,
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
@@ -37,7 +38,7 @@ class Trainer:
             action_high=action_high,
             device=device,
             hidden_sizes=hidden_sizes,
-            config=SACConfig(),
+            config=config or SACConfig(),
         )
 
         self.replay = ReplayBuffer(obs_dim, act_dim, capacity=replay_size)
