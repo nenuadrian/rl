@@ -32,13 +32,13 @@ def _load_preset(algo: str, domain: str, task: str) -> dict:
         raise RuntimeError(f"hyperparameters.{algo} must define get(domain, task)")
     preset = get_fn(domain, task)
     if not isinstance(preset, dict):
-        raise TypeError(f"hyperparameters.{algo}.get must return a dict, got {type(preset)}")
+        raise TypeError(
+            f"hyperparameters.{algo}.get must return a dict, got {type(preset)}"
+        )
     return preset
 
 
-def _apply_preset(
-    args: argparse.Namespace, preset: dict, overridden: set[str]
-) -> None:
+def _apply_preset(args: argparse.Namespace, preset: dict, overridden: set[str]) -> None:
     for key, value in preset.items():
         dest = key
 
@@ -50,8 +50,6 @@ def _apply_preset(
             setattr(args, dest, list(value))
         else:
             setattr(args, dest, value)
-
-
 
 
 if __name__ == "__main__":
@@ -139,15 +137,19 @@ if __name__ == "__main__":
     parser.add_argument("--ent_coef", type=float, default=1e-3)
     parser.add_argument("--vf_coef", type=float, default=0.5)
     parser.add_argument("--target_kl", type=float, default=0.02)
-    parser.add_argument("--normalize_obs", dest="normalize_obs", action="store_true", default=False)
-    parser.add_argument("--no_normalize_obs", dest="normalize_obs", action="store_false")
+    parser.add_argument(
+        "--normalize_obs", dest="normalize_obs", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--no_normalize_obs", dest="normalize_obs", action="store_false"
+    )
 
     overridden = _cli_option_names(sys.argv[1:])
     args = parser.parse_args()
 
     algo = args.command
     if algo is None:
-        raise ValueError("Missing algorithm subcommand: choose one of sac/ppo/vmpo/mpo")
+        raise ValueError("Missing algorithm subcommand")
 
     preset = _load_preset(algo, args.domain, args.task)
     _apply_preset(args, preset, overridden)
@@ -237,6 +239,43 @@ if __name__ == "__main__":
             vf_coef=float(args.vf_coef),
             max_grad_norm=float(args.max_grad_norm),
             target_kl=float(args.target_kl),
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    elif algo == "vmpo_parallel":
+        from trainers.vmpo_parallel_envs.trainer import Trainer as VMPOParallelTrainer
+        from trainers.vmpo_parallel_envs.agent import VMPOParallelConfig
+
+        vmpo_config = VMPOParallelConfig(
+            gamma=float(args.gamma),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            topk_fraction=float(args.topk_fraction),
+            eta=float(args.eta),
+            eta_lr=float(args.eta_lr),
+            epsilon_eta=float(args.epsilon_eta),
+            epsilon_mu=float(args.epsilon_mu),
+            epsilon_sigma=float(args.epsilon_sigma),
+            alpha_lr=float(args.alpha_lr),
+            kl_mean_coef=float(args.kl_mean_coef),
+            kl_std_coef=float(args.kl_std_coef),
+            max_grad_norm=float(args.max_grad_norm),
+        )
+
+        trainer = VMPOParallelTrainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            num_envs=int(args.num_envs),
+            rollout_steps=int(args.rollout_steps),
+            config=vmpo_config,
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            update_epochs=int(args.update_epochs),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
