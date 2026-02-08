@@ -331,7 +331,6 @@ class VMPOAgent:
             "vmpo/dual_loss": float(dual_loss.item()),
             "vmpo/epsilon_eta": float(self.config.epsilon_eta),
             "vmpo/eta": float(eta.item()),
-            "vmpo/topk_k": int(k),
             "vmpo/selected_frac": float(selected_frac.item()),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
