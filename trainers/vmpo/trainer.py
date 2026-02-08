@@ -100,7 +100,7 @@ class Trainer:
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action)
             next_obs = flatten_obs(next_obs)
-            done = float(terminated or truncated)
+            done = float(terminated)
 
             self.obs_buf.append(obs)
             self.actions_buf.append(action)

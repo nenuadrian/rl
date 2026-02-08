@@ -203,20 +203,29 @@ class VMPOAgent:
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        # E-step: top-k selection
-        k = max(1, int(self.config.topk_fraction * advantages.numel()))
-        topk_vals, _ = torch.topk(advantages, k)
-        threshold = topk_vals.min()
-        mask_bool = advantages >= threshold
+        # >>> normalize advantages (stabilises E-step)
+        adv = advantages.squeeze(-1)  # shape (N,)
+        adv_mean = adv.mean()
+        adv_std = adv.std(unbiased=False) + 1e-8
+        adv_norm = (adv - adv_mean) / adv_std
 
-        A = advantages[mask_bool].detach()
+        # E-step: top-k selection
+        # use adv_norm for selection and weighting
+        k = max(1, int(self.config.topk_fraction * adv_norm.numel()))
+        topk_vals, _ = torch.topk(adv_norm, k)
+        threshold = topk_vals.min()
+        mask_bool = adv_norm >= threshold
+
+        A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
         K = A.numel()
 
         # Dual descent on eta (optimize log_eta)
+        # compute eta and clamp to reasonable bounds
         eta = self.log_eta.exp()
+        eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
         logK = torch.log(torch.tensor(float(K), device=A.device))
-        dual_loss = eta * self.config.epsilon_eta + eta * (
-            torch.logsumexp(A / eta, dim=0) - logK
+        dual_loss = eta_clamped * self.config.epsilon_eta + eta_clamped * (
+            torch.logsumexp(A / eta_clamped, dim=0) - logK
         )
 
         self.eta_opt.zero_grad(set_to_none=True)
@@ -226,7 +235,8 @@ class VMPOAgent:
         # Recompute weights with updated eta, only on top-k set
         with torch.no_grad():
             eta = self.log_eta.exp()
-            weights = torch.softmax(A / eta, dim=0)
+            eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
+            weights = torch.softmax(A / eta_clamped, dim=0)
 
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
@@ -294,6 +304,11 @@ class VMPOAgent:
 
         total_loss = policy_loss + value_loss
 
+        with torch.no_grad():
+            params_before = nn.utils.parameters_to_vector(
+                self.policy.parameters()
+            ).detach()
+
         self.opt.zero_grad(set_to_none=True)
         total_loss.backward()
         grad_norm = nn.utils.clip_grad_norm_(
@@ -302,12 +317,28 @@ class VMPOAgent:
         self.opt.step()
 
         with torch.no_grad():
+            params_after = nn.utils.parameters_to_vector(
+                self.policy.parameters()
+            ).detach()
+            param_delta = torch.norm(params_after - params_before).item()
+
+        with torch.no_grad():
             # weight diagnostics
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
             selected_frac = torch.tensor(
                 float(K) / float(advantages.numel()), device=advantages.device
             )
+
+            adv_std_over_eta = float(
+                (advantages.std(unbiased=False) / (eta_clamped + 1e-12)).item()
+            )
+
+            mean_eval, log_std_eval = self.policy(obs)
+            action_eval = self.policy.sample_action(
+                mean_eval, log_std_eval, deterministic=True
+            )
+            mean_abs_action = float(action_eval.abs().mean().item())
 
             v_pred_raw = value_norm
             y = returns_raw.squeeze(-1)
@@ -330,10 +361,14 @@ class VMPOAgent:
             "vmpo/alpha_sigma": float(alpha_sigma_det.item()),
             "vmpo/dual_loss": float(dual_loss.item()),
             "vmpo/epsilon_eta": float(self.config.epsilon_eta),
-            "vmpo/eta": float(eta.item()),
+            "vmpo/eta": float(eta_clamped.item()),
+            "vmpo/eta_raw": float(eta.item()),
+            "vmpo/adv_std_over_eta": adv_std_over_eta,
             "vmpo/selected_frac": float(selected_frac.item()),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
+            "train/param_delta": float(param_delta),
+            "train/mean_abs_action": float(mean_abs_action),
             "adv/raw_mean": float(advantages.mean().item()),
             "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),
             "returns/raw_mean": float(returns_raw.mean().item()),
