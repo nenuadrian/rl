@@ -2,7 +2,6 @@ import argparse
 import os
 import sys
 import importlib
-from typing import Tuple
 
 import torch
 
@@ -38,7 +37,7 @@ def _load_preset(algo: str, domain: str, task: str) -> dict:
 
 
 def _apply_preset(
-    args: argparse.Namespace, algo: str, preset: dict, overridden: set[str]
+    args: argparse.Namespace, preset: dict, overridden: set[str]
 ) -> None:
     for key, value in preset.items():
         dest = key
@@ -150,7 +149,7 @@ if __name__ == "__main__":
         raise ValueError("Missing algorithm subcommand: choose one of sac/ppo/vmpo/mpo")
 
     preset = _load_preset(algo, args.domain, args.task)
-    _apply_preset(args, algo, preset, overridden)
+    _apply_preset(args, preset, overridden)
 
     _CLI_ARGS = args
 
