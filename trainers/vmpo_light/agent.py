@@ -24,7 +24,6 @@ class VMPOLightConfig:
     alpha_lr: float
     kl_mean_coef: float
     kl_std_coef: float
-    max_grad_norm: float
 
 
 class VMPOLightAgent:
@@ -217,9 +216,6 @@ class VMPOLightAgent:
 
         self.opt.zero_grad(set_to_none=True)
         total_loss.backward()
-        grad_norm = nn.utils.clip_grad_norm_(
-            self.policy.parameters(), self.config.max_grad_norm
-        )
         self.opt.step()
 
         with torch.no_grad():
@@ -282,7 +278,4 @@ class VMPOLightAgent:
             "value/raw_mean": float(v_pred_raw.mean().item()),
             "value/raw_std": float((v_pred_raw.std(unbiased=False) + 1e-8).item()),
             "value/explained_var": float(explained_var.item()),
-            "grad/norm": float(
-                grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
-            ),
         }
