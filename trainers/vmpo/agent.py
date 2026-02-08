@@ -140,6 +140,8 @@ class VMPOConfig:
     value_lr: float = 1e-4
     topk_fraction: float = 0.3
     eta: float = 5.0
+    eta_lr: float = 1e-3
+    epsilon_eta: float = 0.1
     kl_mean_coef: float = 1e-3
     kl_std_coef: float = 1e-3
     popart_beta: float = 0.99999
@@ -184,6 +186,12 @@ class VMPOAgent:
             ]
         )
 
+        # Learnable temperature (dual variable), kept positive via exp(log_eta).
+        self.log_eta = torch.nn.Parameter(
+            torch.log(torch.tensor(float(self.config.eta), device=device))
+        )
+        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+
     def act(
         self,
         obs: np.ndarray,
@@ -218,19 +226,33 @@ class VMPOAgent:
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        adv = advantages
-
-        # E-step
+        # E-step: top-k selection
         k = max(1, int(self.config.topk_fraction * advantages.numel()))
         topk_vals, _ = torch.topk(advantages, k)
         threshold = topk_vals.min()
-        mask = (advantages >= threshold).float()
-        adv = adv * mask
-        weights = torch.softmax(adv / self.config.eta, dim=0)
+        mask_bool = advantages >= threshold
+
+        A = advantages[mask_bool].detach()
+        K = A.numel()
+
+        # Dual descent on eta (optimize log_eta)
+        eta = self.log_eta.exp()
+        logK = torch.log(torch.tensor(float(K), device=A.device))
+        dual_loss = eta * self.config.epsilon_eta + eta * (torch.logsumexp(A / eta, dim=0) - logK)
+
+        self.eta_opt.zero_grad(set_to_none=True)
+        dual_loss.backward()
+        self.eta_opt.step()
+
+        # Recompute weights with updated eta, only on top-k set
+        with torch.no_grad():
+            eta = self.log_eta.exp()
+            weights = torch.softmax(A / eta, dim=0)
 
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
 
+        # KL diagnostics (not used in loss once eta is learned)
         old_std = old_log_stds.exp()
         new_std = log_std.exp()
         kl_mean = ((mean - old_means) ** 2 / (2.0 * (old_std**2))).sum(dim=-1)
@@ -238,11 +260,10 @@ class VMPOAgent:
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
-        # M-step
-        weighted_nll = -(weights.detach() * log_prob).sum()
-        kl_mean_pen = self.config.kl_mean_coef * kl_mean.mean()
-        kl_std_pen = self.config.kl_std_coef * kl_std.mean()
-        policy_loss = weighted_nll + kl_mean_pen + kl_std_pen
+        # M-step: weighted negative log-likelihood over selected samples only
+        log_prob_sel = log_prob[mask_bool]
+        weighted_nll = -(weights.detach() * log_prob_sel).sum()
+        policy_loss = weighted_nll
 
         returns_for_loss = returns_raw
         if not self.config.no_popart:
@@ -280,7 +301,7 @@ class VMPOAgent:
             # weight diagnostics
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
-            selected_frac = mask.mean()
+            selected_frac = torch.tensor(float(K) / float(advantages.numel()), device=advantages.device)
 
             # value diagnostics in raw (denormalized) space
             v_pred_raw = (
@@ -297,15 +318,17 @@ class VMPOAgent:
             "loss/total": float(total_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
-            "loss/policy_kl_mean_pen": float(kl_mean_pen.item()),
-            "loss/policy_kl_std_pen": float(kl_std_pen.item()),
+            "loss/policy_kl_mean_pen": 0.0,
+            "loss/policy_kl_std_pen": 0.0,
             "loss/value": float(value_loss.item()),
             "kl/mean": float(kl_mean.mean().item()),
             "kl/std": float(kl_std.mean().item()),
             "policy/logp_mean": float(log_prob.mean().item()),
             "policy/entropy": float(entropy.item()),
             "policy/std_mean": float(new_std.mean().item()),
-            "vmpo/eta": float(self.config.eta),
+            "vmpo/dual_loss": float(dual_loss.item()),
+            "vmpo/epsilon_eta": float(self.config.epsilon_eta),
+            "vmpo/eta": float(eta.item()),
             "vmpo/topk_k": int(k),
             "vmpo/selected_frac": float(selected_frac.item()),
             "vmpo/threshold": float(threshold.item()),
