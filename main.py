@@ -57,8 +57,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["sac", "ppo", "vmpo", "mpo"],
-        help="Optional subcommand; e.g. `python main.py ppo --domain ... --task ...`",
+        choices=["sac", "ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
     )
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
