@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+import importlib
 from typing import Tuple
 
 import torch
@@ -11,122 +13,46 @@ from utils.wandb_utils import finish_wandb, init_wandb
 _CLI_ARGS: argparse.Namespace | None = None
 
 
-def train(
-    algo: str,
-    domain: str,
-    task: str,
-    seed: int,
-    total_steps: int,
-    start_steps: int,
-    update_after: int,
-    batch_size: int,
-    replay_size: int,
-    updates_per_step: int,
-    eval_interval: int,
-    save_interval: int,
-    hidden_sizes: Tuple[int, int],
-    device: torch.device,
-    out_dir: str,
-):
-    if _CLI_ARGS is None:
-        raise RuntimeError("CLI args not initialized")
-    if algo == "sac":
-        from trainers.sac.trainer import Trainer
+def _cli_option_names(argv: list[str]) -> set[str]:
+    names: set[str] = set()
+    for token in argv:
+        if not token.startswith("--"):
+            continue
+        name = token[2:]
+        if "=" in name:
+            name = name.split("=", 1)[0]
+        if name:
+            names.add(name)
+    return names
 
-        trainer = Trainer(
-            domain=domain,
-            task=task,
-            seed=seed,
-            device=device,
-            hidden_sizes=hidden_sizes,
-            replay_size=replay_size,
-        )
-        trainer.train(
-            total_steps=total_steps,
-            start_steps=start_steps,
-            update_after=update_after,
-            batch_size=batch_size,
-            updates_per_step=updates_per_step,
-            eval_interval=eval_interval,
-            save_interval=save_interval,
-            out_dir=out_dir,
-        )
-    elif algo == "ppo":
-        from trainers.ppo.trainer import Trainer
 
-        trainer = Trainer(
-            domain=domain,
-            task=task,
-            seed=seed,
-            device=device,
-            hidden_sizes=hidden_sizes,
-            rollout_steps=int(_CLI_ARGS.ppo_rollout_steps),
-            update_epochs=int(_CLI_ARGS.ppo_update_epochs),
-            minibatch_size=int(_CLI_ARGS.ppo_minibatch_size),
-            policy_lr=float(_CLI_ARGS.ppo_policy_lr),
-            value_lr=float(_CLI_ARGS.ppo_value_lr),
-            clip_ratio=float(_CLI_ARGS.ppo_clip_ratio),
-            ent_coef=float(_CLI_ARGS.ppo_ent_coef),
-            vf_coef=float(_CLI_ARGS.ppo_vf_coef),
-            max_grad_norm=float(_CLI_ARGS.ppo_max_grad_norm),
-            target_kl=float(_CLI_ARGS.ppo_target_kl),
-            normalize_obs=bool(_CLI_ARGS.ppo_normalize_obs),
-        )
-        trainer.train(
-            total_steps=total_steps,
-            update_epochs=int(_CLI_ARGS.ppo_update_epochs),
-            minibatch_size=int(_CLI_ARGS.ppo_minibatch_size),
-            policy_lr=float(_CLI_ARGS.ppo_policy_lr),
-            value_lr=float(_CLI_ARGS.ppo_value_lr),
-            clip_ratio=float(_CLI_ARGS.ppo_clip_ratio),
-            ent_coef=float(_CLI_ARGS.ppo_ent_coef),
-            vf_coef=float(_CLI_ARGS.ppo_vf_coef),
-            max_grad_norm=float(_CLI_ARGS.ppo_max_grad_norm),
-            target_kl=float(_CLI_ARGS.ppo_target_kl),
-            eval_interval=eval_interval,
-            save_interval=save_interval,
-            out_dir=out_dir,
-        )
-    elif algo == "vmpo":
-        from trainers.vmpo.trainer import Trainer
+def _load_preset(algo: str, domain: str, task: str) -> dict:
+    module = importlib.import_module(f"hyperparameters.{algo}")
+    get_fn = getattr(module, "get", None)
+    if get_fn is None:
+        raise RuntimeError(f"hyperparameters.{algo} must define get(domain, task)")
+    preset = get_fn(domain, task)
+    if not isinstance(preset, dict):
+        raise TypeError(f"hyperparameters.{algo}.get must return a dict, got {type(preset)}")
+    return preset
 
-        trainer = Trainer(
-            domain=domain,
-            task=task,
-            seed=seed,
-            device=device,
-            hidden_sizes=hidden_sizes,
-            rollout_steps=_CLI_ARGS.vmpo_rollout_steps,
-        )
-        trainer.train(
-            total_steps=total_steps,
-            update_epochs=updates_per_step,
-            eval_interval=eval_interval,
-            save_interval=save_interval,
-            out_dir=out_dir,
-        )
-    elif algo == "mpo":
-        from trainers.mpo.trainer import Trainer
 
-        trainer = Trainer(
-            domain=domain,
-            task=task,
-            seed=seed,
-            device=device,
-            hidden_sizes=hidden_sizes,
-            replay_size=replay_size,
-        )
-        trainer.train(
-            total_steps=total_steps,
-            start_steps=start_steps,
-            update_after=update_after,
-            batch_size=batch_size,
-            eval_interval=eval_interval,
-            save_interval=save_interval,
-            out_dir=out_dir,
-        )
-    else:
-        raise ValueError(f"Unsupported algorithm: {algo}")
+def _apply_preset(
+    args: argparse.Namespace, algo: str, preset: dict, overridden: set[str]
+) -> None:
+    for key, value in preset.items():
+        dest = key
+
+        possible_flags = {dest, key}
+        if possible_flags & overridden:
+            continue
+
+        if dest == "hidden_sizes" and isinstance(value, tuple):
+            setattr(args, dest, list(value))
+        else:
+            setattr(args, dest, value)
+
+
 
 
 if __name__ == "__main__":
@@ -154,27 +80,47 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_entity", type=str, default=None)
     parser.add_argument("--wandb_group", type=str, default=None)
 
-    # PPO-specific args (only used when algo == 'ppo')
-    parser.add_argument("--ppo_rollout_steps", type=int, default=4096)
-    parser.add_argument("--ppo_update_epochs", type=int, default=6)
-    parser.add_argument("--ppo_minibatch_size", type=int, default=128)
-    parser.add_argument("--ppo_clip_ratio", type=float, default=0.2)
-    parser.add_argument("--ppo_policy_lr", type=float, default=2e-4)
-    parser.add_argument("--ppo_value_lr", type=float, default=5e-5)
-    parser.add_argument("--ppo_ent_coef", type=float, default=1e-3)
-    parser.add_argument("--ppo_vf_coef", type=float, default=0.5)
-    parser.add_argument("--ppo_max_grad_norm", type=float, default=0.5)
-    parser.add_argument("--ppo_target_kl", type=float, default=0.02)
-    parser.add_argument("--ppo_normalize_obs", action="store_true", default=True)
+    # On-policy (PPO/VMPO)
+    parser.add_argument("--rollout_steps", type=int, default=4096)
+    parser.add_argument("--update_epochs", type=int, default=10)
+    
+    # VMPO-only (safe to ignore for other algos)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--topk_fraction", type=float, default=1.0)
+    parser.add_argument("--eta", type=float, default=5.0)
+    parser.add_argument("--eta_lr", type=float, default=1e-3)
+    parser.add_argument("--epsilon_eta", type=float, default=0.1)
+    parser.add_argument("--epsilon_mu", type=float, default=0.01)
+    parser.add_argument("--epsilon_sigma", type=float, default=1e-4)
+    parser.add_argument("--alpha_lr", type=float, default=1e-3)
+    parser.add_argument("--kl_mean_coef", type=float, default=1e-3)
+    parser.add_argument("--kl_std_coef", type=float, default=1e-3)
 
-    # VMPO-specific args (only used when algo == 'vmpo')
-    parser.add_argument("--vmpo_rollout_steps", type=int, default=4096)
+    # Shared by PPO/VMPO configs (but PPO currently wires these directly)
+    parser.add_argument("--max_grad_norm", type=float, default=0.5)
 
+    # PPO-only (safe to ignore for other algos)
+    parser.add_argument("--minibatch_size", type=int, default=64)
+    parser.add_argument("--clip_ratio", type=float, default=0.2)
+    parser.add_argument("--policy_lr", type=float, default=3e-4)
+    parser.add_argument("--value_lr", type=float, default=1e-4)
+    parser.add_argument("--ent_coef", type=float, default=1e-3)
+    parser.add_argument("--vf_coef", type=float, default=0.5)
+    parser.add_argument("--target_kl", type=float, default=0.02)
+    parser.add_argument("--normalize_obs", dest="normalize_obs", action="store_true", default=False)
+    parser.add_argument("--no_normalize_obs", dest="normalize_obs", action="store_false")
+
+    overridden = _cli_option_names(sys.argv[1:])
     args = parser.parse_args()
 
-    _CLI_ARGS = args
-
     algo = args.command
+    if algo is None:
+        raise ValueError("Missing algorithm subcommand: choose one of sac/ppo/vmpo/mpo")
+
+    preset = _load_preset(algo, args.domain, args.task)
+    _apply_preset(args, algo, preset, overridden)
+
+    _CLI_ARGS = args
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -191,22 +137,122 @@ if __name__ == "__main__":
         config=vars(args),
     )
 
-    train(
-        algo=algo,
-        domain=args.domain,
-        task=args.task,
-        seed=args.seed,
-        total_steps=args.total_steps,
-        start_steps=args.start_steps,
-        update_after=args.update_after,
-        batch_size=args.batch_size,
-        replay_size=args.replay_size,
-        updates_per_step=args.updates_per_step,
-        eval_interval=args.eval_interval,
-        save_interval=args.save_interval,
-        hidden_sizes=tuple(args.hidden_sizes),
-        device=device,
-        out_dir=args.out_dir,
-    )
+    if _CLI_ARGS is None:
+        raise RuntimeError("CLI args not initialized")
+    if algo == "sac":
+        from trainers.sac.trainer import Trainer
+
+        trainer = Trainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            replay_size=args.replay_size,
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            start_steps=args.start_steps,
+            update_after=args.update_after,
+            batch_size=args.batch_size,
+            updates_per_step=args.updates_per_step,
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    elif algo == "ppo":
+        from trainers.ppo.trainer import Trainer
+
+        trainer = Trainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            rollout_steps=int(args.rollout_steps),
+            update_epochs=int(args.update_epochs),
+            minibatch_size=int(args.minibatch_size),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            clip_ratio=float(args.clip_ratio),
+            ent_coef=float(args.ent_coef),
+            vf_coef=float(args.vf_coef),
+            max_grad_norm=float(args.max_grad_norm),
+            target_kl=float(args.target_kl),
+            normalize_obs=bool(args.normalize_obs),
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            update_epochs=int(args.update_epochs),
+            minibatch_size=int(args.minibatch_size),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            clip_ratio=float(args.clip_ratio),
+            ent_coef=float(args.ent_coef),
+            vf_coef=float(args.vf_coef),
+            max_grad_norm=float(args.max_grad_norm),
+            target_kl=float(args.target_kl),
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    elif algo == "vmpo":
+        from trainers.vmpo.trainer import Trainer
+        from trainers.vmpo.agent import VMPOConfig
+
+        vmpo_config = VMPOConfig(
+            gamma=float(args.gamma),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            topk_fraction=float(args.topk_fraction),
+            eta=float(args.eta),
+            eta_lr=float(args.eta_lr),
+            epsilon_eta=float(args.epsilon_eta),
+            epsilon_mu=float(args.epsilon_mu),
+            epsilon_sigma=float(args.epsilon_sigma),
+            alpha_lr=float(args.alpha_lr),
+            kl_mean_coef=float(args.kl_mean_coef),
+            kl_std_coef=float(args.kl_std_coef),
+            max_grad_norm=float(args.max_grad_norm),
+        )
+
+        trainer = Trainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            rollout_steps=int(args.rollout_steps),
+            config=vmpo_config,
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            update_epochs=int(args.update_epochs),
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    elif algo == "mpo":
+        from trainers.mpo.trainer import Trainer
+
+        trainer = Trainer(
+            domain=args.domain,
+            task=args.task,
+            seed=args.seed,
+            device=device,
+            hidden_sizes=tuple(args.hidden_sizes),
+            replay_size=args.replay_size,
+        )
+        trainer.train(
+            total_steps=args.total_steps,
+            start_steps=args.start_steps,
+            update_after=args.update_after,
+            batch_size=args.batch_size,
+            eval_interval=args.eval_interval,
+            save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    else:
+        raise ValueError(f"Unsupported algorithm: {algo}")
 
     finish_wandb()

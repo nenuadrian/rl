@@ -80,7 +80,7 @@ def evaluate(
             with torch.no_grad():
                 mean, log_std = policy(obs_t)
                 action = policy.sample_action(
-                    obs=obs_t, mean=mean, log_std=log_std, deterministic=False
+                    obs=obs_t, mean=mean, log_std=log_std, deterministic=True
                 )
                 action = action.cpu().numpy().squeeze(0)
 

@@ -109,12 +109,12 @@ class VMPOConfig:
     gamma: float = 0.99
     policy_lr: float = 1e-4
     value_lr: float = 1e-4
-    topk_fraction: float = 0.8
+    topk_fraction: float = 1.0
     eta: float = 5.0
     eta_lr: float = 1e-3
     epsilon_eta: float = 0.1
     epsilon_mu: float = 0.01
-    epsilon_sigma: float = 1e-5
+    epsilon_sigma: float = 1e-4
     alpha_lr: float = 1e-3
     kl_mean_coef: float = 1e-3
     kl_std_coef: float = 1e-3
