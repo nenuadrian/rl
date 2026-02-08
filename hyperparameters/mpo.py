@@ -5,7 +5,7 @@ from typing import Any
 
 PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cheetah", "run"): {
-        "total_steps": 3_000_000,
+        "total_steps": 10_000_000,
         "start_steps": 5_000,
         "update_after": 1_000,
         "batch_size": 256,
@@ -18,14 +18,14 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "policy_lr": 3e-4,
         "q_lr": 3e-4,
         "eta_init": 1.0,
-        "eta_lr": 1e-3,
-        "kl_epsilon": 0.1,
+        "eta_lr": 3e-4,
+        "kl_epsilon": 0.2,
         "mstep_kl_epsilon": 0.1,
         "lambda_init": 1.0,
-        "lambda_lr": 1e-3,
+        "lambda_lr": 3e-4,
         "max_grad_norm": 1.0,
-        "action_samples": 16,
-        "retrace_steps": 5,
+        "action_samples": 64,
+        "retrace_steps": 15,
         "retrace_mc_actions": 16,
     },
     ("humanoid", "run"): {
