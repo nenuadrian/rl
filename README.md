@@ -31,4 +31,3 @@ python generate_video.py ppo --domain cheetah --task run \
 ## hyperparameters
 
 Hyperparameters are defined in the `hyperparameters/*.py` files for each algorithm.
-They are intentionally not overridable from the CLI.
