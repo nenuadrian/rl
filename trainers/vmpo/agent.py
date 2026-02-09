@@ -99,7 +99,7 @@ class VMPOAgent:
     def value(self, obs: np.ndarray) -> float:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            value_norm = self.policy.value_norm(obs_t)
+            value_norm = self.policy.value_norm(obs_t.detach())
         return float(value_norm.item())
 
     def update(self, batch: dict) -> dict:
@@ -128,11 +128,10 @@ class VMPOAgent:
 
         # Dual descent on eta (optimize log_temperature)
         # compute eta and clamp to reasonable bounds
-        eta = self.log_temperature.exp()
-        eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
+        temperature = F.softplus(self.log_temperature) + 1e-8
         logK = torch.log(torch.tensor(float(K), device=A.device))
-        dual_loss = eta_clamped * self.config.epsilon_eta + eta_clamped * (
-            torch.logsumexp(A / eta_clamped, dim=0) - logK
+        dual_loss = temperature * self.config.epsilon_eta + temperature * (
+            torch.logsumexp(A / temperature, dim=0) - logK
         )
 
         self.eta_opt.zero_grad(set_to_none=True)
@@ -141,9 +140,8 @@ class VMPOAgent:
 
         # Recompute weights with updated eta, only on top-k set
         with torch.no_grad():
-            eta = self.log_temperature.exp()
-            eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
-            weights = torch.softmax(A / eta_clamped, dim=0)
+            temperature = F.softplus(self.log_temperature) + 1e-8
+            weights = torch.softmax(A / temperature, dim=0)
 
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
@@ -206,7 +204,7 @@ class VMPOAgent:
             weighted_nll + alpha_mu_det * kl_mu_sel + alpha_sigma_det * kl_sigma_sel
         )
 
-        value_norm = self.policy.value_norm(obs)
+        value_norm = self.policy.value_norm(obs.detach())
         value_loss = F.mse_loss(value_norm, returns_raw)
 
         total_loss = policy_loss + value_loss
@@ -237,8 +235,8 @@ class VMPOAgent:
                 float(K) / float(advantages.numel()), device=advantages.device
             )
 
-            adv_std_over_eta = float(
-                (advantages.std(unbiased=False) / (eta_clamped + 1e-12)).item()
+            adv_std_over_temperature = float(
+                (advantages.std(unbiased=False) / (temperature + 1e-12)).item()
             )
 
             mean_eval, log_std_eval = self.policy(obs)
@@ -268,9 +266,8 @@ class VMPOAgent:
             "vmpo/alpha_sigma": float(alpha_sigma_det.item()),
             "vmpo/dual_loss": float(dual_loss.item()),
             "vmpo/epsilon_eta": float(self.config.epsilon_eta),
-            "vmpo/eta": float(eta_clamped.item()),
-            "vmpo/eta_raw": float(eta.item()),
-            "vmpo/adv_std_over_eta": adv_std_over_eta,
+            "vmpo/temperature_raw": float(temperature.item()),
+            "vmpo/adv_std_over_temperature": adv_std_over_temperature,
             "vmpo/selected_frac": float(selected_frac.item()),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
