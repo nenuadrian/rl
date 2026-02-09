@@ -101,7 +101,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("walker", "walk"): {
-        "updates_per_step": 1,
+        "updates_per_step": 4,
         "total_steps": 30_000_000,
         "update_after": 2_000,
         "batch_size": 512,
