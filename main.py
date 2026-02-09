@@ -64,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--total_steps", type=int, default=500_000)
     parser.add_argument("--start_steps", type=int, default=10_000)
+    parser.add_argument("--user_retrace", type=bool, default=True)
     parser.add_argument("--update_after", type=int, default=1_000)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--replay_size", type=int, default=1_000_000)
@@ -356,6 +357,7 @@ if __name__ == "__main__":
             action_samples=int(args.action_samples),
             retrace_steps=int(args.retrace_steps),
             retrace_mc_actions=int(args.retrace_mc_actions),
+            use_retrace=bool(args.user_retrace),
         )
 
         trainer = MPOTrainer(
