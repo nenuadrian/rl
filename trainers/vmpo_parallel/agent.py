@@ -17,8 +17,8 @@ class VMPOParallelConfig:
     policy_lr: float
     value_lr: float
     topk_fraction: float
-    eta_init: float
-    eta_lr: float
+    temperature_init: float
+    temperature_lr: float
     epsilon_eta: float
     epsilon_mu: float
     epsilon_sigma: float
@@ -64,9 +64,9 @@ class VMPOParallelAgent:
 
         # Learnable temperature (dual variable), kept positive via exp(log_eta).
         self.log_eta = torch.nn.Parameter(
-            torch.log(torch.tensor(float(self.config.eta_init), device=device))
+            torch.log(torch.tensor(float(self.config.temperature_init), device=device))
         )
-        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.temperature_lr)
 
         # Learnable KL multipliers (dual variables), kept positive via exp(log_alpha_*).
         self.log_alpha_mu = torch.nn.Parameter(torch.zeros(1, device=device))

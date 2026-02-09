@@ -214,8 +214,8 @@ class MPOConfig:
     # Dual variables (temperature + alphas). We keep legacy names `eta_*` and
     # `lambda_*` to match existing CLI/hparams, but they now correspond to
     # Acme's `temperature` and `alpha_{mean,stddev}`.
-    eta_init: float = 1.0
-    eta_lr: float = 3e-4
+    temperature_init: float = 1.0
+    temperature_lr: float = 3e-4
     lambda_init: float = 1.0
     lambda_lr: float = 3e-4
 
@@ -302,9 +302,9 @@ class MPOAgent:
         )
 
         # Dual variables (temperature + KL multipliers) in log-space.
-        eta_init_t = torch.tensor(self.config.eta_init, device=device)
-        eta_init_t = torch.clamp(eta_init_t, min=1e-8)
-        self.log_temperature = nn.Parameter(torch.log(torch.expm1(eta_init_t)))
+        temperature_init_t = torch.tensor(self.config.temperature_init, device=device)
+        temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
+        self.log_temperature = nn.Parameter(torch.log(torch.expm1(temperature_init_t)))
 
         lambda_init_t = torch.tensor(self.config.lambda_init, device=device)
         lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
@@ -322,7 +322,7 @@ class MPOAgent:
 
         if self.config.action_penalization:
             self.log_penalty_temperature = nn.Parameter(
-                torch.log(torch.expm1(eta_init_t)).clone().detach().requires_grad_(True)
+                torch.log(torch.expm1(temperature_init_t)).clone().detach().requires_grad_(True)
             )
         else:
             self.log_penalty_temperature = None
@@ -334,7 +334,7 @@ class MPOAgent:
         alpha_params = [self.log_alpha_mean, self.log_alpha_stddev]
         self.dual_opt = torch.optim.Adam(
             [
-                {"params": temperature_params, "lr": self.config.eta_lr},
+                {"params": temperature_params, "lr": self.config.temperature_lr},
                 {"params": alpha_params, "lr": self.config.lambda_lr},
             ]
         )

@@ -16,8 +16,8 @@ class VMPOLightConfig:
     gamma: float
     policy_lr: float
     value_lr: float
-    eta_init: float
-    eta_lr: float
+    temperature_init: float
+    temperature_lr: float
     epsilon_eta: float
 
 
@@ -59,9 +59,9 @@ class VMPOLightAgent:
 
         # Learnable temperature (dual variable), kept positive via exp(log_eta).
         self.log_eta = torch.nn.Parameter(
-            torch.log(torch.tensor(float(self.config.eta_init), device=device))
+            torch.log(torch.tensor(float(self.config.temperature_init), device=device))
         )
-        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.temperature_lr)
 
     def act(
         self,

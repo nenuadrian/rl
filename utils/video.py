@@ -148,8 +148,11 @@ def render_policy_video(
     config: VideoRenderConfig = VideoRenderConfig(),
     policy_layer_sizes: Iterable[int] = (256, 256, 256),
     device: torch.device | None = None,
+    num_attempts: int = 10,
 ) -> tuple[str, int]:
-    """Render a trained checkpoint into an mp4 and return (out_path, num_frames)."""
+    """Render a trained checkpoint into an mp4 and return (out_path, num_frames).
+    Runs the environment multiple times and picks the attempt with the highest reward.
+    """
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     set_seed(int(seed))
@@ -160,20 +163,18 @@ def render_policy_video(
             f"Checkpoint missing 'policy' key: {checkpoint_path}. Keys: {list(ckpt.keys())}"
         )
 
-    env = make_dm_control_env(domain, task, seed=seed, render_mode="rgb_array")
-    if not isinstance(env.action_space, gym.spaces.Box):
+    # Build policy once
+    dummy_env = make_dm_control_env(domain, task, seed=seed, render_mode="rgb_array")
+    if not isinstance(dummy_env.action_space, gym.spaces.Box):
         raise TypeError(
-            f"Expected a continuous (Box) action space for video rendering, got {type(env.action_space)}"
+            f"Expected a continuous (Box) action space for video rendering, got {type(dummy_env.action_space)}"
         )
-
-    obs_dim = infer_obs_dim(env.observation_space)
-    if env.action_space.shape is None:
+    obs_dim = infer_obs_dim(dummy_env.observation_space)
+    if dummy_env.action_space.shape is None:
         raise ValueError("Action space has no shape.")
-    act_dim = int(np.prod(env.action_space.shape))
-
-    action_low = np.asarray(env.action_space.low, dtype=np.float32)
-    action_high = np.asarray(env.action_space.high, dtype=np.float32)
-
+    act_dim = int(np.prod(dummy_env.action_space.shape))
+    action_low = np.asarray(dummy_env.action_space.low, dtype=np.float32)
+    action_high = np.asarray(dummy_env.action_space.high, dtype=np.float32)
     policy = build_policy_for_algo(
         algo=algo,
         obs_dim=obs_dim,
@@ -183,63 +184,47 @@ def render_policy_video(
         policy_layer_sizes=policy_layer_sizes,
         device=device,
     )
-    try:
-        policy.load_state_dict(ckpt["policy"])
-    except RuntimeError as exc:
-        # Backward-compat: PPO policy architecture changed (LayerNorm torso).
-        # If an older checkpoint is being rendered, retry with the legacy policy.
-        if algo != "ppo":
-            raise
-
-        from trainers.ppo.agent import LegacyGaussianPolicy
-
-        layer_sizes = _as_tuple_ints(policy_layer_sizes)
-        legacy_policy = LegacyGaussianPolicy(
-            obs_dim,
-            act_dim,
-            hidden_sizes=layer_sizes,
-            action_low=action_low,
-            action_high=action_high,
-        ).to(device)
-        legacy_policy.load_state_dict(ckpt["policy"])
-        policy = legacy_policy
-        print(
-            "[video] Loaded PPO checkpoint with legacy policy architecture "
-            f"(fallback due to state_dict mismatch: {exc})"
-        )
+    policy.load_state_dict(ckpt["policy"])
     policy.eval()
+    dummy_env.close()
 
-    frames: list[np.ndarray] = []
+    best_reward = float("-inf")
+    best_frames = []
 
-    obs, _ = env.reset()
-    obs = flatten_obs(obs)
-
-    for _ in range(int(config.max_steps)):
-        frame = env.render()
-        if frame is None:
-            raise RuntimeError(
-                "env.render() returned None. Ensure render_mode='rgb_array' is supported."
-            )
-        frames.append(np.asarray(frame))
-
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-        with torch.no_grad():
-            action_t = _select_deterministic_action(policy, obs_t)
-        action = action_t.detach().cpu().numpy().squeeze(0)
-
-        action = np.clip(action, env.action_space.low, env.action_space.high)
-
-        obs, _, terminated, truncated, _ = env.step(action)
+    for attempt in range(num_attempts):
+        env = make_dm_control_env(
+            domain, task, seed=seed + attempt, render_mode="rgb_array"
+        )
+        frames: list[np.ndarray] = []
+        total_reward = 0.0
+        obs, _ = env.reset()
         obs = flatten_obs(obs)
-
-        if terminated or truncated:
-            break
-
-    env.close()
+        for _ in range(int(config.max_steps)):
+            frame = env.render()
+            if frame is None:
+                raise RuntimeError(
+                    "env.render() returned None. Ensure render_mode='rgb_array' is supported."
+                )
+            frames.append(np.asarray(frame))
+            obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+            with torch.no_grad():
+                action_t = _select_deterministic_action(policy, obs_t)
+            action = action_t.detach().cpu().numpy().squeeze(0)
+            action = np.clip(action, env.action_space.low, env.action_space.high)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            obs = flatten_obs(obs)
+            total_reward += reward
+            if terminated or truncated:
+                break
+        env.close()
+        if total_reward > best_reward:
+            best_reward = total_reward
+            best_frames = frames
 
     out_dir = os.path.dirname(out_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    imageio.mimsave(out_path, list(frames), fps=int(config.fps))
-    return out_path, len(frames)
+    imageio.mimsave(out_path, list(best_frames), fps=int(config.fps))
+    print(f"Best attempt reward: {best_reward:.2f} over {len(best_frames)} frames")
+    return out_path, len(best_frames)

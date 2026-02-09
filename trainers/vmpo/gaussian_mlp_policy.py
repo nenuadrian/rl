@@ -27,7 +27,7 @@ class PopArt(nn.Module):
 
         # Running statistics of returns
         self.register_buffer("mu", torch.zeros(1))
-        self.register_buffer("nu", torch.ones(1))   # second moment
+        self.register_buffer("nu", torch.ones(1))  # second moment
         self.register_buffer("sigma", torch.ones(1))
 
         self.beta = beta
@@ -48,7 +48,7 @@ class PopArt(nn.Module):
         and apply the PopArt invariance correction to the linear layer.
         """
         batch_mu = returns.mean()
-        batch_nu = (returns ** 2).mean()
+        batch_nu = (returns**2).mean()
 
         mu_old = self.mu.clone()
         sigma_old = self.sigma.clone()
@@ -57,9 +57,7 @@ class PopArt(nn.Module):
         self.mu.mul_(1.0 - self.beta).add_(self.beta * batch_mu)
         self.nu.mul_(1.0 - self.beta).add_(self.beta * batch_nu)
 
-        self.sigma = torch.sqrt(
-            torch.clamp(self.nu - self.mu ** 2, min=self.eps)
-        )
+        self.sigma = torch.sqrt(torch.clamp(self.nu - self.mu**2, min=self.eps))
 
         # Invariance-preserving weight update
         w, b = self.linear.weight.data, self.linear.bias.data
@@ -132,12 +130,8 @@ class GaussianMLPPolicy(nn.Module):
         action_low_t = torch.tensor(action_low, dtype=torch.float32)
         action_high_t = torch.tensor(action_high, dtype=torch.float32)
 
-        self.register_buffer(
-            "action_scale", (action_high_t - action_low_t) / 2.0
-        )
-        self.register_buffer(
-            "action_bias", (action_high_t + action_low_t) / 2.0
-        )
+        self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
+        self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
         # Initialisation (matches typical MPO practice)
         nn.init.kaiming_normal_(
@@ -190,9 +184,10 @@ class GaussianMLPPolicy(nn.Module):
         mean, log_std = self.forward(obs)
 
         # Freeze encoder gradients for critic (MPO-style)
-        encoded = self.encoder(obs.detach())
-        v_hat = self.value_head(encoded)
-        v = self.value_head.denormalize(v_hat)
+        with torch.no_grad():
+            encoded = self.encoder(obs)
+            v_hat = self.value_head(encoded)
+            v = self.value_head.denormalize(v_hat)
 
         return mean, log_std, v
 

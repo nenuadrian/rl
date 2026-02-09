@@ -20,8 +20,8 @@ class VMPOConfig:
     policy_lr: float
     value_lr: float
     topk_fraction: float
-    eta_init: float
-    eta_lr: float
+    temperature_init: float
+    temperature_lr: float
     epsilon_eta: float
     epsilon_mu: float
     epsilon_sigma: float
@@ -70,10 +70,10 @@ class VMPOAgent:
         )
 
         # Temperature dual (eta)
-        eta_init_t = torch.tensor(self.config.eta_init, device=device)
-        eta_init_t = torch.clamp(eta_init_t, min=1e-8)
-        self.log_temperature = nn.Parameter(torch.log(torch.expm1(eta_init_t)))
-        self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.eta_lr)
+        temperature_init_t = torch.tensor(self.config.temperature_init, device=device)
+        temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
+        self.log_temperature = nn.Parameter(torch.log(temperature_init_t))
+        self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.temperature_lr)
 
         # KL duals (mean / std)
         self.log_alpha_mu = nn.Parameter(torch.zeros(1, device=device))
@@ -132,11 +132,10 @@ class VMPOAgent:
 
         A = adv[mask_bool]
         A = A - A.mean()  # centre only
-        A = torch.clamp(A, -10.0, 10.0)
         K = A.numel()
 
         # Dual update for temperature eta
-        temperature = F.softplus(self.log_temperature) + 1e-8
+        temperature = torch.exp(self.log_temperature) + 1e-8
         logK = torch.log(torch.tensor(float(K), device=A.device))
         dual_loss = temperature * self.config.epsilon_eta + temperature * (
             torch.logsumexp(A / temperature, dim=0) - logK
@@ -148,7 +147,7 @@ class VMPOAgent:
 
         # Importance weights
         with torch.no_grad():
-            temperature = F.softplus(self.log_temperature) + 1e-8
+            temperature = torch.exp(self.log_temperature) + 1e-8
             weights = torch.softmax(A / temperature, dim=0)
 
         # ================================================================
@@ -219,7 +218,7 @@ class VMPOAgent:
         # ================================================================
         # Critic loss (PopArt-normalised)
         # ================================================================
-        v_hat = self.policy.value_norm(obs.detach()).squeeze(-1)
+        v_hat = self.policy.value_norm(obs).squeeze(-1)
         target_hat = (
             returns_raw - self.policy.value_head.mu
         ) / self.policy.value_head.sigma
@@ -279,6 +278,7 @@ class VMPOAgent:
                 mean_eval, log_std_eval, deterministic=True
             )
             mean_abs_action = float(action_eval.abs().mean().item())
+            entropy = 0.5 * (1.0 + torch.log(2 * torch.pi * torch.exp(log_std)**2)).sum(dim=-1).mean()
 
         return {
             "loss/total": float(total_loss.item()),
@@ -300,6 +300,7 @@ class VMPOAgent:
             "vmpo/selected_frac": float(selected_frac.item()),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
+            "train/entropy": float(entropy.item()),
             "train/param_delta": float(param_delta),
             "train/mean_abs_action": float(mean_abs_action),
             "adv/raw_mean": float(advantages.mean().item()),
