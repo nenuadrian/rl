@@ -2,6 +2,8 @@ import argparse
 import os
 import sys
 import importlib
+from dataclasses import asdict, is_dataclass
+from pprint import pformat
 
 import torch
 
@@ -11,19 +13,6 @@ from utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy
 
 
 _CLI_ARGS: argparse.Namespace | None = None
-
-
-def _cli_option_names(argv: list[str]) -> set[str]:
-    names: set[str] = set()
-    for token in argv:
-        if not token.startswith("--"):
-            continue
-        name = token[2:]
-        if "=" in name:
-            name = name.split("=", 1)[0]
-        if name:
-            names.add(name)
-    return names
 
 
 def _load_preset(algo: str, domain: str, task: str) -> dict:
@@ -39,20 +28,22 @@ def _load_preset(algo: str, domain: str, task: str) -> dict:
     return preset
 
 
-def _apply_preset(args: argparse.Namespace, preset: dict, overridden: set[str]) -> None:
+def _apply_preset(args: argparse.Namespace, preset: dict) -> None:
     for key, value in preset.items():
-        dest = key
+        setattr(args, key, value)
 
-        possible_flags = {dest, key}
-        if possible_flags & overridden:
-            continue
 
-        if dest in {"policy_layer_sizes", "critic_layer_sizes"} and isinstance(
-            value, tuple
-        ):
-            setattr(args, dest, list(value))
-        else:
-            setattr(args, dest, value)
+def _print_resolved_args(args: argparse.Namespace) -> None:
+    print("Resolved args (after hyperparameter preset):")
+    print(pformat(dict(sorted(vars(args).items())), sort_dicts=True))
+
+
+def _print_config(name: str, config: object) -> None:
+    print(f"{name}:")
+    if is_dataclass(config) and not isinstance(config, type):
+        print(pformat(asdict(config), sort_dicts=True))
+    else:
+        print(repr(config))
 
 
 if __name__ == "__main__":
@@ -65,34 +56,12 @@ if __name__ == "__main__":
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--total_steps", type=int, default=500_000)
-    parser.add_argument("--start_steps", type=int, default=10_000)
-    parser.add_argument(
-        "--use_retrace",
-        dest="use_retrace",
-        action="store_true",
-        default=False,
-        help="Enable Retrace off-policy correction for critic targets (MPO only).",
-    )
-    parser.add_argument("--update_after", type=int, default=1_000)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--replay_size", type=int, default=1_000_000)
-    parser.add_argument("--updates_per_step", type=int, default=4)
-    parser.add_argument("--eval_interval", type=int, default=10_000)
-    parser.add_argument("--save_interval", type=int, default=50_000)
-    parser.add_argument(
-        "--policy_layer_sizes", type=int, nargs=3, default=[256, 256, 256]
-    )
-    parser.add_argument(
-        "--critic_layer_sizes", type=int, nargs=3, default=[512, 512, 256]
-    )
 
     parser.add_argument("--out_dir", type=str, default="checkpoints")
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_entity", type=str, default=None)
     parser.add_argument("--wandb_group", type=str, default=None)
 
-    # Video generation (skips training)
     parser.add_argument(
         "--generate_video",
         action="store_true",
@@ -112,125 +81,6 @@ if __name__ == "__main__":
         help="Output video path. Defaults to videos/{algo}-{domain}-{task}.mp4",
     )
     parser.add_argument("--video_max_steps", type=int, default=1000)
-
-    # On-policy (PPO)
-    parser.add_argument("--rollout_steps", type=int, default=4096)
-    parser.add_argument("--update_epochs", type=int, default=10)
-
-    # Shared discounting
-    parser.add_argument("--gamma", type=float, default=0.99)
-
-    # PPO-only (safe to ignore for other algos)
-    parser.add_argument("--gae_lambda", type=float, default=0.95)
-
-    # VMPO-only (safe to ignore for other algos)
-    parser.add_argument("--num_envs", type=int, default=1)
-    parser.add_argument("--topk_fraction", type=float, default=1.0)
-    parser.add_argument("--eta", type=float, default=5.0)
-    # Used by VMPO (eta dual) and MPO (temperature dual).
-    parser.add_argument("--eta_lr", type=float, default=1e-3)
-    parser.add_argument("--epsilon_eta", type=float, default=0.1)
-    parser.add_argument("--epsilon_mu", type=float, default=0.01)
-    parser.add_argument("--epsilon_sigma", type=float, default=1e-4)
-    parser.add_argument("--alpha_lr", type=float, default=1e-3)
-
-    # Shared by PPO/VMPO/MPO
-    parser.add_argument("--max_grad_norm", type=float, default=0.5)
-
-    # Off-policy shared (SAC/MPO)
-    parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--q_lr", type=float, default=3e-4)
-
-    # SAC-only (safe to ignore for other algos)
-    parser.add_argument(
-        "--automatic_entropy_tuning",
-        dest="automatic_entropy_tuning",
-        action="store_true",
-        default=True,
-    )
-    parser.add_argument(
-        "--no_automatic_entropy_tuning",
-        dest="automatic_entropy_tuning",
-        action="store_false",
-    )
-
-    # MPO-only (safe to ignore for other algos)
-    parser.add_argument("--eta_init", type=float, default=1.0)
-    parser.add_argument("--kl_epsilon", type=float, default=0.1)
-    parser.add_argument("--mstep_kl_epsilon", type=float, default=0.1)
-    parser.add_argument(
-        "--epsilon_mean",
-        type=float,
-        default=None,
-        help="MPO: mean KL constraint; defaults to mstep_kl_epsilon if omitted.",
-    )
-    parser.add_argument(
-        "--epsilon_stddev",
-        type=float,
-        default=None,
-        help="MPO: stddev KL constraint; defaults to mstep_kl_epsilon if omitted.",
-    )
-    parser.add_argument(
-        "--per_dim_constraining",
-        dest="per_dim_constraining",
-        action="store_true",
-        default=True,
-        help="MPO: enforce KL constraints per action-dimension.",
-    )
-    parser.add_argument(
-        "--no_per_dim_constraining",
-        dest="per_dim_constraining",
-        action="store_false",
-        help="MPO: enforce KL constraints on the full action vector.",
-    )
-
-    parser.add_argument(
-        "--action_penalization",
-        dest="action_penalization",
-        action="store_true",
-        default=False,
-        help="MPO: enable MO-MPO style out-of-bounds action penalization.",
-    )
-    parser.add_argument(
-        "--no_action_penalization",
-        dest="action_penalization",
-        action="store_false",
-        help="MPO: disable action penalization.",
-    )
-    parser.add_argument(
-        "--epsilon_penalty",
-        type=float,
-        default=0.001,
-        help="MPO: KL constraint for action-penalty nonparametric distribution.",
-    )
-    parser.add_argument("--lambda_init", type=float, default=1.0)
-    parser.add_argument("--lambda_lr", type=float, default=1e-3)
-    parser.add_argument("--action_samples", type=int, default=20)
-    parser.add_argument("--retrace_steps", type=int, default=5)
-    parser.add_argument("--retrace_mc_actions", type=int, default=16)
-    parser.add_argument(
-        "--retrace_lambda",
-        type=float,
-        default=0.95,
-        help="MPO: Retrace lambda used in c_t = lambda * min(1, rho_t).",
-    )
-
-    # PPO-only (safe to ignore for other algos)
-    parser.add_argument("--minibatch_size", type=int, default=64)
-    parser.add_argument("--clip_ratio", type=float, default=0.2)
-    parser.add_argument("--policy_lr", type=float, default=3e-4)
-    parser.add_argument("--value_lr", type=float, default=1e-4)
-    parser.add_argument("--ent_coef", type=float, default=1e-3)
-    parser.add_argument("--vf_coef", type=float, default=0.5)
-    parser.add_argument("--target_kl", type=float, default=0.02)
-    parser.add_argument(
-        "--normalize_obs", dest="normalize_obs", action="store_true", default=False
-    )
-    parser.add_argument(
-        "--no_normalize_obs", dest="normalize_obs", action="store_false"
-    )
-
-    overridden = _cli_option_names(sys.argv[1:])
     args = parser.parse_args()
 
     algo = args.command
@@ -238,7 +88,9 @@ if __name__ == "__main__":
         raise ValueError("Missing algorithm subcommand")
 
     preset = _load_preset(algo, args.domain, args.task)
-    _apply_preset(args, preset, overridden)
+    _apply_preset(args, preset)
+
+    _print_resolved_args(args)
 
     _CLI_ARGS = args
 
@@ -300,6 +152,7 @@ if __name__ == "__main__":
             alpha_lr=float(args.alpha_lr),
             automatic_entropy_tuning=bool(args.automatic_entropy_tuning),
         )
+        _print_config("SACConfig", sac_config)
 
         trainer = SACTrainer(
             domain=args.domain,
@@ -323,6 +176,25 @@ if __name__ == "__main__":
         )
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
+
+        _print_config(
+            "PPO config",
+            {
+                "rollout_steps": int(args.rollout_steps),
+                "gamma": float(args.gamma),
+                "gae_lambda": float(args.gae_lambda),
+                "update_epochs": int(args.update_epochs),
+                "minibatch_size": int(args.minibatch_size),
+                "policy_lr": float(args.policy_lr),
+                "value_lr": float(args.value_lr),
+                "clip_ratio": float(args.clip_ratio),
+                "ent_coef": float(args.ent_coef),
+                "vf_coef": float(args.vf_coef),
+                "max_grad_norm": float(args.max_grad_norm),
+                "target_kl": float(args.target_kl),
+                "normalize_obs": bool(args.normalize_obs),
+            },
+        )
 
         trainer = PPOTrainer(
             domain=args.domain,
@@ -377,6 +249,7 @@ if __name__ == "__main__":
             alpha_lr=float(args.alpha_lr),
             max_grad_norm=float(args.max_grad_norm),
         )
+        _print_config("VMPOParallelConfig", vmpo_config)
 
         trainer = VMPOParallelTrainer(
             domain=args.domain,
@@ -412,6 +285,7 @@ if __name__ == "__main__":
             alpha_lr=float(args.alpha_lr),
             max_grad_norm=float(args.max_grad_norm),
         )
+        _print_config("VMPOConfig", vmpo_config)
 
         trainer = VMPOTrainer(
             domain=args.domain,
@@ -441,6 +315,7 @@ if __name__ == "__main__":
             eta_lr=float(args.eta_lr),
             epsilon_eta=float(args.epsilon_eta),
         )
+        _print_config("VMPOLightConfig", vmpo_config)
 
         trainer = VMPOLightTrainer(
             domain=args.domain,
@@ -488,6 +363,7 @@ if __name__ == "__main__":
             retrace_lambda=float(args.retrace_lambda),
             use_retrace=bool(args.use_retrace),
         )
+        _print_config("MPOConfig", mpo_config)
 
         trainer = MPOTrainer(
             domain=args.domain,
