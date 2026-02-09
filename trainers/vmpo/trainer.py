@@ -87,10 +87,10 @@ class Trainer:
     def train(
         self,
         total_steps: int,
-        update_epochs: int,
         eval_interval: int,
         save_interval: int,
         out_dir: str,
+        updates_per_step: int = 1,
     ):
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)
@@ -171,7 +171,7 @@ class Trainer:
                 }
 
                 metrics = {}
-                for _ in range(update_epochs):
+                for _ in range(updates_per_step):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
                 if metrics:

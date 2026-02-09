@@ -130,7 +130,7 @@ class Trainer:
     def train(
         self,
         total_steps: int,
-        update_epochs: int,
+        updates_per_step: int,
         eval_interval: int,
         save_interval: int,
         out_dir: str,
@@ -245,7 +245,7 @@ class Trainer:
                 metrics = {
                     "train/step_without_envs": int(global_step / self.num_envs),
                 }
-                for _ in range(update_epochs):
+                for _ in range(updates_per_step):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=global_step)
                 if metrics:

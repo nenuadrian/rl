@@ -113,7 +113,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--video_max_steps", type=int, default=1000)
 
-    # On-policy (PPO/VMPO)
+    # On-policy (PPO)
     parser.add_argument("--rollout_steps", type=int, default=4096)
     parser.add_argument("--update_epochs", type=int, default=10)
 
@@ -390,7 +390,7 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            update_epochs=int(args.update_epochs),
+            updates_per_step=int(args.updates_per_step),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
@@ -424,10 +424,11 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            update_epochs=int(args.update_epochs),
+            updates_per_step=int(args.updates_per_step),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
+            updates_per_step=int(args.updates_per_step),
         )
     elif algo == "vmpo_light":
         from trainers.vmpo_light.trainer import Trainer as VMPOLightTrainer
