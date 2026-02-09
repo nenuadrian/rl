@@ -111,9 +111,10 @@ class VMPOAgent:
         old_log_stds = batch["old_log_stds"]
 
         # >>> normalize advantages (stabilises E-step)
-        adv_mean = advantages.mean()
-        adv_std = advantages.std(unbiased=False) + 1e-8
-        adv_norm = (advantages - adv_mean) / adv_std
+        adv = advantages.squeeze(-1)  # shape (N,)
+        adv_mean = adv.mean()
+        adv_std = adv.std(unbiased=False) + 1e-8
+        adv_norm = (adv - adv_mean) / adv_std
 
         # E-step: top-k selection
         # use adv_norm for selection and weighting
@@ -122,15 +123,15 @@ class VMPOAgent:
         threshold = topk_vals.min()
         mask_bool = adv_norm >= threshold
 
-        A_norm = adv_norm[mask_bool].detach()
-        K = A_norm.numel()
+        A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
+        K = A.numel()
 
         # Dual descent on eta (optimize log_temperature)
         # compute eta and clamp to reasonable bounds
         temperature = F.softplus(self.log_temperature) + 1e-8
-        logK = torch.log(torch.tensor(float(K), device=A_norm.device))
+        logK = torch.log(torch.tensor(float(K), device=A.device))
         dual_loss = temperature * self.config.epsilon_eta + temperature * (
-            torch.logsumexp(A_norm / temperature, dim=0) - logK
+            torch.logsumexp(A / temperature, dim=0) - logK
         )
 
         self.eta_opt.zero_grad(set_to_none=True)
@@ -140,7 +141,7 @@ class VMPOAgent:
         # Recompute weights with updated eta, only on top-k set
         with torch.no_grad():
             temperature = F.softplus(self.log_temperature) + 1e-8
-            weights = torch.softmax(A_norm / temperature, dim=0)
+            weights = torch.softmax(A / temperature, dim=0)
 
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
@@ -193,7 +194,7 @@ class VMPOAgent:
 
         # M-step: weighted negative log-likelihood over selected samples only
         log_prob_sel = log_prob[mask_bool]
-        weighted_nll = -(weights.detach() * log_prob_sel).sum() / K
+        weighted_nll = -(weights.detach() * log_prob_sel).sum()
 
         # Policy loss with trust-region penalties (stop-grad on alphas)
         with torch.no_grad():
@@ -231,11 +232,11 @@ class VMPOAgent:
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
             selected_frac = torch.tensor(
-                float(K) / float(adv_norm.numel()), device=adv_norm.device
+                float(K) / float(advantages.numel()), device=advantages.device
             )
 
             adv_std_over_temperature = float(
-                (adv_norm.std(unbiased=False) / (temperature + 1e-12)).item()
+                (advantages.std(unbiased=False) / (temperature + 1e-12)).item()
             )
 
             mean_eval, log_std_eval = self.policy(obs)
