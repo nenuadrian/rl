@@ -17,7 +17,7 @@ class VMPOConfig:
     policy_lr: float
     value_lr: float
     topk_fraction: float
-    eta: float
+    eta_init: float
     eta_lr: float
     epsilon_eta: float
     epsilon_mu: float
@@ -63,11 +63,12 @@ class VMPOAgent:
             ]
         )
 
-        # Learnable temperature (dual variable), kept positive via exp(log_eta).
-        self.log_eta = torch.nn.Parameter(
-            torch.log(torch.tensor(float(self.config.eta), device=device))
-        )
-        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+        # Learnable temperature (dual variable), kept positive via exp(log_temperature).
+        eta_init_t = torch.tensor(self.config.eta_init, device=device)
+        eta_init_t = torch.clamp(eta_init_t, min=1e-8)
+        self.log_temperature = torch.nn.Parameter(torch.log(torch.expm1(eta_init_t)))
+
+        self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.eta_lr)
 
         # Learnable KL multipliers (dual variables), kept positive via exp(log_alpha_*).
         self.log_alpha_mu = torch.nn.Parameter(torch.zeros(1, device=device))
@@ -125,9 +126,9 @@ class VMPOAgent:
         A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
         K = A.numel()
 
-        # Dual descent on eta (optimize log_eta)
+        # Dual descent on eta (optimize log_temperature)
         # compute eta and clamp to reasonable bounds
-        eta = self.log_eta.exp()
+        eta = self.log_temperature.exp()
         eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
         logK = torch.log(torch.tensor(float(K), device=A.device))
         dual_loss = eta_clamped * self.config.epsilon_eta + eta_clamped * (
@@ -140,7 +141,7 @@ class VMPOAgent:
 
         # Recompute weights with updated eta, only on top-k set
         with torch.no_grad():
-            eta = self.log_eta.exp()
+            eta = self.log_temperature.exp()
             eta_clamped = torch.clamp(eta, min=1e-6, max=1e3)
             weights = torch.softmax(A / eta_clamped, dim=0)
 
