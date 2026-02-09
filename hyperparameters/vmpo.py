@@ -102,7 +102,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("walker", "walk"): {
-        "num_envs": 1,
         "total_steps": 3_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -122,7 +121,6 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     ("walker", "run"): {
-        "num_envs": 1,
         "total_steps": 5_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
