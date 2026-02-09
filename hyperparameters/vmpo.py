@@ -34,7 +34,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "policy_lr": 5e-5,
         "value_lr": 1e-4,
         "topk_fraction": 0.4,
-        "eta_init": 10.0,
+        "eta_init": 4.0,
         "eta_lr": 5e-4,
         "epsilon_eta": 0.3,
         "epsilon_mu": 0.05,
