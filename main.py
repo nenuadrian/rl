@@ -46,7 +46,9 @@ def _apply_preset(args: argparse.Namespace, preset: dict, overridden: set[str]) 
         if possible_flags & overridden:
             continue
 
-        if dest == "hidden_sizes" and isinstance(value, tuple):
+        if dest in {"policy_layer_sizes", "critic_layer_sizes"} and isinstance(
+            value, tuple
+        ):
             setattr(args, dest, list(value))
         else:
             setattr(args, dest, value)
@@ -71,7 +73,13 @@ if __name__ == "__main__":
     parser.add_argument("--updates_per_step", type=int, default=4)
     parser.add_argument("--eval_interval", type=int, default=10_000)
     parser.add_argument("--save_interval", type=int, default=50_000)
-    parser.add_argument("--hidden_sizes", type=int, nargs=2, default=[256, 256])
+    parser.add_argument(
+        "--policy_layer_sizes", type=int, nargs=3, default=[256, 256, 256]
+    )
+    parser.add_argument(
+        "--critic_layer_sizes", type=int, nargs=3, default=[512, 512, 256]
+    )
+
     parser.add_argument("--out_dir", type=str, default="checkpoints")
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_entity", type=str, default=None)
@@ -189,7 +197,8 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
             replay_size=args.replay_size,
             config=sac_config,
         )
@@ -211,7 +220,8 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
             rollout_steps=int(args.rollout_steps),
             gamma=float(args.gamma),
             gae_lambda=float(args.gae_lambda),
@@ -264,7 +274,7 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
             num_envs=int(args.num_envs),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
@@ -299,7 +309,7 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
         )
@@ -328,7 +338,7 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
         )
@@ -365,7 +375,8 @@ if __name__ == "__main__":
             task=args.task,
             seed=args.seed,
             device=device,
-            hidden_sizes=tuple(args.hidden_sizes),
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
             replay_size=args.replay_size,
             config=mpo_config,
         )

@@ -24,7 +24,8 @@ def test_sac_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
+        critic_layer_sizes=(32, 32),
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)
@@ -63,7 +64,8 @@ def test_ppo_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
+        critic_layer_sizes=(32, 32),
     )
 
     batch_size = 16
@@ -103,7 +105,7 @@ def test_vmpo_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
         config=VMPOConfig(
             gamma=0.99,
             policy_lr=3e-4,
@@ -166,7 +168,7 @@ def test_vmpo_light_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
         config=VMPOLightConfig(
             gamma=0.99,
             policy_lr=3e-4,
@@ -222,7 +224,7 @@ def test_vmpo_parallel_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
         config=VMPOParallelConfig(
             gamma=0.99,
             policy_lr=3e-4,
@@ -284,7 +286,8 @@ def test_mpo_agent_act_and_update():
         action_low=action_low,
         action_high=action_high,
         device=torch.device("cpu"),
-        hidden_sizes=(32, 32),
+        policy_layer_sizes=(32, 32),
+        critic_layer_sizes=(32, 32),
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)

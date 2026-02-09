@@ -131,7 +131,8 @@ class PPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        policy_layer_sizes: Tuple[int, ...],
+        critic_layer_sizes: Tuple[int, ...],
         config: PPOConfig | None = None,
     ):
         self.device = device
@@ -140,12 +141,11 @@ class PPOAgent:
         self.policy = GaussianPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=hidden_sizes,
+            hidden_sizes=policy_layer_sizes,
             action_low=action_low,
             action_high=action_high,
         ).to(device)
-        self.value = ValueNetwork(obs_dim, hidden_sizes).to(device)
-
+        self.value = ValueNetwork(obs_dim, critic_layer_sizes).to(device)
         self.policy_opt = torch.optim.Adam(
             self.policy.parameters(), lr=self.config.policy_lr
         )

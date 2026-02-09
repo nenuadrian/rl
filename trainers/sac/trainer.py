@@ -17,7 +17,8 @@ class Trainer:
         task: str,
         seed: int,
         device: torch.device,
-        hidden_sizes: Tuple[int, int],
+        policy_layer_sizes: Tuple[int, ...],
+        critic_layer_sizes: Tuple[int, ...],
         replay_size: int,
         config: SACConfig | None = None,
     ):
@@ -37,7 +38,8 @@ class Trainer:
             action_low=action_low,
             action_high=action_high,
             device=device,
-            hidden_sizes=hidden_sizes,
+            policy_layer_sizes=policy_layer_sizes,
+            critic_layer_sizes=critic_layer_sizes,
             config=config or SACConfig(),
         )
 

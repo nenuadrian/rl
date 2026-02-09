@@ -30,7 +30,7 @@ class Trainer:
         task: str,
         seed: int,
         device: torch.device,
-        hidden_sizes: Tuple[int, int],
+         policy_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
         config: VMPOLightConfig,
     ):
@@ -56,7 +56,7 @@ class Trainer:
             action_low=action_low,
             action_high=action_high,
             device=device,
-            hidden_sizes=hidden_sizes,
+            policy_layer_sizes=policy_layer_sizes,
             config=config,
         )
 

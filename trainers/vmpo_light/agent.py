@@ -30,7 +30,7 @@ class VMPOLightAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        policy_layer_sizes: Tuple[int, ...],
     ):
         self.device = device
         self.config = config
@@ -38,7 +38,7 @@ class VMPOLightAgent:
         self.policy = GaussianMLPPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=hidden_sizes,
+            hidden_sizes=policy_layer_sizes,
             action_low=action_low,
             action_high=action_high,
         ).to(device)
@@ -62,11 +62,6 @@ class VMPOLightAgent:
             torch.log(torch.tensor(float(self.config.eta), device=device))
         )
         self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
-
-        # Removed: KL constraint dual variables + optimizer
-        # self.log_alpha_mu = ...
-        # self.log_alpha_sigma = ...
-        # self.alpha_opt = ...
 
     def act(
         self,
@@ -110,7 +105,6 @@ class VMPOLightAgent:
         # E-step (no top-k): use full batch
         A = adv_norm.detach()
         K = A.numel()
-        threshold = A.min()  # diagnostic only (no selection)
 
         # Dual descent on eta (optimize log_eta)
         eta = self.log_eta.exp()
@@ -199,7 +193,6 @@ class VMPOLightAgent:
             "vmpo/eta_raw": float(eta.item()),
             "vmpo/adv_std_over_eta": adv_std_over_eta,
             "vmpo/selected_frac": float(selected_frac.item()),
-            "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
             "train/param_delta": float(param_delta),
             "train/mean_abs_action": float(mean_abs_action),

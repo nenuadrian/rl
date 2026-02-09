@@ -11,137 +11,69 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 
+class LayerNormMLP(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        layer_sizes: Tuple[int, ...],
+        activate_final: bool = False,
+    ):
+        super().__init__()
 
-def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
-    layers = []
-    last_dim = in_dim
-    for size in hidden_sizes:
-        layers.append(nn.Linear(last_dim, size))
-        layers.append(nn.ReLU())
-        last_dim = size
-    return nn.Sequential(*layers)
+        layers = []
 
+        # First layer: Linear → LayerNorm → tanh
+        layers.append(nn.Linear(in_dim, layer_sizes[0]))
+        layers.append(nn.LayerNorm(layer_sizes[0]))
+        layers.append(nn.Tanh())
 
-class QNetwork(nn.Module):
+        # Remaining layers: ELU
+        for i in range(1, len(layer_sizes)):
+            layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
+            if activate_final or i < len(layer_sizes) - 1:
+                layers.append(nn.ELU())
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+class SmallInitLinear(nn.Linear):
+    def __init__(self, in_features: int, out_features: int, std: float = 0.01):
+        super().__init__(in_features, out_features)
+        nn.init.trunc_normal_(self.weight, std=std)
+        nn.init.zeros_(self.bias)
+
+class Critic(nn.Module):
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
-        hidden_sizes: Tuple[int, ...],
-        obs_encoder: nn.Module | None = None,
-        encoder_out_dim: int | None = None,
+        layer_sizes: Tuple[int, ...],
+        action_low: np.ndarray,
+        action_high: np.ndarray,
     ):
         super().__init__()
-        self.obs_encoder = obs_encoder
-        if self.obs_encoder is None:
-            in_dim = obs_dim + act_dim
-        else:
-            if encoder_out_dim is None:
-                raise ValueError(
-                    "encoder_out_dim must be provided when using obs_encoder."
-                )
-            in_dim = encoder_out_dim + act_dim
-        self.net = nn.Sequential(
-            _mlp(in_dim, hidden_sizes),
-            nn.Linear(hidden_sizes[-1], 1),
+
+        self.action_low: torch.Tensor
+        self.action_high: torch.Tensor
+        self.register_buffer("action_low", torch.tensor(action_low, dtype=torch.float32))
+        self.register_buffer("action_high", torch.tensor(action_high, dtype=torch.float32))
+
+        self.encoder = LayerNormMLP(
+            obs_dim + act_dim,
+            layer_sizes,
+            activate_final=True,
         )
 
-    def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        if self.obs_encoder is None:
-            x = torch.cat([obs, action], dim=-1)
-        else:
-            x = torch.cat([self.obs_encoder(obs), action], dim=-1)
-        return self.net(x)
+        # Acme uses a small-init linear head for nondistributional critics.
+        self.head = SmallInitLinear(layer_sizes[-1], 1, std=0.01)
 
-    def forward_with_features(
-        self, features: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
-        x = torch.cat([features, action], dim=-1)
-        return self.net(x)
+    def forward(self, obs: torch.Tensor, act: torch.Tensor) -> torch.Tensor:
+        act = torch.maximum(torch.minimum(act, self.action_high), self.action_low)
+        x = torch.cat([obs, act], dim=-1)
+        return self.head(self.encoder(x))
 
-    def head_parameters(self):
-        return self.net.parameters()
-
-
-class SquashedGaussianPolicy(nn.Module):
-    def __init__(
-        self,
-        obs_dim: int,
-        act_dim: int,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
-        action_low: np.ndarray | None = None,
-        action_high: np.ndarray | None = None,
-        encoder: nn.Module | None = None,
-    ):
-        super().__init__()
-        if len(hidden_sizes) < 1:
-            raise ValueError("hidden_sizes must have at least one layer.")
-
-        self.encoder = encoder if encoder is not None else _mlp(obs_dim, hidden_sizes)
-        self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
-        self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
-
-        if action_low is None or action_high is None:
-            action_low = -np.ones(act_dim, dtype=np.float32)
-            action_high = np.ones(act_dim, dtype=np.float32)
-
-        action_low_t = torch.tensor(action_low, dtype=torch.float32)
-        action_high_t = torch.tensor(action_high, dtype=torch.float32)
-        self.action_scale: torch.Tensor
-        self.action_bias: torch.Tensor
-        self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
-        self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
-
-    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        h = self.encoder(obs)
-        mean = self.policy_mean(h)
-        log_std = self.policy_logstd(h)
-        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
-        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
-        log_std = torch.clamp(log_std, -20.0, 2.0)
-        return mean, log_std
-
-    def log_prob(
-        self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor
-    ) -> torch.Tensor:
-        log_std = torch.clamp(log_std, -20.0, 2.0)
-        std = log_std.exp()
-        normal = Normal(mean, std)
-        y_t = (actions - self.action_bias) / self.action_scale
-        y_t = torch.clamp(y_t, -0.999999, 0.999999)
-        x_t = 0.5 * torch.log((1.0 + y_t) / (1.0 - y_t))
-        log_prob = normal.log_prob(x_t)
-        log_prob = log_prob - torch.log(1.0 - y_t.pow(2) + 1e-6)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
-        log_prob = log_prob - torch.log(self.action_scale).sum()
-        return log_prob
-
-    def sample_action(
-        self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool, **kwargs
-    ) -> torch.Tensor:
-        log_std = torch.clamp(log_std, -20.0, 2.0)
-        if deterministic:
-            action = torch.tanh(mean)
-        else:
-            std = log_std.exp()
-            normal = Normal(mean, std)
-            action = torch.tanh(normal.rsample())
-        return action * self.action_scale + self.action_bias
-
-    def sample_actions(self, obs: torch.Tensor, num_actions: int) -> torch.Tensor:
-        mean, log_std = self.forward(obs)
-        log_std = torch.clamp(log_std, -20.0, 2.0)
-        std = log_std.exp()
-        normal = Normal(mean, std)
-        eps = normal.rsample(sample_shape=(num_actions,))
-        eps = eps.permute(1, 0, 2)
-        actions = torch.tanh(eps)
-        return actions * self.action_scale + self.action_bias
-
-    def head_parameters(self):
-        return list(self.policy_mean.parameters()) + list(
-            self.policy_logstd.parameters()
-        )
 
 
 class DiagonalGaussianPolicy(nn.Module):
@@ -149,18 +81,22 @@ class DiagonalGaussianPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        layer_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
-        encoder: nn.Module | None = None,
     ):
         super().__init__()
-        if len(hidden_sizes) < 1:
-            raise ValueError("hidden_sizes must have at least one layer.")
 
-        self.encoder = encoder if encoder is not None else _mlp(obs_dim, hidden_sizes)
-        self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
-        self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
+        self.encoder = LayerNormMLP(
+            obs_dim,
+            layer_sizes,
+            activate_final=True,
+        )
+        self.policy_mean = nn.Linear(layer_sizes[-1], act_dim)
+        self.policy_logstd = nn.Linear(layer_sizes[-1], act_dim)
+        
+        nn.init.kaiming_normal_(self.policy_mean.weight, a=0.0, mode="fan_in", nonlinearity="linear")
+        nn.init.zeros_(self.policy_mean.bias)
 
         if action_low is None or action_high is None:
             action_low = -np.ones(act_dim, dtype=np.float32)
@@ -252,21 +188,51 @@ class DiagonalGaussianPolicy(nn.Module):
 
 @dataclass
 class MPOConfig:
-    gamma: float
-    tau: float
-    policy_lr: float
-    q_lr: float
-    eta_init: float
-    eta_lr: float
-    kl_epsilon: float
-    mstep_kl_epsilon: float
-    lambda_init: float
-    lambda_lr: float
-    max_grad_norm: float
-    action_samples: int
-    use_retrace: bool
-    retrace_steps: int
-    retrace_mc_actions: int
+    # Core RL.
+    gamma: float = 0.99
+    tau: float = 0.005
+
+    # Optimizers.
+    policy_lr: float = 3e-4
+    q_lr: float = 3e-4
+
+    # MPO loss hyperparameters (aligned with Acme JAX MPO loss).
+    # E-step (non-parametric) KL constraint.
+    kl_epsilon: float = 0.1
+    # M-step (parametric) mean/stddev KL constraints.
+    mstep_kl_epsilon: float = 0.1
+    epsilon_mean: float | None = None
+    epsilon_stddev: float | None = None
+    per_dim_constraining: bool = True
+
+    # Dual variables (temperature + alphas). We keep legacy names `eta_*` and
+    # `lambda_*` to match existing CLI/hparams, but they now correspond to
+    # Acme's `temperature` and `alpha_{mean,stddev}`.
+    eta_init: float = 1.0
+    eta_lr: float = 3e-4
+    lambda_init: float = 1.0
+    lambda_lr: float = 3e-4
+
+    # Optional action penalization (MO-MPO style). By default disabled because
+    # this implementation already clips executed actions to env bounds.
+    action_penalization: bool = False
+    epsilon_penalty: float = 0.001
+
+    # Misc.
+    max_grad_norm: float = 1.0
+    action_samples: int = 20
+
+    # Retrace (optional).
+    use_retrace: bool = False
+    retrace_steps: int = 2
+    retrace_mc_actions: int = 8
+    retrace_lambda: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.epsilon_mean is None:
+            self.epsilon_mean = float(self.mstep_kl_epsilon)
+        if self.epsilon_stddev is None:
+            self.epsilon_stddev = float(self.mstep_kl_epsilon)
 
 
 class MPOAgent:
@@ -277,39 +243,41 @@ class MPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        config: MPOConfig,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        policy_layer_sizes: Tuple[int, ...] | None = None,
+        critic_layer_sizes: Tuple[int, ...] | None = None,
+        config: MPOConfig | None = None,
     ):
         self.device = device
-        self.config = config
+        self.config = config or MPOConfig()
 
-        # MPO requires separate representations for policy and critics.
-        self.policy_encoder = _mlp(obs_dim, hidden_sizes)
-        self.q_encoder = _mlp(obs_dim, hidden_sizes)
+        if policy_layer_sizes is None or critic_layer_sizes is None:
+            raise ValueError(
+                "Must provide `policy_layer_sizes` and `critic_layer_sizes` (or `hidden_sizes` for back-compat)."
+            )
 
         self.policy = DiagonalGaussianPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=hidden_sizes,
+            layer_sizes=policy_layer_sizes,
             action_low=action_low,
             action_high=action_high,
-            encoder=self.policy_encoder,
         ).to(device)
         self.policy_target = copy.deepcopy(self.policy).to(device)
         self.policy_target.eval()
-        self.q1 = QNetwork(
+        # Twin critics (SAC-style) but using the Acme control-network critic torso.
+        self.q1 = Critic(
             obs_dim,
             act_dim,
-            hidden_sizes,
-            obs_encoder=self.q_encoder,
-            encoder_out_dim=hidden_sizes[-1],
+            layer_sizes=critic_layer_sizes,
+            action_low=action_low,
+            action_high=action_high,
         ).to(device)
-        self.q2 = QNetwork(
+        self.q2 = Critic(
             obs_dim,
             act_dim,
-            hidden_sizes,
-            obs_encoder=self.q_encoder,
-            encoder_out_dim=hidden_sizes[-1],
+            layer_sizes=critic_layer_sizes,
+            action_low=action_low,
+            action_high=action_high,
         ).to(device)
 
         self.q1_target = copy.deepcopy(self.q1).to(device)
@@ -322,23 +290,44 @@ class MPOAgent:
             self.policy.parameters(), lr=self.config.policy_lr
         )
 
-        # Single critic optimizer (q_encoder + both critic heads).
+        # Critic optimizer.
         self.q_opt = torch.optim.Adam(
-            list(self.q_encoder.parameters())
-            + list(self.q1.head_parameters())
-            + list(self.q2.head_parameters()),
-            lr=self.config.q_lr,
+            list(self.q1.parameters()) + list(self.q2.parameters()), lr=self.config.q_lr
         )
 
-        self.log_eta = nn.Parameter(
-            torch.log(torch.tensor(self.config.eta_init, device=device))
-        )
-        self.eta_opt = torch.optim.Adam([self.log_eta], lr=self.config.eta_lr)
+        # Dual variables (temperature + KL multipliers) in log-space.
+        eta_init_t = torch.tensor(self.config.eta_init, device=device)
+        eta_init_t = torch.clamp(eta_init_t, min=1e-8)
+        self.log_temperature = nn.Parameter(torch.log(torch.expm1(eta_init_t)))
 
         lambda_init_t = torch.tensor(self.config.lambda_init, device=device)
         lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
-        self.log_lambda = nn.Parameter(torch.log(torch.expm1(lambda_init_t)))
-        self.lambda_opt = torch.optim.Adam([self.log_lambda], lr=self.config.lambda_lr)
+        dual_shape = (act_dim,) if self.config.per_dim_constraining else (1,)
+        self.log_alpha_mean = nn.Parameter(
+            torch.full(dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device)
+        )
+        self.log_alpha_stddev = nn.Parameter(
+            torch.full(dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device)
+        )
+        self.log_penalty_temperature: nn.Parameter | None
+        if self.config.action_penalization:
+            self.log_penalty_temperature = nn.Parameter(
+                torch.log(torch.expm1(eta_init_t)).clone().detach().requires_grad_(True)
+            )
+        else:
+            self.log_penalty_temperature = None
+
+        # Dual optimizer uses separate LRs for temperature vs alphas.
+        temperature_params = [self.log_temperature]
+        if self.log_penalty_temperature is not None:
+            temperature_params.append(self.log_penalty_temperature)
+        alpha_params = [self.log_alpha_mean, self.log_alpha_stddev]
+        self.dual_opt = torch.optim.Adam(
+            [
+                {"params": temperature_params, "lr": self.config.eta_lr},
+                {"params": alpha_params, "lr": self.config.lambda_lr},
+            ]
+        )
 
     def _forward_kl_diag_gaussians(
         self,
@@ -356,6 +345,53 @@ class MPOAgent:
             + 2.0 * (log_std1 - log_std0)
         )
         return kl_per_dim.sum(dim=-1, keepdim=True)
+
+    def _kl_diag_gaussian_per_dim(
+        self,
+        mean_p: torch.Tensor,
+        log_std_p: torch.Tensor,
+        mean_q: torch.Tensor,
+        log_std_q: torch.Tensor,
+    ) -> torch.Tensor:
+        """KL( p || q ) for diagonal Gaussians, returned per-dimension.
+
+        Shapes: mean/log_std are (B,D). Returns (B,D).
+        """
+        var_p = torch.exp(2.0 * log_std_p)
+        var_q = torch.exp(2.0 * log_std_q)
+        return (
+            (log_std_q - log_std_p)
+            + 0.5 * (var_p + (mean_p - mean_q).pow(2)) / var_q
+            - 0.5
+        )
+
+    def _compute_weights_and_temperature_loss(
+        self,
+        q_values: torch.Tensor,
+        epsilon: float,
+        temperature: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Acme-style E-step weights and dual temperature loss.
+
+        q_values shape (B,N). Returns weights (B,N) detached and loss scalar.
+        """
+        q_detached = q_values.detach() / temperature
+        weights = torch.softmax(q_detached, dim=1).detach()
+        q_logsumexp = torch.logsumexp(q_detached, dim=1)
+        log_num_actions = math.log(q_values.shape[1])
+        loss_temperature = temperature * (
+            float(epsilon) + q_logsumexp.mean() - log_num_actions
+        )
+        return weights, loss_temperature
+
+    def _compute_nonparametric_kl_from_weights(self, weights: torch.Tensor) -> torch.Tensor:
+        """Estimates KL(nonparametric || target) like Acme's diagnostics.
+
+        weights shape (B,N). Returns (B,) KL.
+        """
+        n = float(weights.shape[1])
+        integrand = torch.log(n * weights + 1e-8)
+        return (weights * integrand).sum(dim=1)
 
     def act_with_logp(
         self, obs: np.ndarray, deterministic: bool = False
@@ -440,9 +476,8 @@ class MPOAgent:
             ).reshape(batch_size, seq_len, 1)
             log_b = behaviour_logp_seq
             log_ratio = log_pi - log_b
-            c = torch.exp(
-                torch.minimum(torch.zeros_like(log_ratio), log_ratio)
-            ).squeeze(-1)
+            rho = torch.exp(log_ratio).squeeze(-1)
+            c = (self.config.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
 
             # Correct Retrace recursion:
             # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
@@ -510,135 +545,177 @@ class MPOAgent:
                 ).mean(dim=1, keepdim=True)
                 target = rewards + (1.0 - dones) * self.config.gamma * q_target
 
-        # Encode observations once so q_encoder sees the summed gradient from both critics
-        # without redundant forward/backward passes.
-        q_features = self.q_encoder(obs)
-        q1 = self.q1.forward_with_features(q_features, actions)
-        q2 = self.q2.forward_with_features(q_features, actions)
+        q1 = self.q1(obs, actions)
+        q2 = self.q2(obs, actions)
 
         q1_loss = F.mse_loss(q1, target)
         q2_loss = F.mse_loss(q2, target)
 
-        # Phase A: critic update (including q_encoder)
+        # Phase A: critic update
         q_loss = q1_loss + q2_loss
         self.q_opt.zero_grad()
         q_loss.backward()
         nn.utils.clip_grad_norm_(
-            list(self.q_encoder.parameters())
-            + list(self.q1.head_parameters())
-            + list(self.q2.head_parameters()),
+            list(self.q1.parameters()) + list(self.q2.parameters()),
             self.config.max_grad_norm,
         )
         self.q_opt.step()
 
-        # Phase B: E-step weights + M-step policy update
-        mean_new, log_std_new = self.policy(obs)
+        # Phase B (Acme-style): update dual vars then do policy M-step.
+        batch_size = obs.shape[0]
+        num_samples = self.config.action_samples
 
+        mean_online, log_std_online = self.policy(obs)
         with torch.no_grad():
+            mean_target, log_std_target = self.policy_target(obs)
+
             sampled_actions_raw, sampled_actions_exec = (
-                self.policy_target.sample_actions_raw_and_exec(
-                    obs, num_actions=self.config.action_samples
-                )
-            )
-            batch_size = obs.shape[0]
+                self.policy_target.sample_actions_raw_and_exec(obs, num_actions=num_samples)
+            )  # (B,N,D)
 
-            obs_rep = obs.unsqueeze(1).expand(
-                batch_size, self.config.action_samples, obs.shape[-1]
-            )
+            obs_rep = obs.unsqueeze(1).expand(batch_size, num_samples, obs.shape[-1])
             obs_flat = obs_rep.reshape(-1, obs.shape[-1])
-            act_raw_flat = sampled_actions_raw.reshape(
-                -1, sampled_actions_raw.shape[-1]
-            )
-            act_exec_flat = sampled_actions_exec.reshape(
-                -1, sampled_actions_exec.shape[-1]
-            )
+            act_exec_flat = sampled_actions_exec.reshape(-1, sampled_actions_exec.shape[-1])
 
-            # MPO E-step must use a frozen critic snapshot.
-            # Critic is trained on executed (clipped) actions, so evaluate Q on executed actions.
             q1_vals = self.q1_target(obs_flat, act_exec_flat)
             q2_vals = self.q2_target(obs_flat, act_exec_flat)
-            q_vals = torch.min(q1_vals, q2_vals).reshape(
-                batch_size, self.config.action_samples
-            )
+            q_vals = torch.min(q1_vals, q2_vals).reshape(batch_size, num_samples)
 
-            mean_old, log_std_old = self.policy_target(obs)
-            mean_old_exp = mean_old.unsqueeze(1).expand(
-                batch_size, self.config.action_samples, mean_old.shape[-1]
-            )
-            log_std_old_exp = log_std_old.unsqueeze(1).expand_as(mean_old_exp)
-            log_pi_old = self.policy_target.log_prob(
-                mean_old_exp.reshape(-1, mean_old.shape[-1]),
-                log_std_old_exp.reshape(-1, log_std_old.shape[-1]),
-                act_raw_flat,
-            ).reshape(batch_size, self.config.action_samples)
-
-        q_adv = q_vals.detach()
-        eta = F.softplus(self.log_eta) + 1e-8
-        log_mean_exp = torch.logsumexp(q_adv / eta, dim=1) - math.log(
-            self.config.action_samples
+        temperature = F.softplus(self.log_temperature) + 1e-8
+        weights, loss_temperature = self._compute_weights_and_temperature_loss(
+            q_vals, self.config.kl_epsilon, temperature
         )
-        dual_loss = (eta * self.config.kl_epsilon + eta * log_mean_exp).mean()
-        self.eta_opt.zero_grad()
+
+        penalty_kl_rel = torch.tensor(0.0, device=self.device)
+        if self.config.action_penalization and self.log_penalty_temperature is not None:
+            penalty_temperature = F.softplus(self.log_penalty_temperature) + 1e-8
+            diff = sampled_actions_raw.detach() - torch.clamp(
+                sampled_actions_raw.detach(), self.policy.action_low, self.policy.action_high
+            )
+            cost = -torch.linalg.norm(diff, dim=-1)  # (B,N)
+            penalty_weights, loss_penalty_temperature = (
+                self._compute_weights_and_temperature_loss(
+                    cost, self.config.epsilon_penalty, penalty_temperature
+                )
+            )
+            weights = weights + penalty_weights
+            loss_temperature = loss_temperature + loss_penalty_temperature
+            penalty_kl = self._compute_nonparametric_kl_from_weights(penalty_weights)
+            penalty_kl_rel = penalty_kl.mean() / float(self.config.epsilon_penalty)
+
+        # KL(nonparametric || target) diagnostic (relative).
+        kl_nonparametric = self._compute_nonparametric_kl_from_weights(weights)
+        kl_q_rel = kl_nonparametric.mean() / float(self.config.kl_epsilon)
+
+        # Compute Acme-style decomposed losses.
+        std_online = torch.exp(log_std_online)
+        std_target = torch.exp(log_std_target)
+
+        # Fixed distributions for decomposition.
+        actions = sampled_actions_raw.detach()  # (B,N,D), stop-gradient wrt sampling.
+        mean_online_exp = mean_online.unsqueeze(1)
+        std_online_exp = std_online.unsqueeze(1)
+        mean_target_exp = mean_target.unsqueeze(1)
+        std_target_exp = std_target.unsqueeze(1)
+
+        # fixed_stddev: mean=online_mean, std=target_std
+        log_prob_fixed_stddev = Normal(mean_online_exp, std_target_exp).log_prob(actions).sum(dim=-1)
+        # fixed_mean: mean=target_mean, std=online_std
+        log_prob_fixed_mean = Normal(mean_target_exp, std_online_exp).log_prob(actions).sum(dim=-1)
+
+        # Cross entropy / weighted log-prob.
+        loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
+        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
+        loss_policy = loss_policy_mean + loss_policy_std
+
+        # Decomposed KL constraints (target || online-decomposed).
+        if self.config.per_dim_constraining:
+            kl_mean = self._kl_diag_gaussian_per_dim(
+                mean_target.detach(), log_std_target.detach(), mean_online, log_std_target.detach()
+            )  # (B,D)
+            kl_std = self._kl_diag_gaussian_per_dim(
+                mean_target.detach(), log_std_target.detach(), mean_target.detach(), log_std_online
+            )  # (B,D)
+        else:
+            kl_mean = self._forward_kl_diag_gaussians(
+                mean_target.detach(), log_std_target.detach(), mean_online, log_std_target.detach()
+            )  # (B,1)
+            kl_std = self._forward_kl_diag_gaussians(
+                mean_target.detach(), log_std_target.detach(), mean_target.detach(), log_std_online
+            )  # (B,1)
+
+        mean_kl_mean = kl_mean.mean(dim=0)
+        mean_kl_std = kl_std.mean(dim=0)
+
+        alpha_mean = F.softplus(self.log_alpha_mean) + 1e-8
+        alpha_std = F.softplus(self.log_alpha_stddev) + 1e-8
+
+        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+        epsilon_mean = (
+            float(self.config.epsilon_mean)
+            if self.config.epsilon_mean is not None
+            else float(self.config.mstep_kl_epsilon)
+        )
+        epsilon_stddev = (
+            float(self.config.epsilon_stddev)
+            if self.config.epsilon_stddev is not None
+            else float(self.config.mstep_kl_epsilon)
+        )
+        loss_alpha_mean = (alpha_mean * (epsilon_mean - mean_kl_mean.detach())).sum()
+        loss_alpha_std = (alpha_std * (epsilon_stddev - mean_kl_std.detach())).sum()
+
+        # Update dual variables (temperature + alphas).
+        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
+        self.dual_opt.zero_grad()
         dual_loss.backward()
-        self.eta_opt.step()
-        eta = F.softplus(self.log_eta).detach() + 1e-8
-
-        # E-step weights: log w~ = log π_old(a|s) + (Q(s,a) - E[Q])/η
-        log_w_tilde = log_pi_old + q_adv / eta
-        log_w = log_w_tilde - torch.logsumexp(log_w_tilde, dim=1, keepdim=True)
-        weights = torch.exp(log_w)
-
-        mean_new_exp = mean_new.unsqueeze(1).expand(
-            batch_size, self.config.action_samples, mean_new.shape[-1]
+        nn.utils.clip_grad_norm_(
+            [p for p in [self.log_temperature, self.log_alpha_mean, self.log_alpha_stddev, self.log_penalty_temperature] if p is not None],
+            self.config.max_grad_norm,
         )
-        log_std_new_exp = log_std_new.unsqueeze(1).expand_as(mean_new_exp)
-        log_pi_new = self.policy.log_prob(
-            mean_new_exp.reshape(-1, mean_new.shape[-1]),
-            log_std_new_exp.reshape(-1, log_std_new.shape[-1]),
-            sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1]),
-        ).reshape(batch_size, self.config.action_samples)
+        self.dual_opt.step()
 
-        policy_loss = -(weights.detach() * log_pi_new).sum(dim=1).mean()
-
-        with torch.no_grad():
-            mean_old, log_std_old = self.policy_target(obs)
-        kl_state = self._forward_kl_diag_gaussians(
-            mean_old.detach(), log_std_old.detach(), mean_new, log_std_new
-        )
-        avg_kl = kl_state.mean()
-
-        lambda_val = F.softplus(self.log_lambda) + 1e-8
-        lagrangian = policy_loss + lambda_val.detach() * (
-            avg_kl - self.config.mstep_kl_epsilon
-        )
-
+        # Policy update (M-step).
+        policy_total_loss = loss_policy + loss_kl_penalty
         self.policy_opt.zero_grad()
-        lagrangian.backward()
+        policy_total_loss.backward()
         nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
         self.policy_opt.step()
 
-        # Dual ascent on lambda, with avg_kl treated as a constant.
-        self.lambda_opt.zero_grad()
-        lambda_loss = -lambda_val * (avg_kl.detach() - self.config.mstep_kl_epsilon)
-        lambda_loss.backward()
-        self.lambda_opt.step()
+        # Target updates.
+        self._soft_update_module(self.q1, self.q1_target)
+        self._soft_update_module(self.q2, self.q2_target)
+        self._soft_update_module(self.policy, self.policy_target)
 
-        self._soft_update(self.q1, self.q1_target)
-        self._soft_update(self.q2, self.q2_target)
-        self._soft_update(self.policy, self.policy_target)
+        # Logging keys kept stable for existing scripts/tests.
+        temperature_val = float((F.softplus(self.log_temperature) + 1e-8).detach().item())
+        lambda_val = float((F.softplus(self.log_alpha_mean).mean() + 1e-8).detach().item())
 
         return {
             "loss/q1": float(q1_loss.item()),
             "loss/q2": float(q2_loss.item()),
-            "loss/policy": float(policy_loss.item()),
-            "loss/dual_eta": float(dual_loss.item()),
-            "kl/q_pi": float(avg_kl.item()),
-            "eta": float(eta.item()),
-            "lambda": float((F.softplus(self.log_lambda) + 1e-8).item()),
+            "loss/policy": float(loss_policy.item()),
+            "loss/dual_eta": float(loss_temperature.detach().item()),
+            "loss/dual": float(dual_loss.detach().item()),
+            "kl/q_pi": float(kl_q_rel.detach().item()),
+            "kl/mean": float(mean_kl_mean.mean().detach().item()),
+            "kl/std": float(mean_kl_std.mean().detach().item()),
+            "eta": temperature_val,
+            "lambda": lambda_val,
+            "alpha_mean": float((F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()),
+            "alpha_std": float((F.softplus(self.log_alpha_stddev) + 1e-8).mean().detach().item()),
+            "q/min": float(q_vals.min().detach().item()),
+            "q/max": float(q_vals.max().detach().item()),
+            "pi/std_min": float(std_online.min().detach().item()),
+            "pi/std_max": float(std_online.max().detach().item()),
+            "penalty_kl/q_pi": float(penalty_kl_rel.detach().item()),
         }
 
-    def _soft_update(self, net: nn.Module, target: nn.Module) -> None:
+    def _soft_update_module(self, net: nn.Module, target: nn.Module) -> None:
         tau = self.config.tau
-        for param, target_param in zip(net.parameters(), target.parameters()):
-            target_param.data.mul_(1.0 - tau)
-            target_param.data.add_(tau * param.data)
+        with torch.no_grad():
+            for param, target_param in zip(net.parameters(), target.parameters()):
+                target_param.data.mul_(1.0 - tau)
+                target_param.data.add_(tau * param.data)

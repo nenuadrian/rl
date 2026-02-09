@@ -34,7 +34,7 @@ class VMPOParallelAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        hidden_sizes: Tuple[int, ...],
+        policy_layer_sizes: Tuple[int, ...],
         config: VMPOParallelConfig,
     ):
         self.device = device
@@ -43,7 +43,7 @@ class VMPOParallelAgent:
         self.policy = GaussianMLPPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=hidden_sizes,
+            hidden_sizes=policy_layer_sizes,
             action_low=action_low,
             action_high=action_high,
         ).to(device)

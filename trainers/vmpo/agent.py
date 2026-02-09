@@ -35,7 +35,7 @@ class VMPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        policy_layer_sizes: Tuple[int, ...],
     ):
         self.device = device
         self.config = config
@@ -43,7 +43,7 @@ class VMPOAgent:
         self.policy = GaussianMLPPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=hidden_sizes,
+            hidden_sizes=policy_layer_sizes,
             action_low=action_low,
             action_high=action_high,
         ).to(device)

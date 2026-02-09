@@ -141,7 +141,8 @@ class Trainer:
         task: str,
         seed: int,
         device: torch.device,
-        hidden_sizes: Tuple[int, int],
+        policy_layer_sizes: Tuple[int, ...],
+        critic_layer_sizes: Tuple[int, ...],
         replay_size: int,
         config: MPOConfig,
     ):
@@ -165,7 +166,8 @@ class Trainer:
             action_low=action_low,
             action_high=action_high,
             device=device,
-            hidden_sizes=hidden_sizes,
+            policy_layer_sizes=policy_layer_sizes,
+            critic_layer_sizes=critic_layer_sizes,
             config=config,
         )
 
@@ -181,6 +183,7 @@ class Trainer:
         eval_interval: int,
         save_interval: int,
         out_dir: str,
+        updates_per_step: int = 1,
     ):
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)
@@ -220,16 +223,18 @@ class Trainer:
                 self.episode_return = 0.0
 
             if step >= update_after and self.replay.size >= batch_size:
-                seq_len = self.agent.config.retrace_steps
-                if self.agent.config.use_retrace and seq_len > 1:
-                    if self.replay.size >= batch_size + seq_len:
-                        batch = self.replay.sample_sequences(
-                            batch_size, seq_len=seq_len
-                        )
-                        metrics = self.agent.update(batch)
-                        log_wandb(metrics, step=step)
-                else:
-                    batch = self.replay.sample(batch_size)
+                for _ in range(int(updates_per_step)):
+                    seq_len = self.agent.config.retrace_steps
+                    if self.agent.config.use_retrace and seq_len > 1:
+                        if self.replay.size >= batch_size + seq_len:
+                            batch = self.replay.sample_sequences(
+                                batch_size, seq_len=seq_len
+                            )
+                        else:
+                            continue
+                    else:
+                        batch = self.replay.sample(batch_size)
+
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
 
