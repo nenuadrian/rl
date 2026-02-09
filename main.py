@@ -428,7 +428,6 @@ if __name__ == "__main__":
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
-            updates_per_step=int(args.updates_per_step),
         )
     elif algo == "vmpo_light":
         from trainers.vmpo_light.trainer import Trainer as VMPOLightTrainer
