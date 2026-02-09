@@ -38,6 +38,7 @@ def collect_results(
 ):
     results = {}
     domains_tasks = set()
+    runs_by_algo = {algo: [] for algo in algorithms}
     for algo in algorithms:
         runs = get_runs_for_algorithm(
             algo, prefix=prefix, entity=entity, min_steps=min_steps
@@ -48,7 +49,23 @@ def collect_results(
             if domain and task:
                 key = (domain, task)
                 domains_tasks.add(key)
+
+                steps = run.summary.get("_step", 0)
                 val = run.summary.get("eval/return_max", None)
+
+                # collect all runs for per-algorithm tables
+                runs_by_algo[algo].append(
+                    {
+                        "name": run.name,
+                        "url": run.url,
+                        "domain": domain,
+                        "task": task,
+                        "steps": steps,
+                        "val": val,
+                    }
+                )
+
+                # keep best value per domain/task for the main table
                 if val is not None:
                     if key not in results:
                         results[key] = {}
@@ -58,7 +75,7 @@ def collect_results(
                     else:
                         if val > existing["val"]:
                             results[key][algo] = {"val": val, "url": run.url}
-    return results, domains_tasks
+    return results, domains_tasks, runs_by_algo
 
 
 def generate_report(
@@ -68,7 +85,7 @@ def generate_report(
     min_steps=MIN_STEPS,
     output_dir="reports",
 ):
-    results, domains_tasks = collect_results(
+    results, domains_tasks, runs_by_algo = collect_results(
         algorithms=algorithms, prefix=prefix, entity=entity, min_steps=min_steps
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -80,9 +97,19 @@ def generate_report(
     header += "|" + "---|" * sep_cols + "\n"
     rows = []
     for domain, task in sorted(domains_tasks):
+        # only include rows where at least two algorithms have eval/return_max > 100
+        entry_map = results.get((domain, task), {})
+        present_count = sum(
+            1
+            for algo in algorithms
+            if (entry_map.get(algo) is not None and entry_map.get(algo).get("val") is not None and entry_map.get(algo).get("val") > 100)
+        )
+        if present_count < 2:
+            continue
+
         row = [domain, task]
         for algo in algorithms:
-            entry = results.get((domain, task), {}).get(algo)
+            entry = entry_map.get(algo)
             if entry:
                 display = f"[{int(entry['val'])}]({entry['url']})"
             else:
@@ -95,6 +122,23 @@ def generate_report(
         for r in rows:
             f.write(r)
         f.write("\n")
+        # Per-algorithm sections: list all runs sorted by domain, task, val(desc)
+        for algo in algorithms:
+            f.write(f"## {algo}\n\n")
+            f.write("| Run | Domain | Task | _step | eval/return_max |\n")
+            f.write("|---|---|---|---:|---:|\n")
+            runs = runs_by_algo.get(algo, [])
+            def sort_key(r):
+                val_sort = r["val"] if r["val"] is not None else float("-inf")
+                return (r["domain"], r["task"], -val_sort)
+
+            for run_entry in sorted(runs, key=sort_key):
+                name_link = f"[{run_entry['name']}]({run_entry['url']})"
+                steps = run_entry.get("steps", 0)
+                val = run_entry.get("val")
+                val_display = str(int(val)) if val is not None else "-"
+                f.write(f"| {name_link} | {run_entry['domain']} | {run_entry['task']} | {steps} | {val_display} |\n")
+            f.write("\n")
     print(f"Report generated: {report_path}")
 
 
