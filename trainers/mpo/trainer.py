@@ -143,7 +143,7 @@ class Trainer:
         device: torch.device,
         hidden_sizes: Tuple[int, int],
         replay_size: int,
-        config: MPOConfig | None = None,
+        config: MPOConfig,
     ):
         self.env = make_dm_control_env(domain, task, seed=seed)
 
@@ -166,7 +166,7 @@ class Trainer:
             action_high=action_high,
             device=device,
             hidden_sizes=hidden_sizes,
-            config=config or MPOConfig(),
+            config=config,
         )
 
         self.replay = MPOReplayBuffer(obs_dim, act_dim, capacity=replay_size)
@@ -176,7 +176,6 @@ class Trainer:
     def train(
         self,
         total_steps: int,
-        start_steps: int,
         update_after: int,
         batch_size: int,
         eval_interval: int,
@@ -221,8 +220,8 @@ class Trainer:
                 self.episode_return = 0.0
 
             if step >= update_after and self.replay.size >= batch_size:
-                seq_len = int(getattr(self.agent.config, "retrace_steps", 1))
-                if seq_len > 1:
+                seq_len = self.agent.config.retrace_steps
+                if self.agent.config.use_retrace and seq_len > 1:
                     if self.replay.size >= batch_size + seq_len:
                         batch = self.replay.sample_sequences(
                             batch_size, seq_len=seq_len

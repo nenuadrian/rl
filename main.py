@@ -369,7 +369,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            start_steps=args.start_steps,
             update_after=args.update_after,
             batch_size=args.batch_size,
             eval_interval=args.eval_interval,

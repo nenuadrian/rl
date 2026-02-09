@@ -53,6 +53,12 @@ class QNetwork(nn.Module):
             x = torch.cat([self.obs_encoder(obs), action], dim=-1)
         return self.net(x)
 
+    def forward_with_features(
+        self, features: torch.Tensor, action: torch.Tensor
+    ) -> torch.Tensor:
+        x = torch.cat([features, action], dim=-1)
+        return self.net(x)
+
     def head_parameters(self):
         return self.net.parameters()
 
@@ -192,7 +198,9 @@ class DiagonalGaussianPolicy(nn.Module):
         return log_prob.sum(dim=-1, keepdim=True)
 
     def _clip_to_env_bounds(self, actions_raw: torch.Tensor) -> torch.Tensor:
-        return torch.maximum(torch.minimum(actions_raw, self.action_high), self.action_low)
+        return torch.maximum(
+            torch.minimum(actions_raw, self.action_high), self.action_low
+        )
 
     def sample_action_raw_and_exec(
         self,
@@ -244,20 +252,21 @@ class DiagonalGaussianPolicy(nn.Module):
 
 @dataclass
 class MPOConfig:
-    gamma: float = 0.99
-    tau: float = 0.005
-    policy_lr: float = 3e-4
-    q_lr: float = 3e-4
-    eta_init: float = 1.0
-    eta_lr: float = 1e-3
-    kl_epsilon: float = 0.1
-    mstep_kl_epsilon: float = 0.1
-    lambda_init: float = 1.0
-    lambda_lr: float = 1e-3
-    max_grad_norm: float = 1.0
-    action_samples: int = 16
-    retrace_steps: int = 5
-    retrace_mc_actions: int = 16
+    gamma: float
+    tau: float
+    policy_lr: float
+    q_lr: float
+    eta_init: float
+    eta_lr: float
+    kl_epsilon: float
+    mstep_kl_epsilon: float
+    lambda_init: float
+    lambda_lr: float
+    max_grad_norm: float
+    action_samples: int
+    use_retrace: bool
+    retrace_steps: int
+    retrace_mc_actions: int
 
 
 class MPOAgent:
@@ -268,13 +277,15 @@ class MPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
+        config: MPOConfig,
         hidden_sizes: Tuple[int, ...] = (256, 256),
-        config: MPOConfig | None = None,
     ):
         self.device = device
-        self.config = config or MPOConfig()
+        self.config = config
 
-        self.shared_encoder = _mlp(obs_dim, hidden_sizes)
+        # MPO requires separate representations for policy and critics.
+        self.policy_encoder = _mlp(obs_dim, hidden_sizes)
+        self.q_encoder = _mlp(obs_dim, hidden_sizes)
 
         self.policy = DiagonalGaussianPolicy(
             obs_dim,
@@ -282,7 +293,7 @@ class MPOAgent:
             hidden_sizes=hidden_sizes,
             action_low=action_low,
             action_high=action_high,
-            encoder=self.shared_encoder,
+            encoder=self.policy_encoder,
         ).to(device)
         self.policy_target = copy.deepcopy(self.policy).to(device)
         self.policy_target.eval()
@@ -290,14 +301,14 @@ class MPOAgent:
             obs_dim,
             act_dim,
             hidden_sizes,
-            obs_encoder=self.shared_encoder,
+            obs_encoder=self.q_encoder,
             encoder_out_dim=hidden_sizes[-1],
         ).to(device)
         self.q2 = QNetwork(
             obs_dim,
             act_dim,
             hidden_sizes,
-            obs_encoder=self.shared_encoder,
+            obs_encoder=self.q_encoder,
             encoder_out_dim=hidden_sizes[-1],
         ).to(device)
 
@@ -306,13 +317,17 @@ class MPOAgent:
         self.q1_target.eval()
         self.q2_target.eval()
 
+        # Train policy encoder + head together; critics share a separate encoder.
         self.policy_opt = torch.optim.Adam(
-            self.policy.head_parameters(), lr=self.config.policy_lr
+            self.policy.parameters(), lr=self.config.policy_lr
         )
-        self.q1_opt = torch.optim.Adam(self.q1.head_parameters(), lr=self.config.q_lr)
-        self.q2_opt = torch.optim.Adam(self.q2.head_parameters(), lr=self.config.q_lr)
-        self.encoder_opt = torch.optim.Adam(
-            self.shared_encoder.parameters(), lr=self.config.policy_lr
+
+        # Single critic optimizer (q_encoder + both critic heads).
+        self.q_opt = torch.optim.Adam(
+            list(self.q_encoder.parameters())
+            + list(self.q1.head_parameters())
+            + list(self.q2.head_parameters()),
+            lr=self.config.q_lr,
         )
 
         self.log_eta = nn.Parameter(
@@ -362,10 +377,9 @@ class MPOAgent:
         action_exec, _, _ = self.act_with_logp(obs, deterministic=deterministic)
         return action_exec
 
-
     def _expected_q_current(self, obs: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            actions = self.policy.sample_actions(
+            actions = self.policy_target.sample_actions(
                 obs, num_actions=self.config.retrace_mc_actions
             )
             batch_size = obs.shape[0]
@@ -395,7 +409,9 @@ class MPOAgent:
         next_obs_seq = torch.tensor(
             batch["next_obs"], dtype=torch.float32, device=self.device
         )
-        dones_seq = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
+        dones_seq = torch.tensor(
+            batch["dones"], dtype=torch.float32, device=self.device
+        )
         behaviour_logp_seq = torch.tensor(
             batch["behaviour_logp"], dtype=torch.float32, device=self.device
         )
@@ -417,16 +433,16 @@ class MPOAgent:
 
             delta = rewards_seq + (1.0 - dones_seq) * self.config.gamma * v_next - q_t
 
-            mean, log_std = self.policy(obs_flat)
+            mean, log_std = self.policy_target(obs_flat)
             actions_raw_flat = actions_raw_seq.reshape(batch_size * seq_len, act_dim)
-            log_pi = self.policy.log_prob(mean, log_std, actions_raw_flat).reshape(
-                batch_size, seq_len, 1
-            )
+            log_pi = self.policy_target.log_prob(
+                mean, log_std, actions_raw_flat
+            ).reshape(batch_size, seq_len, 1)
             log_b = behaviour_logp_seq
             log_ratio = log_pi - log_b
-            c = torch.exp(torch.minimum(torch.zeros_like(log_ratio), log_ratio)).squeeze(
-                -1
-            )
+            c = torch.exp(
+                torch.minimum(torch.zeros_like(log_ratio), log_ratio)
+            ).squeeze(-1)
 
             # Correct Retrace recursion:
             # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
@@ -448,11 +464,16 @@ class MPOAgent:
         return q_ret
 
     def update(self, batch: dict) -> dict:
-        is_sequence_batch = isinstance(batch.get("obs"), np.ndarray) and batch["obs"].ndim == 3
+        is_sequence_batch = (
+            isinstance(batch.get("obs"), np.ndarray) and batch["obs"].ndim == 3
+        )
+        use_retrace = bool(getattr(self.config, "use_retrace", True))
 
-        if is_sequence_batch and self.config.retrace_steps > 1:
+        if use_retrace and is_sequence_batch and self.config.retrace_steps > 1:
             target = self._retrace_q_target(batch)
-            obs = torch.tensor(batch["obs"][:, 0, :], dtype=torch.float32, device=self.device)
+            obs = torch.tensor(
+                batch["obs"][:, 0, :], dtype=torch.float32, device=self.device
+            )
             actions = torch.tensor(
                 batch["actions_exec"][:, 0, :], dtype=torch.float32, device=self.device
             )
@@ -467,7 +488,9 @@ class MPOAgent:
             next_obs = torch.tensor(
                 batch["next_obs"], dtype=torch.float32, device=self.device
             )
-            dones = torch.tensor(batch["dones"], dtype=torch.float32, device=self.device)
+            dones = torch.tensor(
+                batch["dones"], dtype=torch.float32, device=self.device
+            )
 
             with torch.no_grad():
                 next_actions = self.policy_target.sample_actions(
@@ -482,41 +505,34 @@ class MPOAgent:
                 q1_target = self.q1_target(next_obs_flat, next_act_flat)
                 q2_target = self.q2_target(next_obs_flat, next_act_flat)
                 q_target = torch.min(q1_target, q2_target)
-                q_target = q_target.reshape(batch_size, self.config.action_samples).mean(
-                    dim=1, keepdim=True
-                )
+                q_target = q_target.reshape(
+                    batch_size, self.config.action_samples
+                ).mean(dim=1, keepdim=True)
                 target = rewards + (1.0 - dones) * self.config.gamma * q_target
 
-        q1 = self.q1(obs, actions)
-        q2 = self.q2(obs, actions)
+        # Encode observations once so q_encoder sees the summed gradient from both critics
+        # without redundant forward/backward passes.
+        q_features = self.q_encoder(obs)
+        q1 = self.q1.forward_with_features(q_features, actions)
+        q2 = self.q2.forward_with_features(q_features, actions)
 
         q1_loss = F.mse_loss(q1, target)
         q2_loss = F.mse_loss(q2, target)
 
-        # Phase A: critic + encoder update
+        # Phase A: critic update (including q_encoder)
         q_loss = q1_loss + q2_loss
-        self.q1_opt.zero_grad()
-        self.q2_opt.zero_grad()
-        self.encoder_opt.zero_grad()
+        self.q_opt.zero_grad()
         q_loss.backward()
         nn.utils.clip_grad_norm_(
-            list(self.q1.head_parameters()), self.config.max_grad_norm
+            list(self.q_encoder.parameters())
+            + list(self.q1.head_parameters())
+            + list(self.q2.head_parameters()),
+            self.config.max_grad_norm,
         )
-        nn.utils.clip_grad_norm_(
-            list(self.q2.head_parameters()), self.config.max_grad_norm
-        )
-        nn.utils.clip_grad_norm_(
-            self.shared_encoder.parameters(), self.config.max_grad_norm
-        )
-        self.q1_opt.step()
-        self.q2_opt.step()
-        self.encoder_opt.step()
+        self.q_opt.step()
 
-        # Phase B: E-step weights + M-step policy update (encoder frozen)
-        with torch.no_grad():
-            features_detached = self.shared_encoder(obs).detach()
-
-        mean_new, log_std_new = self.policy.forward_with_features(features_detached)
+        # Phase B: E-step weights + M-step policy update
+        mean_new, log_std_new = self.policy(obs)
 
         with torch.no_grad():
             sampled_actions_raw, sampled_actions_exec = (
@@ -530,12 +546,17 @@ class MPOAgent:
                 batch_size, self.config.action_samples, obs.shape[-1]
             )
             obs_flat = obs_rep.reshape(-1, obs.shape[-1])
-            act_raw_flat = sampled_actions_raw.reshape(-1, sampled_actions_raw.shape[-1])
-            act_exec_flat = sampled_actions_exec.reshape(-1, sampled_actions_exec.shape[-1])
+            act_raw_flat = sampled_actions_raw.reshape(
+                -1, sampled_actions_raw.shape[-1]
+            )
+            act_exec_flat = sampled_actions_exec.reshape(
+                -1, sampled_actions_exec.shape[-1]
+            )
 
+            # MPO E-step must use a frozen critic snapshot.
             # Critic is trained on executed (clipped) actions, so evaluate Q on executed actions.
-            q1_vals = self.q1(obs_flat, act_exec_flat)
-            q2_vals = self.q2(obs_flat, act_exec_flat)
+            q1_vals = self.q1_target(obs_flat, act_exec_flat)
+            q2_vals = self.q2_target(obs_flat, act_exec_flat)
             q_vals = torch.min(q1_vals, q2_vals).reshape(
                 batch_size, self.config.action_samples
             )
@@ -551,11 +572,10 @@ class MPOAgent:
                 act_raw_flat,
             ).reshape(batch_size, self.config.action_samples)
 
-        q_vals_detach = q_vals.detach()
-        q_adv = q_vals_detach - q_vals_detach.mean(dim=1, keepdim=True)
+        q_adv = q_vals.detach()
         eta = F.softplus(self.log_eta) + 1e-8
-        log_mean_exp = (
-            torch.logsumexp(q_adv / eta, dim=1) - math.log(self.config.action_samples)
+        log_mean_exp = torch.logsumexp(q_adv / eta, dim=1) - math.log(
+            self.config.action_samples
         )
         dual_loss = (eta * self.config.kl_epsilon + eta * log_mean_exp).mean()
         self.eta_opt.zero_grad()
@@ -583,7 +603,7 @@ class MPOAgent:
         with torch.no_grad():
             mean_old, log_std_old = self.policy_target(obs)
         kl_state = self._forward_kl_diag_gaussians(
-            mean_old, log_std_old, mean_new, log_std_new
+            mean_old.detach(), log_std_old.detach(), mean_new, log_std_new
         )
         avg_kl = kl_state.mean()
 
@@ -594,9 +614,7 @@ class MPOAgent:
 
         self.policy_opt.zero_grad()
         lagrangian.backward()
-        nn.utils.clip_grad_norm_(
-            self.policy.head_parameters(), self.config.max_grad_norm
-        )
+        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
         self.policy_opt.step()
 
         # Dual ascent on lambda, with avg_kl treated as a constant.
