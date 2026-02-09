@@ -135,6 +135,9 @@ class Trainer:
         save_interval: int,
         out_dir: str,
     ):
+        save_interval *= self.num_envs
+        total_steps *= self.num_envs
+
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)  # (N, obs_dim)
 
