@@ -99,6 +99,7 @@ if __name__ == "__main__":
     os.makedirs(args.out_dir, exist_ok=True)
 
     if bool(args.generate_video):
+        os.environ.setdefault("MUJOCO_GL", "egl")
         checkpoint_path = (
             str(args.checkpoint)
             if args.checkpoint is not None
