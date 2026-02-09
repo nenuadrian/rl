@@ -160,7 +160,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "max_grad_norm": 1.0,
         "action_samples": 512,
         "use_retrace": True,
-        "retrace_steps": 7,
+        "retrace_steps": 3,
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
