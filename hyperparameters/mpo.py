@@ -5,6 +5,7 @@ from typing import Any
 
 PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cheetah", "run"): {
+        "updates_per_step": 1,
         "total_steps": 10_000_000,
         "update_after": 1_000,
         "batch_size": 256,
@@ -36,6 +37,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("humanoid", "run"): {
+        "updates_per_step": 1,
         "total_steps": 30_000_000,
         "update_after": 5_000,
         "batch_size": 512,
@@ -67,6 +69,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("humanoid", "walk"): {
+        "updates_per_step": 1,
         "total_steps": 30_000_000,
         "update_after": 2_000,
         "batch_size": 512,
@@ -98,6 +101,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("walker", "walk"): {
+        "updates_per_step": 1,
         "total_steps": 30_000_000,
         "update_after": 2_000,
         "batch_size": 512,
@@ -129,6 +133,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("walker", "run"): {
+        "updates_per_step": 1,
         "total_steps": 30_000_000,
         "update_after": 2_000,
         "batch_size": 512,
@@ -160,6 +165,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("hopper", "stand"): {
+        "updates_per_step": 1,
         "total_steps": 2_000_000,
         "update_after": 1_000,
         "batch_size": 256,
@@ -191,6 +197,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     ("cartpole", "swingup"): {
+        "updates_per_step": 1,
         "total_steps": 500_000,
         "update_after": 1_000,
         "batch_size": 256,

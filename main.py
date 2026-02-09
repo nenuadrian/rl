@@ -382,6 +382,7 @@ if __name__ == "__main__":
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
+            updates_per_step=int(args.updates_per_step),
         )
     else:
         raise ValueError(f"Unsupported algorithm: {algo}")
