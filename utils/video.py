@@ -193,7 +193,30 @@ def render_policy_video(
         policy_layer_sizes=policy_layer_sizes,
         device=device,
     )
-    policy.load_state_dict(ckpt["policy"])
+    try:
+        policy.load_state_dict(ckpt["policy"])
+    except RuntimeError as exc:
+        # Backward-compat: PPO policy architecture changed (LayerNorm torso).
+        # If an older checkpoint is being rendered, retry with the legacy policy.
+        if algo != "ppo":
+            raise
+
+        from trainers.ppo.agent import LegacyGaussianPolicy
+
+        layer_sizes = _as_tuple_ints(policy_layer_sizes)
+        legacy_policy = LegacyGaussianPolicy(
+            obs_dim,
+            act_dim,
+            hidden_sizes=layer_sizes,
+            action_low=action_low,
+            action_high=action_high,
+        ).to(device)
+        legacy_policy.load_state_dict(ckpt["policy"])
+        policy = legacy_policy
+        print(
+            "[video] Loaded PPO checkpoint with legacy policy architecture "
+            f"(fallback due to state_dict mismatch: {exc})"
+        )
     policy.eval()
 
     frames: list[np.ndarray] = []

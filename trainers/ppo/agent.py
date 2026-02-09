@@ -10,15 +10,42 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 
 
-def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...], out_dim: int) -> nn.Sequential:
-    layers = []
-    last_dim = in_dim
-    for size in hidden_sizes:
-        layers.append(nn.Linear(last_dim, size))
-        layers.append(nn.ReLU())
-        last_dim = size
-    layers.append(nn.Linear(last_dim, out_dim))
-    return nn.Sequential(*layers)
+class LayerNormMLP(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        layer_sizes: Tuple[int, ...],
+        activate_final: bool = False,
+    ):
+        super().__init__()
+
+        if len(layer_sizes) < 1:
+            raise ValueError("layer_sizes must have at least one layer.")
+
+        layers: list[nn.Module] = []
+
+        # First layer: Linear -> LayerNorm -> tanh
+        layers.append(nn.Linear(in_dim, layer_sizes[0]))
+        layers.append(nn.LayerNorm(layer_sizes[0]))
+        layers.append(nn.Tanh())
+
+        # Remaining layers: ELU
+        for i in range(1, len(layer_sizes)):
+            layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
+            if activate_final or i < len(layer_sizes) - 1:
+                layers.append(nn.ELU())
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class SmallInitLinear(nn.Linear):
+    def __init__(self, in_features: int, out_features: int, std: float = 0.01):
+        super().__init__(in_features, out_features)
+        nn.init.trunc_normal_(self.weight, std=std)
+        nn.init.zeros_(self.bias)
 
 
 class GaussianPolicy(nn.Module):
@@ -32,7 +59,11 @@ class GaussianPolicy(nn.Module):
         action_high: np.ndarray | None = None,
     ):
         super().__init__()
-        self.net = _mlp(obs_dim, hidden_sizes, hidden_sizes[-1])
+        if len(hidden_sizes) < 1:
+            raise ValueError("hidden_sizes must have at least one layer.")
+
+        # Match MPO/VMPO style: LayerNorm torso + tanh/ELU activations.
+        self.net = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
         self.mean_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.log_std_min, self.log_std_max = log_std_bounds
@@ -48,10 +79,19 @@ class GaussianPolicy(nn.Module):
         self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
+        nn.init.kaiming_normal_(
+            self.mean_layer.weight, a=0.0, mode="fan_in", nonlinearity="linear"
+        )
+        nn.init.zeros_(self.mean_layer.bias)
+        nn.init.zeros_(self.log_std_layer.weight)
+        nn.init.zeros_(self.log_std_layer.bias)
+
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         h = self.net(obs)
         mean = self.mean_layer(h)
         log_std = self.log_std_layer(h)
+        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
+        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
@@ -104,10 +144,16 @@ class GaussianPolicy(nn.Module):
 class ValueNetwork(nn.Module):
     def __init__(self, obs_dim: int, hidden_sizes: Tuple[int, ...]):
         super().__init__()
-        self.net = _mlp(obs_dim, hidden_sizes, 1)
+
+        if len(hidden_sizes) < 1:
+            raise ValueError("hidden_sizes must have at least one layer.")
+
+        self.encoder = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
+        self.value_head = SmallInitLinear(hidden_sizes[-1], 1, std=0.01)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.net(obs)
+        encoded = self.encoder(obs)
+        return self.value_head(encoded)
 
 
 @dataclass
@@ -152,6 +198,9 @@ class PPOAgent:
         self.value_opt = torch.optim.Adam(
             self.value.parameters(), lr=self.config.value_lr
         )
+        
+        print(self.policy)
+        print(self.value)
 
     def set_hparams(
         self,
