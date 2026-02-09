@@ -47,6 +47,7 @@ class VMPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
+        print(self.policy)
 
         shared_params = list(self.policy.encoder.parameters())
         policy_params = list(self.policy.policy_mean.parameters()) + list(

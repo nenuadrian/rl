@@ -263,6 +263,7 @@ class MPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
+
         self.policy_target = copy.deepcopy(self.policy).to(device)
         self.policy_target.eval()
         # Twin critics (SAC-style) but using the Acme control-network critic torso.
@@ -280,6 +281,10 @@ class MPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
+
+        print(self.policy)
+        print(self.q1)
+        print(self.q2)
 
         self.q1_target = copy.deepcopy(self.q1).to(device)
         self.q2_target = copy.deepcopy(self.q2).to(device)
