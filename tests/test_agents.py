@@ -6,7 +6,7 @@ from trainers.ppo.agent import PPOAgent
 from trainers.vmpo_parallel_envs.agent import VMPOParallelAgent, VMPOParallelConfig
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.vmpo_light.agent import VMPOLightAgent, VMPOLightConfig
-from trainers.mpo.agent import MPOAgent
+from trainers.mpo.agent import MPOAgent, MPOConfig
 
 
 def test_sac_agent_act_and_update():
@@ -288,11 +288,19 @@ def test_mpo_agent_act_and_update():
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         critic_layer_sizes=(32, 32),
+        config=MPOConfig()
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)
     action = agent.act(obs, deterministic=False)
     assert action.shape == (act_dim,)
+    assert np.all(action >= action_low - 1e-5)
+    assert np.all(action <= action_high + 1e-5)
+
+    action_det1 = agent.act(obs, deterministic=True)
+    action_det2 = agent.act(obs, deterministic=True)
+    assert action_det1.shape == (act_dim,)
+    assert np.allclose(action_det1, action_det2)
 
     batch_size = 10
     batch = {
@@ -303,11 +311,43 @@ def test_mpo_agent_act_and_update():
         "dones": np.zeros((batch_size, 1), dtype=np.float32),
     }
 
+    def _clone_params(module: torch.nn.Module):
+        return [p.detach().clone() for p in module.parameters()]
+
+    def _any_param_changed(before, module: torch.nn.Module) -> bool:
+        for before_tensor, param in zip(before, module.parameters()):
+            if not torch.allclose(before_tensor, param.detach()):
+                return True
+        return False
+
+    q1_before = _clone_params(agent.q1)
+    policy_before = _clone_params(agent.policy)
+
     metrics = agent.update(batch)
-    assert "loss/q1" in metrics
-    assert "loss/q2" in metrics
-    assert "loss/policy" in metrics
-    assert "loss/dual_eta" in metrics
-    assert "kl/q_pi" in metrics
-    assert "eta" in metrics
-    assert "lambda" in metrics
+
+    expected_keys = {
+        "loss/q1",
+        "loss/q2",
+        "loss/policy",
+        "loss/dual_eta",
+        "loss/dual",
+        "kl/q_pi",
+        "kl/mean",
+        "kl/std",
+        "eta",
+        "lambda",
+    }
+    assert expected_keys.issubset(metrics.keys())
+
+    # Basic metric sanity: scalars and finite.
+    for key in expected_keys:
+        value = metrics[key]
+        assert isinstance(value, (int, float, np.floating))
+        assert np.isfinite(float(value))
+
+    assert metrics["eta"] > 0.0
+    assert metrics["lambda"] > 0.0
+
+    # Update should actually modify parameters.
+    assert _any_param_changed(q1_before, agent.q1)
+    assert _any_param_changed(policy_before, agent.policy)

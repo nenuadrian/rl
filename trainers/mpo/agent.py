@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 
+
 class LayerNormMLP(nn.Module):
     def __init__(
         self,
@@ -38,11 +39,13 @@ class LayerNormMLP(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
+
 class SmallInitLinear(nn.Linear):
     def __init__(self, in_features: int, out_features: int, std: float = 0.01):
         super().__init__(in_features, out_features)
         nn.init.trunc_normal_(self.weight, std=std)
         nn.init.zeros_(self.bias)
+
 
 class Critic(nn.Module):
     def __init__(
@@ -57,8 +60,12 @@ class Critic(nn.Module):
 
         self.action_low: torch.Tensor
         self.action_high: torch.Tensor
-        self.register_buffer("action_low", torch.tensor(action_low, dtype=torch.float32))
-        self.register_buffer("action_high", torch.tensor(action_high, dtype=torch.float32))
+        self.register_buffer(
+            "action_low", torch.tensor(action_low, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "action_high", torch.tensor(action_high, dtype=torch.float32)
+        )
 
         self.encoder = LayerNormMLP(
             obs_dim + act_dim,
@@ -73,7 +80,6 @@ class Critic(nn.Module):
         act = torch.maximum(torch.minimum(act, self.action_high), self.action_low)
         x = torch.cat([obs, act], dim=-1)
         return self.head(self.encoder(x))
-
 
 
 class DiagonalGaussianPolicy(nn.Module):
@@ -94,8 +100,10 @@ class DiagonalGaussianPolicy(nn.Module):
         )
         self.policy_mean = nn.Linear(layer_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(layer_sizes[-1], act_dim)
-        
-        nn.init.kaiming_normal_(self.policy_mean.weight, a=0.0, mode="fan_in", nonlinearity="linear")
+
+        nn.init.kaiming_normal_(
+            self.policy_mean.weight, a=0.0, mode="fan_in", nonlinearity="linear"
+        )
         nn.init.zeros_(self.policy_mean.bias)
 
         if action_low is None or action_high is None:
@@ -188,11 +196,9 @@ class DiagonalGaussianPolicy(nn.Module):
 
 @dataclass
 class MPOConfig:
-    # Core RL.
     gamma: float = 0.99
     tau: float = 0.005
 
-    # Optimizers.
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
 
@@ -226,7 +232,7 @@ class MPOConfig:
     use_retrace: bool = False
     retrace_steps: int = 2
     retrace_mc_actions: int = 8
-    retrace_lambda: float = 1.0
+    retrace_lambda: float = 0.95
 
     def __post_init__(self) -> None:
         if self.epsilon_mean is None:
@@ -243,17 +249,12 @@ class MPOAgent:
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
-        policy_layer_sizes: Tuple[int, ...] | None = None,
-        critic_layer_sizes: Tuple[int, ...] | None = None,
-        config: MPOConfig | None = None,
+        policy_layer_sizes: Tuple[int, ...],
+        critic_layer_sizes: Tuple[int, ...],
+        config: MPOConfig,
     ):
         self.device = device
-        self.config = config or MPOConfig()
-
-        if policy_layer_sizes is None or critic_layer_sizes is None:
-            raise ValueError(
-                "Must provide `policy_layer_sizes` and `critic_layer_sizes` (or `hidden_sizes` for back-compat)."
-            )
+        self.config = config
 
         self.policy = DiagonalGaussianPolicy(
             obs_dim,
@@ -304,12 +305,16 @@ class MPOAgent:
         lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
         dual_shape = (act_dim,) if self.config.per_dim_constraining else (1,)
         self.log_alpha_mean = nn.Parameter(
-            torch.full(dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device)
+            torch.full(
+                dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device
+            )
         )
         self.log_alpha_stddev = nn.Parameter(
-            torch.full(dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device)
+            torch.full(
+                dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device
+            )
         )
-        self.log_penalty_temperature: nn.Parameter | None
+
         if self.config.action_penalization:
             self.log_penalty_temperature = nn.Parameter(
                 torch.log(torch.expm1(eta_init_t)).clone().detach().requires_grad_(True)
@@ -384,7 +389,9 @@ class MPOAgent:
         )
         return weights, loss_temperature
 
-    def _compute_nonparametric_kl_from_weights(self, weights: torch.Tensor) -> torch.Tensor:
+    def _compute_nonparametric_kl_from_weights(
+        self, weights: torch.Tensor
+    ) -> torch.Tensor:
         """Estimates KL(nonparametric || target) like Acme's diagnostics.
 
         weights shape (B,N). Returns (B,) KL.
@@ -477,7 +484,9 @@ class MPOAgent:
             log_b = behaviour_logp_seq
             log_ratio = log_pi - log_b
             rho = torch.exp(log_ratio).squeeze(-1)
-            c = (self.config.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
+            c = (
+                self.config.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)
+            ).detach()
 
             # Correct Retrace recursion:
             # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
@@ -570,12 +579,16 @@ class MPOAgent:
             mean_target, log_std_target = self.policy_target(obs)
 
             sampled_actions_raw, sampled_actions_exec = (
-                self.policy_target.sample_actions_raw_and_exec(obs, num_actions=num_samples)
+                self.policy_target.sample_actions_raw_and_exec(
+                    obs, num_actions=num_samples
+                )
             )  # (B,N,D)
 
             obs_rep = obs.unsqueeze(1).expand(batch_size, num_samples, obs.shape[-1])
             obs_flat = obs_rep.reshape(-1, obs.shape[-1])
-            act_exec_flat = sampled_actions_exec.reshape(-1, sampled_actions_exec.shape[-1])
+            act_exec_flat = sampled_actions_exec.reshape(
+                -1, sampled_actions_exec.shape[-1]
+            )
 
             q1_vals = self.q1_target(obs_flat, act_exec_flat)
             q2_vals = self.q2_target(obs_flat, act_exec_flat)
@@ -590,7 +603,9 @@ class MPOAgent:
         if self.config.action_penalization and self.log_penalty_temperature is not None:
             penalty_temperature = F.softplus(self.log_penalty_temperature) + 1e-8
             diff = sampled_actions_raw.detach() - torch.clamp(
-                sampled_actions_raw.detach(), self.policy.action_low, self.policy.action_high
+                sampled_actions_raw.detach(),
+                self.policy.action_low,
+                self.policy.action_high,
             )
             cost = -torch.linalg.norm(diff, dim=-1)  # (B,N)
             penalty_weights, loss_penalty_temperature = (
@@ -619,9 +634,13 @@ class MPOAgent:
         std_target_exp = std_target.unsqueeze(1)
 
         # fixed_stddev: mean=online_mean, std=target_std
-        log_prob_fixed_stddev = Normal(mean_online_exp, std_target_exp).log_prob(actions).sum(dim=-1)
+        log_prob_fixed_stddev = (
+            Normal(mean_online_exp, std_target_exp).log_prob(actions).sum(dim=-1)
+        )
         # fixed_mean: mean=target_mean, std=online_std
-        log_prob_fixed_mean = Normal(mean_target_exp, std_online_exp).log_prob(actions).sum(dim=-1)
+        log_prob_fixed_mean = (
+            Normal(mean_target_exp, std_online_exp).log_prob(actions).sum(dim=-1)
+        )
 
         # Cross entropy / weighted log-prob.
         loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
@@ -631,17 +650,29 @@ class MPOAgent:
         # Decomposed KL constraints (target || online-decomposed).
         if self.config.per_dim_constraining:
             kl_mean = self._kl_diag_gaussian_per_dim(
-                mean_target.detach(), log_std_target.detach(), mean_online, log_std_target.detach()
+                mean_target.detach(),
+                log_std_target.detach(),
+                mean_online,
+                log_std_target.detach(),
             )  # (B,D)
             kl_std = self._kl_diag_gaussian_per_dim(
-                mean_target.detach(), log_std_target.detach(), mean_target.detach(), log_std_online
+                mean_target.detach(),
+                log_std_target.detach(),
+                mean_target.detach(),
+                log_std_online,
             )  # (B,D)
         else:
             kl_mean = self._forward_kl_diag_gaussians(
-                mean_target.detach(), log_std_target.detach(), mean_online, log_std_target.detach()
+                mean_target.detach(),
+                log_std_target.detach(),
+                mean_online,
+                log_std_target.detach(),
             )  # (B,1)
             kl_std = self._forward_kl_diag_gaussians(
-                mean_target.detach(), log_std_target.detach(), mean_target.detach(), log_std_online
+                mean_target.detach(),
+                log_std_target.detach(),
+                mean_target.detach(),
+                log_std_online,
             )  # (B,1)
 
         mean_kl_mean = kl_mean.mean(dim=0)
@@ -672,7 +703,16 @@ class MPOAgent:
         self.dual_opt.zero_grad()
         dual_loss.backward()
         nn.utils.clip_grad_norm_(
-            [p for p in [self.log_temperature, self.log_alpha_mean, self.log_alpha_stddev, self.log_penalty_temperature] if p is not None],
+            [
+                p
+                for p in [
+                    self.log_temperature,
+                    self.log_alpha_mean,
+                    self.log_alpha_stddev,
+                    self.log_penalty_temperature,
+                ]
+                if p is not None
+            ],
             self.config.max_grad_norm,
         )
         self.dual_opt.step()
@@ -690,8 +730,12 @@ class MPOAgent:
         self._soft_update_module(self.policy, self.policy_target)
 
         # Logging keys kept stable for existing scripts/tests.
-        temperature_val = float((F.softplus(self.log_temperature) + 1e-8).detach().item())
-        lambda_val = float((F.softplus(self.log_alpha_mean).mean() + 1e-8).detach().item())
+        temperature_val = float(
+            (F.softplus(self.log_temperature) + 1e-8).detach().item()
+        )
+        lambda_val = float(
+            (F.softplus(self.log_alpha_mean).mean() + 1e-8).detach().item()
+        )
 
         return {
             "loss/q1": float(q1_loss.item()),
@@ -704,8 +748,12 @@ class MPOAgent:
             "kl/std": float(mean_kl_std.mean().detach().item()),
             "eta": temperature_val,
             "lambda": lambda_val,
-            "alpha_mean": float((F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()),
-            "alpha_std": float((F.softplus(self.log_alpha_stddev) + 1e-8).mean().detach().item()),
+            "alpha_mean": float(
+                (F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()
+            ),
+            "alpha_std": float(
+                (F.softplus(self.log_alpha_stddev) + 1e-8).mean().detach().item()
+            ),
             "q/min": float(q_vals.min().detach().item()),
             "q/max": float(q_vals.max().detach().item()),
             "pi/std_min": float(std_online.min().detach().item()),

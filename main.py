@@ -66,7 +66,13 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--total_steps", type=int, default=500_000)
     parser.add_argument("--start_steps", type=int, default=10_000)
-    parser.add_argument("--user_retrace", type=bool, default=True)
+    parser.add_argument(
+        "--use_retrace",
+        dest="use_retrace",
+        action="store_true",
+        default=False,
+        help="Enable Retrace off-policy correction for critic targets (MPO only).",
+    )
     parser.add_argument("--update_after", type=int, default=1_000)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--replay_size", type=int, default=1_000_000)
@@ -99,6 +105,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--topk_fraction", type=float, default=1.0)
     parser.add_argument("--eta", type=float, default=5.0)
+    # Used by VMPO (eta dual) and MPO (temperature dual).
     parser.add_argument("--eta_lr", type=float, default=1e-3)
     parser.add_argument("--epsilon_eta", type=float, default=0.1)
     parser.add_argument("--epsilon_mu", type=float, default=0.01)
@@ -129,11 +136,62 @@ if __name__ == "__main__":
     parser.add_argument("--eta_init", type=float, default=1.0)
     parser.add_argument("--kl_epsilon", type=float, default=0.1)
     parser.add_argument("--mstep_kl_epsilon", type=float, default=0.1)
+    parser.add_argument(
+        "--epsilon_mean",
+        type=float,
+        default=None,
+        help="MPO: mean KL constraint; defaults to mstep_kl_epsilon if omitted.",
+    )
+    parser.add_argument(
+        "--epsilon_stddev",
+        type=float,
+        default=None,
+        help="MPO: stddev KL constraint; defaults to mstep_kl_epsilon if omitted.",
+    )
+    parser.add_argument(
+        "--per_dim_constraining",
+        dest="per_dim_constraining",
+        action="store_true",
+        default=True,
+        help="MPO: enforce KL constraints per action-dimension.",
+    )
+    parser.add_argument(
+        "--no_per_dim_constraining",
+        dest="per_dim_constraining",
+        action="store_false",
+        help="MPO: enforce KL constraints on the full action vector.",
+    )
+
+    parser.add_argument(
+        "--action_penalization",
+        dest="action_penalization",
+        action="store_true",
+        default=False,
+        help="MPO: enable MO-MPO style out-of-bounds action penalization.",
+    )
+    parser.add_argument(
+        "--no_action_penalization",
+        dest="action_penalization",
+        action="store_false",
+        help="MPO: disable action penalization.",
+    )
+    parser.add_argument(
+        "--epsilon_penalty",
+        type=float,
+        default=0.001,
+        help="MPO: KL constraint for action-penalty nonparametric distribution.",
+    )
     parser.add_argument("--lambda_init", type=float, default=1.0)
     parser.add_argument("--lambda_lr", type=float, default=1e-3)
-    parser.add_argument("--action_samples", type=int, default=16)
+    parser.add_argument("--action_samples", type=int, default=20)
     parser.add_argument("--retrace_steps", type=int, default=5)
     parser.add_argument("--retrace_mc_actions", type=int, default=16)
+    parser.add_argument(
+        "--retrace_lambda",
+        type=float,
+        default=0.95,
+        help="MPO: Retrace lambda used in c_t = lambda * min(1, rho_t).",
+    )
 
     # PPO-only (safe to ignore for other algos)
     parser.add_argument("--minibatch_size", type=int, default=64)
@@ -361,13 +419,21 @@ if __name__ == "__main__":
             eta_lr=float(args.eta_lr),
             kl_epsilon=float(args.kl_epsilon),
             mstep_kl_epsilon=float(args.mstep_kl_epsilon),
+            epsilon_mean=(None if args.epsilon_mean is None else float(args.epsilon_mean)),
+            epsilon_stddev=(
+                None if args.epsilon_stddev is None else float(args.epsilon_stddev)
+            ),
+            per_dim_constraining=bool(args.per_dim_constraining),
             lambda_init=float(args.lambda_init),
             lambda_lr=float(args.lambda_lr),
+            action_penalization=bool(args.action_penalization),
+            epsilon_penalty=float(args.epsilon_penalty),
             max_grad_norm=float(args.max_grad_norm),
             action_samples=int(args.action_samples),
             retrace_steps=int(args.retrace_steps),
             retrace_mc_actions=int(args.retrace_mc_actions),
-            use_retrace=bool(args.user_retrace),
+            retrace_lambda=float(args.retrace_lambda),
+            use_retrace=bool(args.use_retrace),
         )
 
         trainer = MPOTrainer(
