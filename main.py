@@ -72,7 +72,7 @@ if __name__ == "__main__":
         "--checkpoint",
         type=str,
         default=None,
-        help="Optional explicit checkpoint path (.pt). Defaults to latest in --out_dir for the selected algo.",
+        help="Optional video checkpoint path (.pt). Defaults to latest in --out_dir for the selected algo.",
     )
     parser.add_argument(
         "--video_out",
@@ -96,6 +96,9 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    args.out_dir = os.path.join(args.out_dir, algo, args.domain, args.task)
+
     os.makedirs(args.out_dir, exist_ok=True)
 
     if bool(args.generate_video):
