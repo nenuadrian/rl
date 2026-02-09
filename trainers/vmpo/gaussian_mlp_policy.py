@@ -97,7 +97,8 @@ class GaussianMLPPolicy(nn.Module):
         self, obs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mean, log_std = self.forward(obs)
-        value_norm = self.value_norm(obs)
+        # "Freeze" encoder gradients for the value head
+        value_norm = self.value_norm(obs.detach())
         return mean, log_std, value_norm
 
     def log_prob(
