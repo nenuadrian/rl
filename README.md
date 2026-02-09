@@ -7,7 +7,6 @@
 ```bash
 python main.py mpo --domain cheetah --task run
 python main.py ppo --domain cheetah --task run
-python main.py sac --domain cheetah --task run
 python main.py vmpo --domain cheetah --task run
 python main.py vmpo_light --domain cheetah --task run
 python main.py vmpo_parallel --domain cheetah --task run

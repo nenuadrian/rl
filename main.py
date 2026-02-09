@@ -51,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["sac", "ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
+        choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
     )
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
@@ -144,56 +144,27 @@ if __name__ == "__main__":
 
     if _CLI_ARGS is None:
         raise RuntimeError("CLI args not initialized")
-    if algo == "sac":
-        from trainers.sac.trainer import Trainer as SACTrainer
-        from trainers.sac.agent import SACConfig
-
-        sac_config = SACConfig(
-            gamma=float(args.gamma),
-            tau=float(args.tau),
-            policy_lr=float(args.policy_lr),
-            q_lr=float(args.q_lr),
-            alpha_lr=float(args.alpha_lr),
-            automatic_entropy_tuning=bool(args.automatic_entropy_tuning),
-        )
-        _print_config("SACConfig", sac_config)
-
-        trainer = SACTrainer(
-            domain=args.domain,
-            task=args.task,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            critic_layer_sizes=tuple(args.critic_layer_sizes),
-            replay_size=args.replay_size,
-            config=sac_config,
-        )
-        trainer.train(
-            total_steps=args.total_steps,
-            start_steps=args.start_steps,
-            update_after=args.update_after,
-            batch_size=args.batch_size,
-            updates_per_step=args.updates_per_step,
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
-            out_dir=args.out_dir,
-        )
-    elif algo == "ppo":
+    if algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
-        from trainers.ppo.agent import PPOConfig
 
-        ppo_config = PPOConfig(
-            gamma=float(args.gamma),
-            gae_lambda=float(args.gae_lambda),
-            clip_ratio=float(args.clip_ratio),
-            policy_lr=float(args.policy_lr),
-            value_lr=float(args.value_lr),
-            ent_coef=float(args.ent_coef),
-            vf_coef=float(args.vf_coef),
-            max_grad_norm=float(args.max_grad_norm),
-            target_kl=float(args.target_kl),
+        _print_config(
+            "PPO config",
+            {
+                "rollout_steps": int(args.rollout_steps),
+                "gamma": float(args.gamma),
+                "gae_lambda": float(args.gae_lambda),
+                "update_epochs": int(args.update_epochs),
+                "minibatch_size": int(args.minibatch_size),
+                "policy_lr": float(args.policy_lr),
+                "value_lr": float(args.value_lr),
+                "clip_ratio": float(args.clip_ratio),
+                "ent_coef": float(args.ent_coef),
+                "vf_coef": float(args.vf_coef),
+                "max_grad_norm": float(args.max_grad_norm),
+                "target_kl": float(args.target_kl),
+                "normalize_obs": bool(args.normalize_obs),
+            },
         )
-        _print_config("PPOConfig", ppo_config)
 
         trainer = PPOTrainer(
             domain=args.domain,
@@ -203,30 +174,30 @@ if __name__ == "__main__":
             policy_layer_sizes=tuple(args.policy_layer_sizes),
             critic_layer_sizes=tuple(args.critic_layer_sizes),
             rollout_steps=int(args.rollout_steps),
-            gamma=float(ppo_config.gamma),
-            gae_lambda=float(ppo_config.gae_lambda),
+            gamma=float(args.gamma),
+            gae_lambda=float(args.gae_lambda),
             update_epochs=int(args.update_epochs),
             minibatch_size=int(args.minibatch_size),
-            policy_lr=float(ppo_config.policy_lr),
-            value_lr=float(ppo_config.value_lr),
-            clip_ratio=float(ppo_config.clip_ratio),
-            ent_coef=float(ppo_config.ent_coef),
-            vf_coef=float(ppo_config.vf_coef),
-            max_grad_norm=float(ppo_config.max_grad_norm),
-            target_kl=float(ppo_config.target_kl),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            clip_ratio=float(args.clip_ratio),
+            ent_coef=float(args.ent_coef),
+            vf_coef=float(args.vf_coef),
+            max_grad_norm=float(args.max_grad_norm),
+            target_kl=float(args.target_kl),
             normalize_obs=bool(args.normalize_obs),
         )
         trainer.train(
             total_steps=args.total_steps,
             update_epochs=int(args.update_epochs),
             minibatch_size=int(args.minibatch_size),
-            policy_lr=float(ppo_config.policy_lr),
-            value_lr=float(ppo_config.value_lr),
-            clip_ratio=float(ppo_config.clip_ratio),
-            ent_coef=float(ppo_config.ent_coef),
-            vf_coef=float(ppo_config.vf_coef),
-            max_grad_norm=float(ppo_config.max_grad_norm),
-            target_kl=float(ppo_config.target_kl),
+            policy_lr=float(args.policy_lr),
+            value_lr=float(args.value_lr),
+            clip_ratio=float(args.clip_ratio),
+            ent_coef=float(args.ent_coef),
+            vf_coef=float(args.vf_coef),
+            max_grad_norm=float(args.max_grad_norm),
+            target_kl=float(args.target_kl),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,

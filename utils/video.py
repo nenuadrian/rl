@@ -74,17 +74,7 @@ def build_policy_for_algo(
 ) -> torch.nn.Module:
     layer_sizes = _as_tuple_ints(policy_layer_sizes)
 
-    if algo == "sac":
-        from trainers.sac.agent import GaussianPolicy
-
-        policy = GaussianPolicy(
-            obs_dim,
-            act_dim,
-            hidden_sizes=layer_sizes,
-            action_low=action_low,
-            action_high=action_high,
-        )
-    elif algo == "ppo":
+    if algo == "ppo":
         from trainers.ppo.agent import GaussianPolicy
 
         policy = GaussianPolicy(
@@ -127,7 +117,7 @@ def _select_deterministic_action(
     if hasattr(policy, "act_deterministic"):
         return policy.act_deterministic(obs_t)  # type: ignore[attr-defined]
 
-    # SAC/PPO style: sample_action(obs, deterministic=True)
+    # PPO style: sample_action(obs, deterministic=True)
     if hasattr(policy, "sample_action"):
         try:
             return policy.sample_action(obs_t, deterministic=True)  # type: ignore[attr-defined]

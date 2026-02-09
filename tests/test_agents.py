@@ -1,53 +1,11 @@
 import numpy as np
 import torch
 
-from trainers.sac.agent import SACAgent
 from trainers.ppo.agent import PPOAgent
 from trainers.vmpo_parallel.agent import VMPOParallelAgent, VMPOParallelConfig
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.vmpo_light.agent import VMPOLightAgent, VMPOLightConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig
-
-
-def test_sac_agent_act_and_update():
-    torch.manual_seed(0)
-    np.random.seed(0)
-
-    obs_dim = 5
-    act_dim = 3
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
-
-    agent = SACAgent(
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
-        device=torch.device("cpu"),
-        policy_layer_sizes=(32, 32),
-        critic_layer_sizes=(32, 32),
-    )
-
-    obs = np.random.randn(obs_dim).astype(np.float32)
-    action = agent.act(obs, deterministic=False)
-    assert action.shape == (act_dim,)
-
-    batch_size = 8
-    batch = {
-        "obs": np.random.randn(batch_size, obs_dim).astype(np.float32),
-        "actions": np.random.randn(batch_size, act_dim).astype(np.float32),
-        "rewards": np.random.randn(batch_size, 1).astype(np.float32),
-        "next_obs": np.random.randn(batch_size, obs_dim).astype(np.float32),
-        "dones": np.zeros((batch_size, 1), dtype=np.float32),
-    }
-
-    metrics = agent.update(batch)
-    assert "loss/q1" in metrics
-    assert "loss/q2" in metrics
-    assert "loss/policy" in metrics
-    assert "loss/alpha" in metrics
-    assert "alpha" in metrics
-
 
 def test_ppo_agent_act_and_update():
     torch.manual_seed(0)
@@ -111,7 +69,7 @@ def test_vmpo_agent_act_and_update():
             policy_lr=3e-4,
             value_lr=1e-3,
             topk_fraction=0.2,
-            eta_init=0.1,
+            eta=0.1,
             eta_lr=1e-3,
             epsilon_eta=0.1,
             epsilon_mu=0.1,
@@ -173,7 +131,7 @@ def test_vmpo_light_agent_act_and_update():
             gamma=0.99,
             policy_lr=3e-4,
             value_lr=1e-3,
-            eta_init=0.1,
+            eta=0.1,
             eta_lr=1e-3,
             epsilon_eta=0.1,
         ),
@@ -230,7 +188,7 @@ def test_vmpo_parallel_agent_act_and_update():
             policy_lr=3e-4,
             value_lr=1e-3,
             topk_fraction=0.2,
-            eta_init=0.1,
+            eta=0.1,
             eta_lr=1e-3,
             epsilon_eta=0.1,
             epsilon_mu=0.1,
