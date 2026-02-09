@@ -111,19 +111,18 @@ class VMPOAgent:
         old_log_stds = batch["old_log_stds"]
 
         # >>> normalize advantages (stabilises E-step)
-        adv = advantages.squeeze(-1)  # shape (N,)
-        adv_mean = adv.mean()
-        adv_std = adv.std(unbiased=False) + 1e-8
-        adv_norm = (adv - adv_mean) / adv_std
+        #adv_mean = advantages.mean()
+        #adv_std = advantages.std(unbiased=False) + 1e-8
+        #adv_norm = (advantages - adv_mean) / adv_std
 
         # E-step: top-k selection
         # use adv_norm for selection and weighting
-        k = max(1, int(self.config.topk_fraction * adv_norm.numel()))
-        topk_vals, _ = torch.topk(adv_norm, k)
+        k = max(1, int(self.config.topk_fraction * advantages.numel()))
+        topk_vals, _ = torch.topk(advantages, k)
         threshold = topk_vals.min()
-        mask_bool = adv_norm >= threshold
+        mask_bool = advantages >= threshold
 
-        A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
+        A = advantages[mask_bool].detach()  # use normalized advantages for exp(A/eta)
         K = A.numel()
 
         # Dual descent on eta (optimize log_temperature)
