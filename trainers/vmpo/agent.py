@@ -11,6 +11,9 @@ import torch.nn.functional as F
 from trainers.vmpo.gaussian_mlp_policy import GaussianMLPPolicy
 
 
+# =========================
+# Configuration
+# =========================
 @dataclass
 class VMPOConfig:
     gamma: float
@@ -26,6 +29,9 @@ class VMPOConfig:
     max_grad_norm: float
 
 
+# =========================
+# VMPO Agent (PopArt-correct)
+# =========================
 class VMPOAgent:
     def __init__(
         self,
@@ -47,8 +53,8 @@ class VMPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
-        print(self.policy)
 
+        # Parameter groups
         shared_params = list(self.policy.encoder.parameters())
         policy_params = list(self.policy.policy_mean.parameters()) + list(
             self.policy.policy_logstd.parameters()
@@ -63,20 +69,20 @@ class VMPOAgent:
             ]
         )
 
-        # Learnable temperature (dual variable), kept positive via exp(log_temperature).
+        # Temperature dual (eta)
         eta_init_t = torch.tensor(self.config.eta_init, device=device)
         eta_init_t = torch.clamp(eta_init_t, min=1e-8)
-        self.log_temperature = torch.nn.Parameter(torch.log(torch.expm1(eta_init_t)))
-
+        self.log_temperature = nn.Parameter(torch.log(torch.expm1(eta_init_t)))
         self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.eta_lr)
 
-        # Learnable KL multipliers (dual variables), kept positive via exp(log_alpha_*).
-        self.log_alpha_mu = torch.nn.Parameter(torch.zeros(1, device=device))
-        self.log_alpha_sigma = torch.nn.Parameter(torch.zeros(1, device=device))
+        # KL duals (mean / std)
+        self.log_alpha_mu = nn.Parameter(torch.zeros(1, device=device))
+        self.log_alpha_sigma = nn.Parameter(torch.zeros(1, device=device))
         self.alpha_opt = torch.optim.Adam(
             [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
         )
 
+    # -------- Acting --------
     def act(
         self,
         obs: np.ndarray,
@@ -85,49 +91,51 @@ class VMPOAgent:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
-            mean, log_std, value_norm = self.policy.forward_all(obs_t)
+            mean, log_std, value = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
-            value = value_norm
 
         return (
-            action_t.detach().cpu().numpy().squeeze(0),
+            action_t.cpu().numpy().squeeze(0),
             float(value.item()),
-            mean.detach().cpu().numpy().squeeze(0),
-            log_std.detach().cpu().numpy().squeeze(0),
+            mean.cpu().numpy().squeeze(0),
+            log_std.cpu().numpy().squeeze(0),
         )
 
     def value(self, obs: np.ndarray) -> float:
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            value_norm = self.policy.value_norm(obs_t.detach())
-        return float(value_norm.item())
+            v = self.policy.value(obs_t)
+        return float(v.item())
 
+    # -------- Learning --------
     def update(self, batch: dict) -> dict:
         obs = batch["obs"]
         actions = batch["actions"]
-        returns_raw = batch["returns"]
+        returns_raw = batch["returns"].squeeze(-1)
         advantages = batch["advantages"].squeeze(-1)
         old_means = batch["old_means"]
         old_log_stds = batch["old_log_stds"]
 
-        # >>> normalize advantages (stabilises E-step)
-        adv = advantages.squeeze(-1)  # shape (N,)
-        adv_mean = adv.mean()
-        adv_std = adv.std(unbiased=False) + 1e-8
-        adv_norm = (adv - adv_mean) / adv_std
+        # --- PopArt statistics update (must happen before critic loss) ---
+        with torch.no_grad():
+            self.policy.value_head.update_stats(returns_raw)
 
-        # E-step: top-k selection
-        # use adv_norm for selection and weighting
-        k = max(1, int(self.config.topk_fraction * adv_norm.numel()))
-        topk_vals, _ = torch.topk(adv_norm, k)
+        # ================================================================
+        # E-step (raw advantages, NO normalisation)
+        # ================================================================
+        adv = advantages.detach()
+
+        k = max(1, int(self.config.topk_fraction * adv.numel()))
+        topk_vals, _ = torch.topk(adv, k)
         threshold = topk_vals.min()
-        mask_bool = adv_norm >= threshold
+        mask_bool = adv >= threshold
 
-        A = adv_norm[mask_bool].detach()  # use normalized advantages for exp(A/eta)
+        A = adv[mask_bool]
+        A = A - A.mean()  # centre only
+        A = torch.clamp(A, -10.0, 10.0)
         K = A.numel()
 
-        # Dual descent on eta (optimize log_temperature)
-        # compute eta and clamp to reasonable bounds
+        # Dual update for temperature eta
         temperature = F.softplus(self.log_temperature) + 1e-8
         logK = torch.log(torch.tensor(float(K), device=A.device))
         dual_loss = temperature * self.config.epsilon_eta + temperature * (
@@ -138,23 +146,27 @@ class VMPOAgent:
         dual_loss.backward()
         self.eta_opt.step()
 
-        # Recompute weights with updated eta, only on top-k set
+        # Importance weights
         with torch.no_grad():
             temperature = F.softplus(self.log_temperature) + 1e-8
             weights = torch.softmax(A / temperature, dim=0)
 
+        # ================================================================
+        # M-step
+        # ================================================================
         mean, log_std = self.policy(obs)
         log_prob = self.policy.log_prob(mean, log_std, actions).squeeze(-1)
 
-        # KL diagnostics (not used in loss once eta is learned)
+        # --- KL diagnostics ---
         old_std = old_log_stds.exp()
         new_std = log_std.exp()
-        kl_mean = ((mean - old_means) ** 2 / (2.0 * (old_std**2))).sum(dim=-1)
+
+        kl_mean = ((mean - old_means) ** 2 / (2.0 * old_std**2)).sum(dim=-1)
         kl_std = 0.5 * (
             (new_std / old_std) ** 2 - 1.0 - 2.0 * (log_std - old_log_stds)
         ).sum(dim=-1)
 
-        # --- Trust-region (decoupled) KL constraints on selected samples ---
+        # Selected samples
         mean_sel = mean[mask_bool]
         log_std_sel = log_std[mask_bool]
         old_mean_sel = old_means[mask_bool]
@@ -163,57 +175,64 @@ class VMPOAgent:
         old_std_sel = old_log_std_sel.exp()
         new_std_sel = log_std_sel.exp()
 
-        # KL_mu: KL(N(old_mu, old_std) || N(new_mu, old_std))  (std fixed to old)
+        # Decoupled KLs
         kl_mu_sel = (
-            (0.5 * ((mean_sel - old_mean_sel).pow(2) / (old_std_sel.pow(2) + 1e-8)))
+            (0.5 * ((mean_sel - old_mean_sel) ** 2 / (old_std_sel**2 + 1e-8)))
             .sum(dim=-1)
             .mean()
         )
 
-        # KL_sigma: KL(N(old_mu, old_std) || N(old_mu, new_std)) (mean fixed to old)
         kl_sigma_sel = (
             (
                 (log_std_sel - old_log_std_sel)
-                + (old_std_sel.pow(2) / (2.0 * (new_std_sel.pow(2) + 1e-8)))
+                + (old_std_sel**2) / (2.0 * (new_std_sel**2 + 1e-8))
                 - 0.5
             )
             .sum(dim=-1)
             .mean()
         )
 
+        # Dual updates for alphas
         alpha_mu = self.log_alpha_mu.exp()
         alpha_sigma = self.log_alpha_sigma.exp()
 
-        # Dual update for alphas: minimize alpha * (epsilon - KL_detached)
         alpha_loss = alpha_mu * (
             self.config.epsilon_mu - kl_mu_sel.detach()
         ) + alpha_sigma * (self.config.epsilon_sigma - kl_sigma_sel.detach())
+
         self.alpha_opt.zero_grad(set_to_none=True)
         alpha_loss.backward()
         self.alpha_opt.step()
 
-        # M-step: weighted negative log-likelihood over selected samples only
+        # Policy loss
         log_prob_sel = log_prob[mask_bool]
         weighted_nll = -(weights.detach() * log_prob_sel).sum()
 
-        # Policy loss with trust-region penalties (stop-grad on alphas)
         with torch.no_grad():
             alpha_mu_det = self.log_alpha_mu.exp()
             alpha_sigma_det = self.log_alpha_sigma.exp()
+
         policy_loss = (
             weighted_nll + alpha_mu_det * kl_mu_sel + alpha_sigma_det * kl_sigma_sel
         )
 
-        value_norm = self.policy.value_norm(obs.detach())
-        value_loss = F.mse_loss(value_norm, returns_raw)
+        # ================================================================
+        # Critic loss (PopArt-normalised)
+        # ================================================================
+        v_hat = self.policy.value_norm(obs.detach()).squeeze(-1)
+        target_hat = (
+            returns_raw - self.policy.value_head.mu
+        ) / self.policy.value_head.sigma
+
+        value_loss = F.mse_loss(v_hat, target_hat.detach())
 
         total_loss = policy_loss + value_loss
 
+        # Optimisation step
         with torch.no_grad():
             params_before = nn.utils.parameters_to_vector(
                 self.policy.parameters()
             ).detach()
-
         self.opt.zero_grad(set_to_none=True)
         total_loss.backward()
         grad_norm = nn.utils.clip_grad_norm_(
@@ -221,13 +240,29 @@ class VMPOAgent:
         )
         self.opt.step()
 
+        # ================================================================
+        # Diagnostics
+        # ================================================================
         with torch.no_grad():
+            ess = 1.0 / (weights.pow(2).sum() + 1e-12)
+            selected_frac = float(K) / float(advantages.numel())
+
+            mean_eval, log_std_eval = self.policy(obs)
+            action_eval = self.policy.sample_action(
+                mean_eval, log_std_eval, deterministic=True
+            )
+            mean_abs_action = float(action_eval.abs().mean().item())
+
+            v_pred = self.policy.value(obs).squeeze(-1)
+            y = returns_raw
+            var_y = y.var(unbiased=False)
+            explained_var = 1.0 - (y - v_pred).var(unbiased=False) / (var_y + 1e-8)
+
             params_after = nn.utils.parameters_to_vector(
                 self.policy.parameters()
             ).detach()
             param_delta = torch.norm(params_after - params_before).item()
 
-        with torch.no_grad():
             # weight diagnostics
             w = weights.detach()
             ess = 1.0 / (w.pow(2).sum() + 1e-12)
@@ -244,12 +279,6 @@ class VMPOAgent:
                 mean_eval, log_std_eval, deterministic=True
             )
             mean_abs_action = float(action_eval.abs().mean().item())
-
-            v_pred_raw = value_norm
-            y = returns_raw.squeeze(-1)
-            yhat = v_pred_raw.squeeze(-1)
-            var_y = y.var(unbiased=False)
-            explained_var = 1.0 - (y - yhat).var(unbiased=False) / (var_y + 1e-8)
 
         return {
             "loss/total": float(total_loss.item()),
@@ -277,10 +306,14 @@ class VMPOAgent:
             "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),
             "returns/raw_mean": float(returns_raw.mean().item()),
             "returns/raw_std": float((returns_raw.std(unbiased=False) + 1e-8).item()),
-            "value/raw_mean": float(v_pred_raw.mean().item()),
-            "value/raw_std": float((v_pred_raw.std(unbiased=False) + 1e-8).item()),
             "value/explained_var": float(explained_var.item()),
             "grad/norm": float(
                 grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
             ),
+            "popart/value_head_mu": float(self.policy.value_head.mu.item()),
+            "popart/value_head_sigma": float(self.policy.value_head.sigma.item()),
+            "popart/target_hat_mean": float(target_hat.mean().item()),
+            "popart/target_hat_std": float(target_hat.std(unbiased=False).item()),
+            "popart/v_hat_mean": float(v_hat.mean().item()),
+            "popart/v_hat_std": float(v_hat.std(unbiased=False).item()),
         }
