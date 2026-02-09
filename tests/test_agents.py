@@ -3,7 +3,7 @@ import torch
 
 from trainers.sac.agent import SACAgent
 from trainers.ppo.agent import PPOAgent
-from trainers.vmpo_parallel_envs.agent import VMPOParallelAgent, VMPOParallelConfig
+from trainers.vmpo_parallel.agent import VMPOParallelAgent, VMPOParallelConfig
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.vmpo_light.agent import VMPOLightAgent, VMPOLightConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig

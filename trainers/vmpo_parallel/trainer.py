@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.vmpo_parallel_envs.agent import VMPOParallelAgent, VMPOParallelConfig
+from trainers.vmpo_parallel.agent import VMPOParallelAgent, VMPOParallelConfig
 from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 

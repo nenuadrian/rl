@@ -113,10 +113,12 @@ class VMPOParallelAgent:
                 f"obs must be a 2D array shaped (N, obs_dim); got {obs_arr.shape}. "
                 "(This often means a vector-env dict observation was flattened incorrectly.)"
             )
-        first_layer = self.policy.encoder[0] if len(self.policy.encoder) > 0 else None
-        expected_obs_dim = (
-            int(first_layer.in_features) if isinstance(first_layer, nn.Linear) else None
-        )
+        first_linear = None
+        for m in self.policy.encoder.modules():
+            if isinstance(m, nn.Linear):
+                first_linear = m
+                break
+        expected_obs_dim = int(first_linear.in_features) if first_linear else None
         if expected_obs_dim is not None and obs_arr.shape[1] != expected_obs_dim:
             raise ValueError(
                 f"obs has wrong feature dimension: got obs_dim={obs_arr.shape[1]}, "

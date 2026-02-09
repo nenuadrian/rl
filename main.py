@@ -361,8 +361,8 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "vmpo_parallel":
-        from trainers.vmpo_parallel_envs.trainer import Trainer as VMPOParallelTrainer
-        from trainers.vmpo_parallel_envs.agent import VMPOParallelConfig
+        from trainers.vmpo_parallel.trainer import Trainer as VMPOParallelTrainer
+        from trainers.vmpo_parallel.agent import VMPOParallelConfig
 
         vmpo_config = VMPOParallelConfig(
             gamma=float(args.gamma),

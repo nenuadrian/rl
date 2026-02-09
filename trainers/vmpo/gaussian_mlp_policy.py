@@ -8,20 +8,39 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 
-def _mlp(in_dim: int, hidden_sizes: Tuple[int, ...]) -> nn.Sequential:
-    layers = []
-    last_dim = in_dim
-    for size in hidden_sizes:
-        layers.append(nn.Linear(last_dim, size))
-        layers.append(nn.ReLU())
-        last_dim = size
-    return nn.Sequential(*layers)
+class LayerNormMLP(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        layer_sizes: Tuple[int, ...],
+        activate_final: bool = False,
+    ):
+        super().__init__()
+
+        layers = []
+
+        # First layer: Linear -> LayerNorm -> tanh
+        layers.append(nn.Linear(in_dim, layer_sizes[0]))
+        layers.append(nn.LayerNorm(layer_sizes[0]))
+        layers.append(nn.Tanh())
+
+        # Remaining layers: ELU
+        for i in range(1, len(layer_sizes)):
+            layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
+            if activate_final or i < len(layer_sizes) - 1:
+                layers.append(nn.ELU())
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
 
 
-def orthogonal_init(module: nn.Module, gain: float = 1.0):
-    if isinstance(module, nn.Linear):
-        nn.init.orthogonal_(module.weight, gain)
-        nn.init.constant_(module.bias, 0.0)
+class SmallInitLinear(nn.Linear):
+    def __init__(self, in_features: int, out_features: int, std: float = 0.01):
+        super().__init__(in_features, out_features)
+        nn.init.trunc_normal_(self.weight, std=std)
+        nn.init.zeros_(self.bias)
 
 
 class GaussianMLPPolicy(nn.Module):
@@ -37,10 +56,11 @@ class GaussianMLPPolicy(nn.Module):
         if len(hidden_sizes) < 1:
             raise ValueError("hidden_sizes must have at least one layer.")
 
-        self.encoder = _mlp(obs_dim, hidden_sizes)
+        # Match MPO's network buildout (LayerNorm torso + tanh/ELU activations).
+        self.encoder = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
         self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
-        self.value_head = nn.Linear(hidden_sizes[-1], 1)
+        self.value_head = SmallInitLinear(hidden_sizes[-1], 1, std=0.01)
 
         if action_low is None or action_high is None:
             action_low = -np.ones(act_dim, dtype=np.float32)
@@ -53,17 +73,20 @@ class GaussianMLPPolicy(nn.Module):
         self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
-        self.encoder.apply(lambda m: orthogonal_init(m, gain=np.sqrt(2)))
-        orthogonal_init(self.policy_mean, gain=0.01)
-        orthogonal_init(self.policy_logstd, gain=0.01)
-        self.policy_logstd.bias.data.fill_(0.0)
-        orthogonal_init(self.value_head, gain=1.0)
+        nn.init.kaiming_normal_(
+            self.policy_mean.weight, a=0.0, mode="fan_in", nonlinearity="linear"
+        )
+        nn.init.zeros_(self.policy_mean.bias)
+        nn.init.zeros_(self.policy_logstd.weight)
+        nn.init.zeros_(self.policy_logstd.bias)
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         encoded = self.encoder(obs)
         mean = self.policy_mean(encoded)
         log_std = self.policy_logstd(encoded)
-        log_std = torch.clamp(log_std, -5.0, 2.0)
+        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
+        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
+        log_std = torch.clamp(log_std, -20.0, 2.0)
         return mean, log_std
 
     def value_norm(self, obs: torch.Tensor) -> torch.Tensor:

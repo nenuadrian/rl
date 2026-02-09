@@ -8,7 +8,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "total_steps": 10_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
-        "policy_layer_sizes": (256, 256),
+        "policy_layer_sizes": (256, 256, 256),
         "rollout_steps": 4096,
         "gamma": 0.99,
         "policy_lr": 1e-4,

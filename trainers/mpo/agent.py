@@ -87,7 +87,7 @@ class DiagonalGaussianPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        layer_sizes: Tuple[int, ...] = (256, 256),
+        layer_sizes: Tuple[int, ...],
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
     ):

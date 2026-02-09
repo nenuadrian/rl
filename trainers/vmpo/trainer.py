@@ -30,7 +30,7 @@ class Trainer:
         task: str,
         seed: int,
         device: torch.device,
-         policy_layer_sizes: Tuple[int, ...],
+        policy_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
         config: VMPOConfig,
     ):
