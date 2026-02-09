@@ -12,6 +12,22 @@ python main.py vmpo_light --domain cheetah --task run
 python main.py vmpo_parallel --domain cheetah --task run
 ```
 
+## video
+
+Generate a rollout video from the latest saved checkpoint:
+
+```bash
+python generate_video.py ppo --domain cheetah --task run
+```
+
+Optionally specify a checkpoint path and output file:
+
+```bash
+python generate_video.py ppo --domain cheetah --task run \
+	--checkpoint checkpoints/ppo/cheetah/run/ppo_step_50000.pt \
+	--video_out videos/ppo-cheetah-run.mp4
+```
+
 ## hyperparameters
 
 Hyperparameters are defined in the `hyperparameters/*.py` files for each algorithm.

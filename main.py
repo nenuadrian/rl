@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 import importlib
 from dataclasses import asdict, is_dataclass
 from pprint import pformat
@@ -9,10 +8,6 @@ import torch
 
 from utils.env import set_seed
 from utils.wandb_utils import finish_wandb, init_wandb
-from utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy_video
-
-
-_CLI_ARGS: argparse.Namespace | None = None
 
 
 def _load_preset(algo: str, domain: str, task: str) -> dict:
@@ -61,26 +56,6 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_entity", type=str, default=None)
     parser.add_argument("--wandb_group", type=str, default=None)
-
-    parser.add_argument(
-        "--generate_video",
-        action="store_true",
-        default=False,
-        help="Generate a rollout video from the latest checkpoint and exit.",
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help="Optional video checkpoint path (.pt). Defaults to latest in --out_dir for the selected algo.",
-    )
-    parser.add_argument(
-        "--video_out",
-        type=str,
-        default=None,
-        help="Output video path. Defaults to videos/{algo}-{domain}-{task}.mp4",
-    )
-    parser.add_argument("--video_max_steps", type=int, default=1000)
     args = parser.parse_args()
 
     algo = args.command
@@ -92,44 +67,12 @@ if __name__ == "__main__":
 
     _print_resolved_args(args)
 
-    _CLI_ARGS = args
-
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     args.out_dir = os.path.join(args.out_dir, algo, args.domain, args.task)
 
     os.makedirs(args.out_dir, exist_ok=True)
-
-    if bool(args.generate_video):
-        os.environ.setdefault("MUJOCO_GL", "egl")
-        checkpoint_path = (
-            str(args.checkpoint)
-            if args.checkpoint is not None
-            else find_latest_checkpoint(args.out_dir, algo)
-        )
-        out_path = (
-            str(args.video_out)
-            if args.video_out is not None
-            else os.path.join("videos", f"{algo}-{args.domain}-{args.task}.mp4")
-        )
-        saved_path, n_frames = render_policy_video(
-            checkpoint_path=checkpoint_path,
-            algo=algo,
-            domain=args.domain,
-            task=args.task,
-            out_path=out_path,
-            seed=int(args.seed),
-            config=VideoRenderConfig(
-                max_steps=int(args.video_max_steps),
-                fps=int(30),
-            ),
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            device=device,
-        )
-        print(f"Saved video to: {saved_path}")
-        print(f"Frames: {n_frames}")
-        sys.exit(0)
 
     group = args.wandb_group or f"{algo}-{args.domain}-{args.task}"
     run_name = f"{algo}-{args.domain}-{args.task}"
@@ -142,8 +85,6 @@ if __name__ == "__main__":
         config=vars(args),
     )
 
-    if _CLI_ARGS is None:
-        raise RuntimeError("CLI args not initialized")
     if algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
 
