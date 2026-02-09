@@ -144,7 +144,6 @@ class VMPOLightAgent:
         # M-step: weighted negative log-likelihood over full batch
         weighted_nll = -(weights.detach() * log_prob).sum()
 
-        # Policy loss (no KL penalties)
         policy_loss = weighted_nll
 
         value_norm = self.policy.value_norm(obs)
