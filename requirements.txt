@@ -6,3 +6,5 @@ dm_control
 pytest
 numpy
 shimmy
+matplotlib
+pandas
