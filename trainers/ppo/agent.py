@@ -18,18 +18,15 @@ class LayerNormMLP(nn.Module):
         activate_final: bool = False,
     ):
         super().__init__()
-
         if len(layer_sizes) < 1:
             raise ValueError("layer_sizes must have at least one layer.")
 
         layers: list[nn.Module] = []
 
-        # First layer: Linear -> LayerNorm -> tanh
         layers.append(nn.Linear(in_dim, layer_sizes[0]))
         layers.append(nn.LayerNorm(layer_sizes[0]))
         layers.append(nn.Tanh())
 
-        # Remaining layers: ELU
         for i in range(1, len(layer_sizes)):
             layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
             if activate_final or i < len(layer_sizes) - 1:
@@ -59,10 +56,7 @@ class GaussianPolicy(nn.Module):
         action_high: np.ndarray | None = None,
     ):
         super().__init__()
-        if len(hidden_sizes) < 1:
-            raise ValueError("hidden_sizes must have at least one layer.")
 
-        # Match MPO/VMPO style: LayerNorm torso + tanh/ELU activations.
         self.net = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
         self.mean_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
@@ -74,14 +68,10 @@ class GaussianPolicy(nn.Module):
 
         action_low_t = torch.tensor(action_low, dtype=torch.float32)
         action_high_t = torch.tensor(action_high, dtype=torch.float32)
-        self.action_scale: torch.Tensor
-        self.action_bias: torch.Tensor
         self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
-        nn.init.kaiming_normal_(
-            self.mean_layer.weight, a=0.0, mode="fan_in", nonlinearity="linear"
-        )
+        nn.init.kaiming_normal_(self.mean_layer.weight, a=0.0, mode="fan_in")
         nn.init.zeros_(self.mean_layer.bias)
         nn.init.zeros_(self.log_std_layer.weight)
         nn.init.zeros_(self.log_std_layer.bias)
@@ -90,24 +80,26 @@ class GaussianPolicy(nn.Module):
         h = self.net(obs)
         mean = self.mean_layer(h)
         log_std = self.log_std_layer(h)
+
         mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+
         return mean, log_std
 
     def _distribution(self, obs: torch.Tensor) -> Normal:
         mean, log_std = self.forward(obs)
-        std = log_std.exp()
-        return Normal(mean, std)
+        return Normal(mean, log_std.exp())
 
     def sample(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         normal = self._distribution(obs)
-        x_t = normal.rsample()
-        y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
+        x = normal.rsample()
+        y = torch.tanh(x)
 
-        log_prob = normal.log_prob(x_t)
-        log_prob = log_prob - torch.log(1.0 - y_t.pow(2) + 1e-6)
+        action = y * self.action_scale + self.action_bias
+
+        log_prob = normal.log_prob(x)
+        log_prob = log_prob - torch.log(1.0 - y.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
         log_prob = log_prob - torch.log(self.action_scale).sum()
 
@@ -115,13 +107,15 @@ class GaussianPolicy(nn.Module):
 
     def log_prob(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         normal = self._distribution(obs)
-        y_t = (actions - self.action_bias) / self.action_scale
-        y_t = torch.clamp(y_t, -0.999999, 0.999999)
-        x_t = 0.5 * torch.log((1.0 + y_t) / (1.0 - y_t))
-        log_prob = normal.log_prob(x_t)
-        log_prob = log_prob - torch.log(1.0 - y_t.pow(2) + 1e-6)
+        y = (actions - self.action_bias) / self.action_scale
+        y = torch.clamp(y, -0.999999, 0.999999)
+        x = torch.atanh(y)
+
+        log_prob = normal.log_prob(x)
+        log_prob = log_prob - torch.log(1.0 - y.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
         log_prob = log_prob - torch.log(self.action_scale).sum()
+
         return log_prob
 
     def entropy(self, obs: torch.Tensor) -> torch.Tensor:
@@ -129,31 +123,24 @@ class GaussianPolicy(nn.Module):
         return normal.entropy().sum(dim=-1, keepdim=True)
 
     def sample_action(
-        self, obs: torch.Tensor, deterministic: bool = False, **kwargs
+        self, obs: torch.Tensor, deterministic: bool = False
     ) -> torch.Tensor:
         mean, log_std = self.forward(obs)
         if deterministic:
-            action = torch.tanh(mean)
+            y = torch.tanh(mean)
         else:
-            std = log_std.exp()
-            normal = Normal(mean, std)
-            action = torch.tanh(normal.rsample())
-        return action * self.action_scale + self.action_bias
+            y = torch.tanh(Normal(mean, log_std.exp()).rsample())
+        return y * self.action_scale + self.action_bias
 
 
 class ValueNetwork(nn.Module):
     def __init__(self, obs_dim: int, hidden_sizes: Tuple[int, ...]):
         super().__init__()
-
-        if len(hidden_sizes) < 1:
-            raise ValueError("hidden_sizes must have at least one layer.")
-
         self.encoder = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
         self.value_head = SmallInitLinear(hidden_sizes[-1], 1, std=0.01)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        encoded = self.encoder(obs)
-        return self.value_head(encoded)
+        return self.value_head(self.encoder(obs))
 
 
 @dataclass
@@ -191,16 +178,15 @@ class PPOAgent:
             action_low=action_low,
             action_high=action_high,
         ).to(device)
+
         self.value = ValueNetwork(obs_dim, critic_layer_sizes).to(device)
+
         self.policy_opt = torch.optim.Adam(
             self.policy.parameters(), lr=self.config.policy_lr, eps=1e-5
         )
         self.value_opt = torch.optim.Adam(
             self.value.parameters(), lr=self.config.value_lr, eps=1e-5
         )
-        
-        print(self.policy)
-        print(self.value)
 
     def set_hparams(
         self,
@@ -226,13 +212,13 @@ class PPOAgent:
 
         if policy_lr is not None:
             self.config.policy_lr = float(policy_lr)
-            for group in self.policy_opt.param_groups:
-                group["lr"] = self.config.policy_lr
+            for g in self.policy_opt.param_groups:
+                g["lr"] = self.config.policy_lr
 
         if value_lr is not None:
             self.config.value_lr = float(value_lr)
-            for group in self.value_opt.param_groups:
-                group["lr"] = self.config.value_lr
+            for g in self.value_opt.param_groups:
+                g["lr"] = self.config.value_lr
 
     def act(
         self, obs: torch.Tensor, deterministic: bool = False
@@ -256,6 +242,7 @@ class PPOAgent:
 
         log_probs = self.policy.log_prob(obs, actions)
         ratio = torch.exp(log_probs - old_log_probs)
+
         clipped_ratio = torch.clamp(
             ratio, 1.0 - self.config.clip_ratio, 1.0 + self.config.clip_ratio
         )
@@ -268,29 +255,25 @@ class PPOAgent:
         if values_old is None:
             value_loss = F.mse_loss(values, returns)
         else:
-            values_old_t = values_old
-            values_clipped = values_old_t + torch.clamp(
-                values - values_old_t,
+            values_clipped = values_old + torch.clamp(
+                values - values_old,
                 -self.config.clip_ratio,
                 self.config.clip_ratio,
             )
-            value_loss_unclipped = (values - returns).pow(2)
-            value_loss_clipped = (values_clipped - returns).pow(2)
-            value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
+            value_loss = torch.max(
+                (values - returns).pow(2),
+                (values_clipped - returns).pow(2),
+            ).mean()
 
         value_loss = value_loss * self.config.vf_coef
 
-        # --- logging extras ---
         with torch.no_grad():
             _, log_std = self.policy.forward(obs)
             log_std_mean = log_std.mean()
             log_std_std = log_std.std(unbiased=False)
-
             ratio_mean = ratio.mean()
             ratio_std = ratio.std(unbiased=False)
-
             value_mae = (values - returns).abs().mean()
-        # --- end logging extras ---
 
         self.policy_opt.zero_grad()
         policy_loss.backward()

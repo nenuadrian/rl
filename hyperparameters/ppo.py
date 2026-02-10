@@ -5,12 +5,13 @@ from typing import Any
 
 PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("cheetah", "run"): {
+        "num_envs": 16,
         "total_steps": 3_000_000,
         "eval_interval": 10_000,
         "save_interval": 1_000_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (256, 256, 256),
-        "rollout_steps": 8192,
+        "rollout_steps": 8192/2,
         "update_epochs": 4,
         "gamma": 0.99,
         "gae_lambda": 0.95,

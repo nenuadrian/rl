@@ -211,15 +211,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            update_epochs=int(args.update_epochs),
-            minibatch_size=int(args.minibatch_size),
-            policy_lr=float(args.policy_lr),
-            value_lr=float(args.value_lr),
-            clip_ratio=float(args.clip_ratio),
-            ent_coef=float(args.ent_coef),
-            vf_coef=float(args.vf_coef),
-            max_grad_norm=float(args.max_grad_norm),
-            target_kl=float(args.target_kl),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,
