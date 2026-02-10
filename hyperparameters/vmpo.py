@@ -7,7 +7,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
         "num_envs": 1,
         "total_steps": 10_000_000,
-        "eval_interval": 5_000,
+        "eval_interval": 25_000,
         "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "rollout_steps": 8192,
