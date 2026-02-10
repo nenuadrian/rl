@@ -12,3 +12,4 @@ tokenizers
 rustbpe
 tiktoken
 datasets
+torchao
