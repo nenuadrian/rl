@@ -209,7 +209,7 @@ class MPOTrainer:
             self.episode_return += reward_f
 
             if terminated or truncated:
-                if step >= update_after
+                if step >= update_after:
                     print(f"step={step} episode_return={self.episode_return:.2f}")
                     log_wandb(
                         {
