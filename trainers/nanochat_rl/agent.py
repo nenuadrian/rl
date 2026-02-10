@@ -46,7 +46,7 @@ class ChatRLAgent:
             # guess the step by defaulting to the last step
             model_step = find_last_step(checkpoint_dir)
         self.model, self.tokenizer, self.meta = build_model(
-            checkpoint_dir, model_step, device, "rl"
+            checkpoint_dir, model_step, device, "train"
         )
         self.engine = Engine(self.model, self.tokenizer)
         self.optimizer = self.model.setup_optimizer(
