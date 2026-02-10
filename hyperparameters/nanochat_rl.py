@@ -21,10 +21,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_every": 60,
         "eval_examples": 400,
         "save_every": 60,
-        "model_tag": None,
         "model_step": None,
         "dtype": "bfloat16",
-        "checkpoint_dir": "c/mnt/iusers01/fatpou01/compsci01/mbax2an2/scratch/nanochat-chatrl-speedrun", 
+        "checkpoint_dir": "/mnt/iusers01/fatpou01/compsci01/mbax2an2/scratch/nanochat-chatrl-speedrun", 
     },
 }
 
