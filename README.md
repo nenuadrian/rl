@@ -2,6 +2,13 @@
 
 [![Python tests](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml/badge.svg)](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml)
 
+- [Reinforcement Learning Algorithms in PyTorch](#reinforcement-learning-algorithms-in-pytorch)
+	- [usage](#usage)
+	- [video](#video)
+	- [hyperparameters](#hyperparameters)
+	- [nanochat](#nanochat)
+	- [reports](#reports)
+
 ## usage
 
 ```bash
@@ -56,4 +63,11 @@ python -m nanochat.scripts.base_eval --device-batch-size=16
 
 python -m nanochat.scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN
 python -m nanochat.scripts.chat_eval -i sft
+```
+
+## reports
+
+```bash
+python generate_report.py
+pandoc --from=gfm --pdf-engine=xelatex -o report.pdf report.md
 ```

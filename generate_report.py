@@ -208,6 +208,17 @@ def generate_report(
             else:
                 f.write("No data available for plot.\n\n")
 
+            # Insert wandb config JSON markdown for each best run per algorithm
+            entry_map = results.get((domain, task), {})
+            for algo in algorithms:
+                entry = entry_map.get(algo)
+                if entry and entry.get("run") is not None:
+                    config = dict(entry["run"].config)
+                    import json
+                    config_json = json.dumps(config, indent=2, sort_keys=True)
+                    f.write(f"**{algo} config:**\n\n")
+                    f.write("```json\n" + config_json + "\n```)\n\n")
+
             # Gather runs for this domain/task across all algorithms
             domain_runs = []
             for algo in algorithms:
