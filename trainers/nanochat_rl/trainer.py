@@ -110,6 +110,7 @@ class ChatRLTrainer:
             if max_examples is not None
             else len(val_task)
         )
+        print(f"Running GSM8K evaluation on {max_examples} examples with {num_samples} samples each...")
         for idx in range(0, max_examples):
             conversation = val_task[idx]
             tokens = tokenizer.render_for_completion(conversation)
@@ -129,6 +130,7 @@ class ChatRLTrainer:
                 is_correct = val_task.evaluate(conversation, generated_text)
                 outcomes.append({"is_correct": is_correct})
             record = {"idx": idx, "outcomes": outcomes}
+            print(record)
             yield record
 
     def train(self, out_dir: str):
