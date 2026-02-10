@@ -48,7 +48,6 @@ export WANDB_RUN="nanochat_test_run"
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
-python -m nanochat.dataset -n 8
 python -m nanochat.dataset -n 370 
 
 # train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
@@ -57,7 +56,10 @@ python -m nanochat.scripts.tok_train
 python -m nanochat.scripts.tok_eval
 
 
-python -m nanochat.scripts.base_train --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN
+python -m nanochat.scripts.base_train --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
+# OR train with torchrun for better performance
+export TORCH_COMPILE_DISABLE=1
+torchrun --standalone --nproc_per_node=4 -m nanochat.scripts.base_train -- --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
 
 python -m nanochat.scripts.base_eval --device-batch-size=16
 
