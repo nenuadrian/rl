@@ -5,7 +5,7 @@ from typing import Any
 
 PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
-        "num_envs": 4,
+        "num_envs": 1,
         "total_steps": 3_000_000,
         "eval_interval": 10_000,
         "save_interval": 1_000_000,
