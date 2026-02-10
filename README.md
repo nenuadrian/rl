@@ -74,5 +74,7 @@ python -m nanochat.scripts.chat_eval -i sft
 
 ```bash
 python generate_report.py
-pandoc --from=gfm --pdf-engine=xelatex -o reports/latest/report.pdf reports/latest/README.md
+cd reports/latest
+pandoc --from=gfm --toc -V fontsize=9pt -V geometry:margin=1.5cm --pdf-engine=xelatex -o report.pdf README.md
+cd ../..
 ```
