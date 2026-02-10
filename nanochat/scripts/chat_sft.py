@@ -23,12 +23,12 @@ from nanochat.loss_eval import evaluate_bpb
 from nanochat.checkpoint_manager import load_model
 import torch.distributed as dist
 
-from tasks.common import TaskMixture
-from tasks.gsm8k import GSM8K
-from tasks.mmlu import MMLU
-from tasks.smoltalk import SmolTalk
-from tasks.customjson import CustomJSON
-from tasks.spellingbee import SimpleSpelling, SpellingBee
+from nanochat.tasks.common import TaskMixture
+from nanochat.tasks.gsm8k import GSM8K
+from nanochat.tasks.mmlu import MMLU
+from nanochat.tasks.smoltalk import SmolTalk
+from nanochat.tasks.customjson import CustomJSON
+from nanochat.tasks.spellingbee import SimpleSpelling, SpellingBee
 
 # -----------------------------------------------------------------------------
 # CLI arguments

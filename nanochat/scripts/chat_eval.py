@@ -19,11 +19,11 @@ from nanochat.common import compute_init, compute_cleanup, get_dist_info, print0
 from nanochat.checkpoint_manager import load_model
 from nanochat.engine import Engine
 
-from tasks.humaneval import HumanEval
-from tasks.mmlu import MMLU
-from tasks.arc import ARC
-from tasks.gsm8k import GSM8K
-from tasks.spellingbee import SpellingBee
+from nanochat.tasks.humaneval import HumanEval
+from nanochat.tasks.mmlu import MMLU
+from nanochat.tasks.arc import ARC
+from nanochat.tasks.gsm8k import GSM8K
+from nanochat.tasks.spellingbee import SpellingBee
 
 # -----------------------------------------------------------------------------
 # Generative evaluation loop (we go one problem at a time, sample, evaluate)

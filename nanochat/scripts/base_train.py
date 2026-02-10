@@ -32,7 +32,7 @@ from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
 from nanochat.loss_eval import evaluate_bpb
 from nanochat.engine import Engine
 from nanochat.flash_attention import HAS_FA3
-from scripts.base_eval import evaluate_core
+from nanochat.scripts.base_eval import evaluate_core
 print_banner()
 
 # -----------------------------------------------------------------------------
