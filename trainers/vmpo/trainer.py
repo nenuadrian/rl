@@ -1,57 +1,15 @@
 from __future__ import annotations
 
 import os
-from typing import Tuple
+from typing import Tuple, Dict
 
 import gymnasium as gym
 import numpy as np
 import torch
 
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
-from utils.env import evaluate, flatten_obs, make_env, infer_obs_dim
+from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
-
-
-def _compute_returns(
-    rewards: np.ndarray, dones: np.ndarray, last_value: np.ndarray, gamma: float
-) -> np.ndarray:
-    """
-    Vectorised return computation.
-
-    rewards: shape (T, N) or (T,) for single-env
-    dones: shape (T, N) or (T,)
-    last_value: shape (N,) or scalar
-    Returns: shape (T, N) or (T,)
-    """
-    rewards_np = np.asarray(rewards)
-    dones_np = np.asarray(dones)
-
-    # Ensure 2D (T, N)
-    if rewards_np.ndim == 1:
-        rewards_np = rewards_np.reshape(-1, 1)
-    if dones_np.ndim == 1:
-        dones_np = dones_np.reshape(-1, 1)
-
-    T, N = rewards_np.shape
-
-    returns = np.zeros_like(rewards_np, dtype=np.float32)
-
-    # Last value per environment
-    R = np.zeros(N, dtype=np.float32)
-    last_val_arr = np.asarray(last_value)
-    if last_val_arr.ndim == 0:
-        R[:] = float(last_val_arr)
-    else:
-        R[:] = last_val_arr
-
-    for t in reversed(range(T)):
-        R = rewards_np[t] + gamma * (1.0 - dones_np[t]) * R
-        returns[t] = R
-
-    # If original input was 1D, return 1D
-    if returns.shape[1] == 1:
-        return returns.reshape(-1)
-    return returns
 
 
 class Trainer:
@@ -61,12 +19,14 @@ class Trainer:
         seed: int,
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...],
+        value_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
         config: VMPOConfig,
         num_envs: int = 1,
     ):
         self.num_envs = int(num_envs)
         self.env_id = env_id
+        self.seed = seed
 
         if self.num_envs > 1:
             env_fns = [
@@ -100,6 +60,7 @@ class Trainer:
             action_high=action_high,
             device=device,
             policy_layer_sizes=policy_layer_sizes,
+            value_layer_sizes=value_layer_sizes,
             config=config,
         )
 
@@ -144,8 +105,6 @@ class Trainer:
         if self.num_envs > 1:
             obs, _ = self.env.reset()
             obs = flatten_obs(obs)
-            eval_interval *= self.num_envs
-            save_interval *= self.num_envs
         else:
             obs, _ = self.env.reset()
             obs = flatten_obs(obs)
@@ -174,29 +133,36 @@ class Trainer:
 
             obs = next_obs
 
-            # Episode return bookkeeping
             if self.num_envs > 1:
                 self.episode_return += np.asarray(reward)
+
+                finished_returns = []
                 for i in range(self.num_envs):
-                    if bool(done[i]):
-                        er = float(self.episode_return[i])
-                        print(f"step={step} env={i} episode_return={er:.2f}")
-                        log_wandb({"train/episode_return": er}, step=step)
+                    if done[i]:
+                        finished_returns.append(self.episode_return[i])
                         self.episode_return[i] = 0.0
+
+                if finished_returns:
+                    mean_return = float(np.mean(finished_returns))
+                    log_wandb(
+                        {
+                            "train/episode_return_mean": mean_return,
+                            "train/episode_return_min": float(np.min(finished_returns)),
+                            "train/episode_return_max": float(np.max(finished_returns)),
+                        },
+                        step=step,
+                        silent=True,
+                    )
             else:
                 self.episode_return += float(reward)
                 if terminated or truncated:
                     er = float(self.episode_return)
-                    print(f"step={step} episode_return={er:.2f}")
                     log_wandb({"train/episode_return": er}, step=step)
                     obs, _ = self.env.reset()
                     obs = flatten_obs(obs)
                     self.episode_return = 0.0
 
             if self._rollout_full():
-                # last_value: scalar or array (N,)
-                last_value = self.agent.value(obs)
-
                 # Stack collected arrays and reshape for batch processing
                 obs_arr = np.stack(self.obs_buf)
                 actions_arr = np.stack(self.actions_buf)
@@ -205,6 +171,10 @@ class Trainer:
                 values_arr = np.asarray(self.values_buf, dtype=np.float32)
                 means_arr = np.stack(self.means_buf)
                 log_stds_arr = np.stack(self.log_stds_buf)
+
+                last_value = self.agent.value(obs)
+                if self.num_envs > 1:
+                    last_value = last_value * (1.0 - dones_arr[-1])
 
                 # If multi-env, obs_arr shape (T, N, obs_dim) -> flatten to (T*N, obs_dim)
                 if obs_arr.ndim == 3:
@@ -239,6 +209,17 @@ class Trainer:
                     values_flat2 = values_flat.reshape(-1, 1)
 
                 advantages = returns_flat - values_flat2
+                # Zero advantages where done == 1
+                advantages[dones_flat.reshape(-1) == 1.0] = 0.0
+                
+                if values_arr.ndim == 2:  # (T, N)
+                    values_arr = np.concatenate(
+                        [values_arr, last_value[None, ...]], axis=0
+                    )
+                else:  # (T,)
+                    values_arr = np.concatenate(
+                        [values_arr, np.array([last_value], dtype=values_arr.dtype)], axis=0
+                    )
 
                 batch = {
                     "obs": torch.tensor(
@@ -265,15 +246,13 @@ class Trainer:
                 for _ in range(updates_per_step):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
-                if metrics:
-                    print(metrics)
 
                 self._reset_rollout()
 
             if eval_interval > 0 and step % eval_interval == 0:
-                metrics = evaluate(self.agent.device, self.agent.policy, self.env_id)
-                metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-                print(f"step={step} {metrics_str}")
+                metrics = _evaluate_vectorized(
+                    agent=self.agent, env_id=self.env_id, seed=self.seed + 1000
+                )
                 log_wandb(metrics, step=step)
 
             if save_interval > 0 and step % save_interval == 0:
@@ -283,3 +262,113 @@ class Trainer:
                 print(f"saved checkpoint: {ckpt_path}")
 
         self.env.close()
+
+
+def _compute_returns(
+    rewards: np.ndarray, dones: np.ndarray, last_value: np.ndarray, gamma: float
+) -> np.ndarray:
+    """
+    Vectorised return computation.
+
+    rewards: shape (T, N) or (T,) for single-env
+    dones: shape (T, N) or (T,)
+    last_value: shape (N,) or scalar
+    Returns: shape (T, N) or (T,)
+    """
+    rewards_np = np.asarray(rewards)
+    dones_np = np.asarray(dones)
+
+    # Ensure 2D (T, N)
+    if rewards_np.ndim == 1:
+        rewards_np = rewards_np.reshape(-1, 1)
+    if dones_np.ndim == 1:
+        dones_np = dones_np.reshape(-1, 1)
+
+    T, N = rewards_np.shape
+
+    returns = np.zeros_like(rewards_np, dtype=np.float32)
+
+    # Last value per environment
+    R = np.zeros(N, dtype=np.float32)
+    last_val_arr = np.asarray(last_value)
+    if last_val_arr.ndim == 0:
+        R[:] = float(last_val_arr)
+    else:
+        R[:] = last_val_arr
+
+    for t in reversed(range(T)):
+        R = rewards_np[t] + gamma * (1.0 - dones_np[t]) * R
+        returns[t] = R
+
+    # If original input was 1D, return 1D
+    if returns.shape[1] == 1:
+        return returns.reshape(-1)
+    return returns
+
+
+@torch.no_grad()
+def _evaluate_vectorized(
+    agent: VMPOAgent,
+    env_id: str,
+    n_episodes: int = 10,
+    seed: int = 42,
+    obs_normalizer=None,
+) -> Dict[str, float]:
+    """
+    High-performance vectorized evaluation.
+    Runs all n_episodes in parallel using a SyncVectorEnv.
+    """
+    eval_envs = gym.vector.SyncVectorEnv(
+        [lambda i=i: make_env(env_id, seed=seed + i) for i in range(n_episodes)]
+    )
+
+    agent.policy.eval()
+    obs, _ = eval_envs.reset(seed=seed)
+
+    episode_returns = np.zeros(n_episodes)
+    final_returns = []
+
+    # Track which envs have finished their first episode
+    dones = np.zeros(n_episodes, dtype=bool)
+
+    while len(final_returns) < n_episodes:
+        # Pre-process observations
+        obs = flatten_obs(obs)
+        if obs_normalizer is not None:
+            obs = obs_normalizer.normalize(obs)
+
+        # Deterministic Action Selection
+        # We call act() with deterministic=True to use the mean of the Gaussian
+        action, _, _, _ = agent.act(obs, deterministic=True)
+
+        # Clip actions to valid range
+        action = np.clip(
+            action,
+            eval_envs.single_action_space.low,
+            eval_envs.single_action_space.high,
+        )
+
+        # Step environment
+        next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
+
+        # Accumulate rewards for envs that haven't finished yet
+        episode_returns += reward
+
+        # Check for completions
+        # Gymnasium VectorEnv resets automatically; we catch the return in infos
+        for i in range(n_episodes):
+            if not dones[i] and (terminated[i] or truncated[i]):
+                final_returns.append(episode_returns[i])
+                dones[i] = True
+
+        obs = next_obs
+
+    eval_envs.close()
+    agent.policy.train()
+
+    return {
+        "eval/return_mean": float(np.mean(final_returns)),
+        "eval/return_std": float(np.std(final_returns)),
+        "eval/return_min": float(np.min(final_returns)),
+        "eval/return_max": float(np.max(final_returns)),
+    }

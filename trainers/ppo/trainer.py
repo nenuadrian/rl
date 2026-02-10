@@ -252,9 +252,6 @@ class Trainer:
                     self.episode_return[i] += float(reward[i]) if reward.shape[0] > 1 else float(reward[0])
                     # Log episode return for each env when done
                     if (done[i] if done.shape[0] > 1 else done[0]):
-                        print(
-                            f"step={step+1} env={i} episode_return={self.episode_return[i]:.2f}"
-                        )
                         log_wandb(
                             {"train/episode_return": float(self.episode_return[i])},
                             step=step + 1,
@@ -313,10 +310,6 @@ class Trainer:
                     self.agent.policy,
                     self.env_id,
                     obs_normalizer=self.obs_normalizer,
-                )
-                print(
-                    f"step={step} "
-                    + " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
                 )
                 log_wandb(metrics, step=step)
 

@@ -157,7 +157,6 @@ class MPOTrainer:
         action_low = self.env.action_space.low
         action_high = self.env.action_space.high
 
-
         self.agent = MPOAgent(
             obs_dim=obs_dim,
             act_dim=act_dim,
@@ -210,12 +209,8 @@ class MPOTrainer:
 
             if terminated or truncated:
                 if step >= update_after:
-                    print(f"step={step} episode_return={self.episode_return:.2f}")
                     log_wandb(
-                        {
-                            "train/episode_return": float(self.episode_return),
-                        },
-                        step=step,
+                        {"train/episode_return": float(self.episode_return)}, step=step
                     )
                 obs, _ = self.env.reset()
                 obs = flatten_obs(obs)
@@ -241,8 +236,6 @@ class MPOTrainer:
                     metrics = evaluate(
                         self.agent.device, self.agent.policy, self.env_id
                     )
-                    metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-                    print(f"step={step} {metrics_str}")
                     log_wandb(metrics, step=step)
 
                 if save_interval > 0 and step % save_interval == 0:

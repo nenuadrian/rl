@@ -186,6 +186,10 @@ if __name__ == "__main__":
             epsilon_sigma=float(args.epsilon_sigma),
             alpha_lr=float(args.alpha_lr),
             max_grad_norm=float(args.max_grad_norm),
+            popart_beta=float(args.popart_beta),
+            popart_eps=float(args.popart_eps),
+            popart_min_sigma=float(args.popart_min_sigma),
+            normalize_advantages=bool(args.normalize_advantages),
         )
         _print_config("VMPOConfig", vmpo_config)
 
@@ -194,6 +198,7 @@ if __name__ == "__main__":
             seed=args.seed,
             device=device,
             policy_layer_sizes=tuple(args.policy_layer_sizes),
+            value_layer_sizes=tuple(args.value_layer_sizes),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
             num_envs=int(args.num_envs),

@@ -8,83 +8,88 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 
-# =========================
-# PopArt value head
-# =========================
 class PopArt(nn.Module):
     """
     PopArt-normalised scalar value head.
-
-    The network outputs a normalised value v_hat.
-    The unnormalised value is: v = sigma * v_hat + mu.
-
-    Statistics (mu, sigma) are updated externally via update_stats().
+    Preserves outputs precisely while adaptively rescaling targets.
     """
 
-    def __init__(self, in_dim: int, beta: float = 1e-4, eps: float = 1e-8):
+    def __init__(
+        self,
+        in_dim: int,
+        beta: float,
+        eps: float,
+        min_sigma: float,
+    ):
         super().__init__()
         self.linear = nn.Linear(in_dim, 1)
 
-        # Running statistics of returns
+        # Initialize linear layer to be close to 0 to prevent initial shock
+        nn.init.xavier_uniform_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+
         self.register_buffer("mu", torch.zeros(1))
-        self.register_buffer("nu", torch.ones(1))  # second moment
+        self.register_buffer("nu", torch.ones(1))
         self.register_buffer("sigma", torch.ones(1))
 
         self.beta = beta
         self.eps = eps
+        self.min_sigma = min_sigma
 
     def forward(self, h: torch.Tensor) -> torch.Tensor:
-        # Normalised value v_hat
+        """Returns the Normalized value (v_hat)."""
         return self.linear(h)
 
     def denormalize(self, v_hat: torch.Tensor) -> torch.Tensor:
-        # Unnormalised value
+        """Converts v_hat -> v."""
         return self.sigma * v_hat + self.mu
 
     @torch.no_grad()
     def update_stats(self, returns: torch.Tensor) -> None:
-        """
-        Update running statistics using raw (unnormalised) returns
-        and apply the PopArt invariance correction to the linear layer.
-        """
         batch_mu = returns.mean()
         batch_nu = (returns**2).mean()
 
         mu_old = self.mu.clone()
         sigma_old = self.sigma.clone()
 
-        # Update running moments
+        # Update EMA moments
         self.mu.mul_(1.0 - self.beta).add_(self.beta * batch_mu)
         self.nu.mul_(1.0 - self.beta).add_(self.beta * batch_nu)
 
-        self.sigma = torch.sqrt(torch.clamp(self.nu - self.mu**2, min=self.eps))
+        # Variance = E[x^2] - (E[x])^2
+        var = torch.clamp(self.nu - self.mu**2, min=self.min_sigma**2)
+        self.sigma.copy_(torch.sqrt(var))
 
-        # Invariance-preserving weight update
-        w, b = self.linear.weight.data, self.linear.bias.data
-        w.mul_(sigma_old / self.sigma)
-        b.copy_((sigma_old * b + mu_old - self.mu) / self.sigma)
+        # Update weights to preserve output: v_old(x) == v_new(x)
+        # w_new = (sigma_old / sigma_new) * w_old
+        self.linear.weight.mul_(sigma_old / self.sigma)
+        # b_new = (sigma_old * b_old + mu_old - mu_new) / sigma_new
+        self.linear.bias.copy_(
+            (sigma_old * self.linear.bias + mu_old - self.mu) / self.sigma
+        )
 
 
-# =========================
-# Encoder
-# =========================
-class LayerNormMLP(nn.Module):
+class MPOEncoder(nn.Module):
+    """
+    Standard encoder for MPO/V-MPO:
+    Linear -> LayerNorm -> Tanh (First Layer)
+    Linear -> ELU (Subsequent Layers)
+    """
+
     def __init__(
         self,
         in_dim: int,
         layer_sizes: Tuple[int, ...],
-        activate_final: bool = False,
+        activate_final: bool = True,
     ):
         super().__init__()
-
         layers = []
 
-        # First layer: Linear -> LayerNorm -> tanh
+        # MPO Architecture typically uses LayerNorm after the first projection
         layers.append(nn.Linear(in_dim, layer_sizes[0]))
         layers.append(nn.LayerNorm(layer_sizes[0]))
         layers.append(nn.Tanh())
 
-        # Remaining layers: Linear -> ELU (optionally final)
         for i in range(1, len(layer_sizes)):
             layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
             if activate_final or i < len(layer_sizes) - 1:
@@ -96,34 +101,43 @@ class LayerNormMLP(nn.Module):
         return self.net(x)
 
 
-# =========================
-# Policy
-# =========================
-class GaussianMLPPolicy(nn.Module):
+class SquashedGaussianPolicy(nn.Module):
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
-        hidden_sizes: Tuple[int, ...] = (256, 256),
+        popart_beta: float = 1e-4,  # Standard VMPO beta
+        popart_eps: float = 1e-4,
+        popart_min_sigma: float = 1e-4,
+        policy_layer_sizes: Tuple[int, ...] = (256, 256),
+        value_layer_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
+        shared_encoder: bool = False,  # Default to False for research quality
     ):
         super().__init__()
-        if len(hidden_sizes) < 1:
-            raise ValueError("hidden_sizes must have at least one layer.")
 
-        # Shared encoder (LayerNorm MLP as in MPO)
-        self.encoder = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
+        self.shared_encoder = shared_encoder
+        if shared_encoder:
+            self.policy_encoder = MPOEncoder(obs_dim, policy_layer_sizes)
+            self.value_encoder = self.policy_encoder
+        else:
+            self.policy_encoder = MPOEncoder(obs_dim, policy_layer_sizes)
+            self.value_encoder = MPOEncoder(obs_dim, value_layer_sizes)
 
-        # Policy heads
-        self.policy_mean = nn.Linear(hidden_sizes[-1], act_dim)
-        self.policy_logstd = nn.Linear(hidden_sizes[-1], act_dim)
+        self.policy_mean = nn.Linear(policy_layer_sizes[-1], act_dim)
+        self.policy_logstd = nn.Linear(policy_layer_sizes[-1], act_dim)
 
-        # PopArt value head (normalised output)
-        self.value_head = PopArt(hidden_sizes[-1])
+        self.value_head = PopArt(
+            value_layer_sizes[-1],
+            beta=popart_beta,
+            eps=popart_eps,
+            min_sigma=popart_min_sigma,
+        )
 
-        # Action scaling
+        # 3. Action Scaling
         if action_low is None or action_high is None:
+            # Assume normalized environment [-1, 1] if not provided
             action_low = -np.ones(act_dim, dtype=np.float32)
             action_high = np.ones(act_dim, dtype=np.float32)
 
@@ -133,80 +147,98 @@ class GaussianMLPPolicy(nn.Module):
         self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
         self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
 
-        # Initialisation (matches typical MPO practice)
-        nn.init.kaiming_normal_(
-            self.policy_mean.weight,
-            a=0.0,
-            mode="fan_in",
-            nonlinearity="linear",
-        )
+        # 4. Initialization (Kaiming for policy heads, closer to 0 for logstd)
+        nn.init.xavier_uniform_(self.policy_mean.weight)
         nn.init.zeros_(self.policy_mean.bias)
-        nn.init.zeros_(self.policy_logstd.weight)
-        nn.init.zeros_(self.policy_logstd.bias)
+        nn.init.xavier_uniform_(self.policy_logstd.weight)
+        # Initialize log_std to match roughly std=0.5 to 1.0 initially
+        nn.init.constant_(self.policy_logstd.bias, -0.5)
 
-    # -------- Policy --------
-    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        encoded = self.encoder(obs)
-        mean = self.policy_mean(encoded)
-        log_std = self.policy_logstd(encoded)
-
-        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
-        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
+    def get_policy_dist_params(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Internal helper to get raw distribution parameters."""
+        h = self.policy_encoder(obs)
+        mean = self.policy_mean(h)
+        log_std = self.policy_logstd(h)
         log_std = torch.clamp(log_std, -20.0, 2.0)
-
         return mean, log_std
 
-    # -------- Value (PopArt) --------
-    def value_norm(self, obs: torch.Tensor) -> torch.Tensor:
-        """
-        Normalised value v_hat.
-        Used ONLY for critic loss.
-        """
-        encoded = self.encoder(obs)
-        return self.value_head(encoded)
+    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.get_policy_dist_params(obs)
 
-    def value(self, obs: torch.Tensor) -> torch.Tensor:
-        """
-        Unnormalised value v = sigma * v_hat + mu.
-        Used for advantages, logging, diagnostics.
-        """
-        encoded = self.encoder(obs)
-        v_hat = self.value_head(encoded)
+    def get_value(self, obs: torch.Tensor, normalized: bool = False) -> torch.Tensor:
+        """Flexible value getter."""
+        h = self.value_encoder(obs)
+        v_hat = self.value_head(h)
+        if normalized:
+            return v_hat
         return self.value_head.denormalize(v_hat)
 
     def forward_all(
         self, obs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Returns:
-          mean, log_std, UNNORMALISED value
+        Efficient forward pass returning: mean, log_std, UNNORMALIZED value.
+        Avoids re-running encoder if shared.
         """
-        mean, log_std = self.forward(obs)
+        # Policy Path
+        mean, log_std = self.get_policy_dist_params(obs)
 
-        # Freeze encoder gradients for critic (MPO-style)
-        with torch.no_grad():
-            encoded = self.encoder(obs)
-            v_hat = self.value_head(encoded)
-            v = self.value_head.denormalize(v_hat)
+        # Value Path
+        if self.shared_encoder:
+            # We must re-encode if we didn't save the hidden state,
+            # or refactor to return hidden state.
+            # In PyTorch, re-running the linear layers of the head
+            # on the same cached 'h' is tricky without modifying signature.
+            # Assuming standard use case, we re-run encoder for clean code
+            # UNLESS we manually optimize.
+            # For strict correctness with shared encoder:
+            h_val = self.policy_encoder(
+                obs
+            )  # This is technically redundant in compute but cleaner in code
+        else:
+            h_val = self.value_encoder(obs)
+
+        v_hat = self.value_head(h_val)
+        v = self.value_head.denormalize(v_hat)
 
         return mean, log_std, v
 
-    # -------- Distribution utilities --------
     def log_prob(
         self,
         mean: torch.Tensor,
         log_std: torch.Tensor,
         actions: torch.Tensor,
     ) -> torch.Tensor:
+        """
+        Calculates log prob of actions.
+        NOTE: 'actions' are the final environment actions (scaled).
+        """
         std = log_std.exp()
         normal = Normal(mean, std)
 
+        # 1. Undo Scale
+        # y_t \in [-1, 1] (roughly)
         y_t = (actions - self.action_bias) / self.action_scale
+
+        # 2. Stability Clamp
+        # Prevents NaNs in arctanh when y_t is exactly -1 or 1 due to fp errors
         y_t = torch.clamp(y_t, -0.999999, 0.999999)
+
+        # 3. Undo Tanh (Arctanh)
         x_t = 0.5 * torch.log((1.0 + y_t) / (1.0 - y_t))
 
+        # 4. Log Prob Calculation
+        # log p(a) = log p(x) - log det(dy/dx) - log det(da/dy)
         log_prob = normal.log_prob(x_t)
-        log_prob = log_prob - torch.log(1.0 - y_t.pow(2) + 1e-6)
+
+        # Jacobian of Tanh: 1 - tanh^2(x) = 1 - y^2
+        jacobian_tanh = torch.log(1.0 - y_t.pow(2) + 1e-6)
+
+        # Jacobian of Scale: action_scale
+        # We sum over the action dimension (dim=-1)
+        log_prob = log_prob - jacobian_tanh
         log_prob = log_prob.sum(dim=-1, keepdim=True)
         log_prob = log_prob - torch.log(self.action_scale).sum()
 
@@ -216,14 +248,27 @@ class GaussianMLPPolicy(nn.Module):
         self,
         mean: torch.Tensor,
         log_std: torch.Tensor,
-        deterministic: bool,
-        **kwargs,
-    ) -> torch.Tensor:
+        deterministic: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns:
+            action: Scaled action for environment
+            log_prob: Log probability of that action
+        """
         if deterministic:
-            action = torch.tanh(mean)
+            y_t = torch.tanh(mean)
+            log_prob = torch.zeros((mean.shape[0], 1), device=mean.device)  # Dummy
         else:
             std = log_std.exp()
             normal = Normal(mean, std)
-            action = torch.tanh(normal.rsample())
+            x_t = normal.rsample()  # Reparameterized sample
+            y_t = torch.tanh(x_t)
 
-        return action * self.action_scale + self.action_bias
+            # Calculate log_prob using x_t directly (More stable than inversion)
+            log_prob = normal.log_prob(x_t)
+            log_prob = log_prob - torch.log(1.0 - y_t.pow(2) + 1e-6)
+            log_prob = log_prob.sum(dim=-1, keepdim=True)
+            log_prob = log_prob - torch.log(self.action_scale).sum()
+
+        action = y_t * self.action_scale + self.action_bias
+        return action, log_prob

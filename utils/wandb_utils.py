@@ -19,10 +19,12 @@ def init_wandb(
     return wandb.run is not None
 
 
-def log_wandb(metrics: Mapping[str, Any], step: int | None = None) -> None:
+def log_wandb(metrics: Mapping[str, Any], step: int | None = None, silent: bool = False) -> None:
     if wandb is None or wandb.run is None:
         return
     wandb.log(dict(metrics), step=step)
+    if not silent:
+        print(f"step {step}: " + ", ".join(f"{k}={v:.3f}" for k, v in metrics.items()))
 
 
 def finish_wandb() -> None:
