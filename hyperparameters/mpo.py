@@ -231,7 +231,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Humanoid-v5": {
         "updates_per_step": 1,
         "total_steps": 50_000_000,
-        "update_after": 500_000,
+        "update_after": 50_000,
         "batch_size": 512,
         "replay_size": 1_000_000,
         "eval_interval": 2_000,

@@ -209,13 +209,14 @@ class MPOTrainer:
             self.episode_return += reward_f
 
             if terminated or truncated:
-                print(f"step={step} episode_return={self.episode_return:.2f}")
-                log_wandb(
-                    {
-                        "train/episode_return": float(self.episode_return),
-                    },
-                    step=step,
-                )
+                if step >= update_after
+                    print(f"step={step} episode_return={self.episode_return:.2f}")
+                    log_wandb(
+                        {
+                            "train/episode_return": float(self.episode_return),
+                        },
+                        step=step,
+                    )
                 obs, _ = self.env.reset()
                 obs = flatten_obs(obs)
                 self.episode_return = 0.0
