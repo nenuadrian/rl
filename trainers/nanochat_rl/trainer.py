@@ -3,31 +3,39 @@ import itertools
 import wandb
 from contextlib import nullcontext
 from nanochat.tasks.gsm8k import GSM8K
-from .agent import ChatRLAgent
+from .agent import ChatRLAgent, ChatRLConfig
 
 from nanochat.checkpoint_manager import save_checkpoint
-import os
+
 
 class ChatRLTrainer:
-    def __init__(self, agent: ChatRLAgent, args, device):
+    def __init__(self, agent: ChatRLAgent, config: ChatRLConfig, device):
         self.agent = agent
-        self.args = args
+        self.config = config
         self.device = device
         self.train_task = GSM8K(subset="main", split="train")
         self.val_task = GSM8K(subset="main", split="test")
         self.tokenizer = agent.tokenizer
         self.engine = agent.engine
-        self.num_steps = (len(self.train_task) // args.examples_per_step) * args.num_epochs
-        # AMP / autocast setup (match scripts/chat_rl.py)
+        self.num_steps = (
+            len(self.train_task) // config.examples_per_step
+        ) * config.num_epochs
         device_type = getattr(device, "type", None)
         device_type = device_type if device_type is not None else str(device)
-        self.ptdtype = torch.float32 if getattr(args, "dtype", "bfloat16") == "float32" else torch.bfloat16
-        self.autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=self.ptdtype) if device_type == "cuda" else nullcontext()
+        self.ptdtype = (
+            torch.float32
+            if getattr(config, "dtype", "bfloat16") == "float32"
+            else torch.bfloat16
+        )
+        self.autocast_ctx = (
+            torch.amp.autocast(device_type=device_type, dtype=self.ptdtype)
+            if device_type == "cuda"
+            else nullcontext()
+        )
         # current training step (exposed to get_batch for deterministic seeding)
         self._current_step = 0
 
     def get_batch(self):
-        args = self.args
         train_task = self.train_task
         tokenizer = self.tokenizer
         device = self.device
@@ -40,17 +48,21 @@ class ChatRLTrainer:
             prefix_length = len(tokens)
             generated_token_sequences = []
             masks = []
-            num_sampling_steps = args.num_samples // args.device_batch_size
+            num_sampling_steps = (
+                self.config.num_samples // self.config.device_batch_size
+            )
             for sampling_step in range(num_sampling_steps):
                 # use deterministic seed per step/example/sampling_step similar to scripts/chat_rl.py
-                seed = hash((self._current_step, example_idx, sampling_step)) & 0x7FFFFFFF
+                seed = (
+                    hash((self._current_step, example_idx, sampling_step)) & 0x7FFFFFFF
+                )
                 with self.autocast_ctx:
                     batch, batch_masks = engine.generate_batch(
                         tokens,
-                        num_samples=args.device_batch_size,
-                        max_tokens=args.max_new_tokens,
-                        temperature=args.temperature,
-                        top_k=args.top_k,
+                        num_samples=self.config.device_batch_size,
+                        max_tokens=self.config.max_new_tokens,
+                        temperature=self.config.temperature,
+                        top_k=self.config.top_k,
                         seed=seed,
                     )
                 generated_token_sequences.extend(batch)
@@ -67,7 +79,9 @@ class ChatRLTrainer:
                 for seq in generated_token_sequences
             ]
             padded_masks = [mask + [0] * (max_length - len(mask)) for mask in masks]
-            ids = torch.tensor(padded_generated_token_sequences, dtype=torch.long, device=device)
+            ids = torch.tensor(
+                padded_generated_token_sequences, dtype=torch.long, device=device
+            )
             mask_ids = torch.tensor(padded_masks, dtype=torch.long, device=device)
             inputs = ids[:, :-1]
             targets = ids[:, 1:].clone()
@@ -77,11 +91,22 @@ class ChatRLTrainer:
             advantages = rewards - mu
             yield generated_token_sequences, inputs, targets, rewards, advantages
 
-    def run_gsm8k_eval(self, max_examples=None, num_samples=1, max_completion_tokens=256, temperature=0.0, top_k=50):
+    def run_gsm8k_eval(
+        self,
+        max_examples=None,
+        num_samples=1,
+        max_completion_tokens=256,
+        temperature=0.0,
+        top_k=50,
+    ):
         val_task = self.val_task
         tokenizer = self.tokenizer
         engine = self.engine
-        max_examples = min(max_examples, len(val_task)) if max_examples is not None else len(val_task)
+        max_examples = (
+            min(max_examples, len(val_task))
+            if max_examples is not None
+            else len(val_task)
+        )
         for idx in range(0, max_examples):
             conversation = val_task[idx]
             tokens = tokenizer.render_for_completion(conversation)
@@ -103,46 +128,58 @@ class ChatRLTrainer:
             record = {"idx": idx, "outcomes": outcomes}
             yield record
 
-    def train(self, out_dir="chatrl_checkpoints"):
-        args = self.args
+    def train(self, out_dir: str):
         agent = self.agent
         device = self.device
         num_steps = self.num_steps
-        examples_per_rank = args.examples_per_step
+        examples_per_rank = self.config.examples_per_step
         batch_iterator = self.get_batch()
         for step in range(num_steps):
             # expose current step for deterministic sampling seeds inside get_batch
             self._current_step = step
             print(f"Starting step {step}/{num_steps}...")
-            if step % args.eval_every == 0:
+            if step % self.config.eval_every == 0:
                 agent.eval_mode()
-                passk = torch.zeros(args.device_batch_size, device=device)
+                passk = torch.zeros(self.config.device_batch_size, device=device)
                 records_iter = self.run_gsm8k_eval(
-                    max_examples=args.eval_examples,
-                    num_samples=args.device_batch_size,
+                    max_examples=self.config.eval_examples,
+                    num_samples=self.config.device_batch_size,
                     temperature=1.0,
                 )
                 records = list(records_iter)
-                for k in range(1, args.device_batch_size + 1):
+                for k in range(1, self.config.device_batch_size + 1):
                     passk[k - 1] = sum(
                         any(o["is_correct"] for o in r["outcomes"][:k]) for r in records
                     )
-                num_records = torch.tensor(len(records), dtype=torch.long, device=device)
+                num_records = torch.tensor(
+                    len(records), dtype=torch.long, device=device
+                )
                 passk = passk / num_records.item()
-                print_passk = [f"Pass@{k}: {passk[k - 1].item():.4f}" for k in range(1, args.device_batch_size + 1)]
+                print_passk = [
+                    f"Pass@{k}: {passk[k - 1].item():.4f}"
+                    for k in range(1, self.config.device_batch_size + 1)
+                ]
                 print(f"Step {step} | {', '.join(print_passk)}")
-                log_passk = {f"pass@{k}": passk[k - 1].item() for k in range(1, args.device_batch_size + 1)}
+                log_passk = {
+                    f"pass@{k}": passk[k - 1].item()
+                    for k in range(1, self.config.device_batch_size + 1)
+                }
                 wandb.log({"step": step, **log_passk})
 
             rewards_list = []
             sequence_lengths = []
             for example_step in range(examples_per_rank):
-                sequences_all, inputs_all, targets_all, rewards_all, advantages_all = next(batch_iterator)
+                sequences_all, inputs_all, targets_all, rewards_all, advantages_all = (
+                    next(batch_iterator)
+                )
                 agent.train_mode()
-                assert inputs_all.size(0) % args.device_batch_size == 0
-                num_passes = inputs_all.size(0) // args.device_batch_size
+                assert inputs_all.size(0) % self.config.device_batch_size == 0
+                num_passes = inputs_all.size(0) // self.config.device_batch_size
                 for pass_idx in range(num_passes):
-                    b0, b1 = pass_idx * args.device_batch_size, (pass_idx + 1) * args.device_batch_size
+                    b0, b1 = (
+                        pass_idx * self.config.device_batch_size,
+                        (pass_idx + 1) * self.config.device_batch_size,
+                    )
                     inputs = inputs_all[b0:b1]
                     targets = targets_all[b0:b1]
                     rewards = rewards_all[b0:b1]
@@ -155,14 +192,24 @@ class ChatRLTrainer:
                     pg_obj = pg_obj / (num_valid * num_passes * examples_per_rank)
                     loss = -pg_obj
                     loss.backward()
-                    print(f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}")
+                    print(
+                        f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}"
+                    )
                 rewards_list.append(rewards_all.mean().item())
                 sequence_lengths.extend(len(seq) for seq in sequences_all)
 
             mean_reward = sum(rewards_list) / len(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)
-            print(f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}")
-            wandb.log({"step": step, "reward": mean_reward, "sequence_length": mean_sequence_length})
+            print(
+                f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}"
+            )
+            wandb.log(
+                {
+                    "step": step,
+                    "reward": mean_reward,
+                    "sequence_length": mean_sequence_length,
+                }
+            )
 
             lrm = 1.0 - step / num_steps
             for group in agent.optimizer.param_groups:
@@ -171,18 +218,15 @@ class ChatRLTrainer:
             agent.zero_grad()
             wandb.log({"step": step, "lrm": lrm})
 
-            # Save checkpoint every save_every steps, and at last step
-            if (step % args.save_every == 0 and step > 0) or (step == num_steps - 1):
-                # Use same logic as chat_rl_single_gpu.py for checkpoint dir/tag
-                depth = agent.model.config.n_layer
-                output_dirname = args.model_tag if args.model_tag else f"d{depth}"
-                checkpoint_dir = os.path.join(out_dir, output_dirname)
+            if (step % self.config.save_every == 0 and step > 0) or (
+                step == num_steps - 1
+            ):
                 model_config_kwargs = dict(agent.model.config.__dict__)
                 save_checkpoint(
-                    checkpoint_dir,
+                    out_dir,
                     step,
                     agent.model.state_dict(),
                     None,  # not saving optimizer state
                     {"model_config": model_config_kwargs},
                 )
-                print(f"✅ Saved model checkpoint to {checkpoint_dir}")
+                print(f"✅ Saved model checkpoint to {out_dir}")

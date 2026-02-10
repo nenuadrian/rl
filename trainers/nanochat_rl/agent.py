@@ -32,31 +32,27 @@ class ChatRLAgent:
         self,
         device,
         checkpoint_dir,
-        embedding_lr,
-        unembedding_lr,
-        matrix_lr,
-        weight_decay,
-        init_lr_frac,
-        model_step=None,
-        dtype="bfloat16",
+        config: ChatRLConfig,
     ):
         self.device = device
-        self.ptdtype = torch.float32 if dtype == "float32" else torch.bfloat16
-        if model_step is None:
+        self.ptdtype = torch.float32 if config.dtype == "float32" else torch.bfloat16
+        if config.model_step is None:
             # guess the step by defaulting to the last step
             model_step = find_last_step(checkpoint_dir)
+        else:
+            model_step = config.model_step
         self.model, self.tokenizer, self.meta = build_model(
             checkpoint_dir, model_step, device, "train"
         )
         self.engine = Engine(self.model, self.tokenizer)
         self.optimizer = self.model.setup_optimizer(
-            unembedding_lr=unembedding_lr,
-            embedding_lr=embedding_lr,
-            matrix_lr=matrix_lr,
-            weight_decay=weight_decay,
+            unembedding_lr=config.unembedding_lr,
+            embedding_lr=config.embedding_lr,
+            matrix_lr=config.matrix_lr,
+            weight_decay=config.weight_decay,
         )
         for group in self.optimizer.param_groups:
-            group["lr"] = group["lr"] * init_lr_frac
+            group["lr"] = group["lr"] * config.init_lr_frac
             group["initial_lr"] = group["lr"]
 
     def act(self, tokens, num_samples, max_tokens, temperature, top_k, seed=None):

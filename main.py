@@ -115,18 +115,12 @@ if __name__ == "__main__":
         )
         _print_config("ChatRLConfig", chatrl_config)
         agent = ChatRLAgent(
-            device,
-            model_step=chatrl_config.model_step,
-            dtype=chatrl_config.dtype,
+            device=device,
             checkpoint_dir=args.checkpoint_dir,
-            embedding_lr=chatrl_config.embedding_lr,
-            unembedding_lr=chatrl_config.unembedding_lr,
-            matrix_lr=chatrl_config.matrix_lr,
-            weight_decay=chatrl_config.weight_decay,
-            init_lr_frac=chatrl_config.init_lr_frac,
+            config=chatrl_config,
         )
         trainer = ChatRLTrainer(agent, chatrl_config, device)
-        trainer.train()
+        trainer.train(out_dir=args.out_dir)
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
 
