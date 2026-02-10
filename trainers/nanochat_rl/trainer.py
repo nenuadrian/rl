@@ -52,7 +52,7 @@ class ChatRLTrainer:
                 self.config.num_samples // self.config.device_batch_size
             )
             for sampling_step in range(num_sampling_steps):
-                # use deterministic seed per step/example/sampling_step similar to scripts/chat_rl.py
+                print(f"Sampling step {sampling_step + 1}/{num_sampling_steps} for example {example_idx}")
                 seed = (
                     hash((self._current_step, example_idx, sampling_step)) & 0x7FFFFFFF
                 )
@@ -65,6 +65,7 @@ class ChatRLTrainer:
                         top_k=self.config.top_k,
                         seed=seed,
                     )
+                print(f"Generated batch of {len(batch)} samples")
                 generated_token_sequences.extend(batch)
                 masks.extend(batch_masks)
             rewards = []
