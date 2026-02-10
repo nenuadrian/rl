@@ -209,6 +209,7 @@ class ChatRLTrainer:
                 sequence_lengths.extend(len(seq) for seq in sequences_all)
 
             mean_reward = sum(rewards_list) / len(rewards_list)
+            max_reward = max(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)
             print(
                 f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}"
@@ -216,8 +217,9 @@ class ChatRLTrainer:
             wandb.log(
                 {
                     "step": step,
-                    "reward": mean_reward,
-                    "sequence_length": mean_sequence_length,
+                    "eval/mean_reward": mean_reward,
+                    "eval/return_max": max_reward,
+                    "eval/sequence_length": mean_sequence_length,
                 }
             )
 
