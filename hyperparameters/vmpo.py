@@ -147,9 +147,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "Humanoid-v5": {
-        "num_envs": 4,
+        "num_envs": 1,
         "total_steps": 30_000_000,
-        "eval_interval": 5_000,
+        "eval_interval": 10_000,
         "save_interval": 100_000,
         "policy_layer_sizes": (512, 256, 256),
         "rollout_steps": 8192,

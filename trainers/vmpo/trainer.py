@@ -69,7 +69,10 @@ class Trainer:
         self.env_id = env_id
 
         if self.num_envs > 1:
-            env_fns = [(lambda i=i: make_env(env_id, seed=seed + i)) for i in range(self.num_envs)]
+            env_fns = [
+                (lambda i=i: make_env(env_id, seed=seed + i))
+                for i in range(self.num_envs)
+            ]
             self.env = gym.vector.AsyncVectorEnv(env_fns)
             obs_space = self.env.single_observation_space
             act_space = self.env.single_action_space
@@ -214,7 +217,9 @@ class Trainer:
                     means_flat = means_arr.reshape(T * N, -1)
                     log_stds_flat = log_stds_arr.reshape(T * N, -1)
 
-                    returns = _compute_returns(rewards_flat, dones_flat, last_value, self.agent.config.gamma)
+                    returns = _compute_returns(
+                        rewards_flat, dones_flat, last_value, self.agent.config.gamma
+                    )
                     returns_flat = returns.reshape(T * N, 1)
                     values_flat2 = values_flat.reshape(T * N, 1)
                 else:
@@ -224,20 +229,36 @@ class Trainer:
                     rewards_flat = rewards_arr.reshape(-1)
                     dones_flat = dones_arr.reshape(-1)
                     values_flat = values_arr.reshape(-1)
+                    means_flat = means_arr.reshape(-1, means_arr.shape[-1])
+                    log_stds_flat = log_stds_arr.reshape(-1, log_stds_arr.shape[-1])
 
-                    returns = _compute_returns(rewards_flat, dones_flat, last_value, self.agent.config.gamma)
+                    returns = _compute_returns(
+                        rewards_flat, dones_flat, last_value, self.agent.config.gamma
+                    )
                     returns_flat = returns.reshape(-1, 1)
                     values_flat2 = values_flat.reshape(-1, 1)
 
                 advantages = returns_flat - values_flat2
 
                 batch = {
-                    "obs": torch.tensor(obs_flat, dtype=torch.float32, device=self.agent.device),
-                    "actions": torch.tensor(actions_flat, dtype=torch.float32, device=self.agent.device),
-                    "returns": torch.tensor(returns_flat, dtype=torch.float32, device=self.agent.device),
-                    "advantages": torch.tensor(advantages, dtype=torch.float32, device=self.agent.device),
-                    "old_means": torch.tensor(means_flat, dtype=torch.float32, device=self.agent.device),
-                    "old_log_stds": torch.tensor(log_stds_flat, dtype=torch.float32, device=self.agent.device),
+                    "obs": torch.tensor(
+                        obs_flat, dtype=torch.float32, device=self.agent.device
+                    ),
+                    "actions": torch.tensor(
+                        actions_flat, dtype=torch.float32, device=self.agent.device
+                    ),
+                    "returns": torch.tensor(
+                        returns_flat, dtype=torch.float32, device=self.agent.device
+                    ),
+                    "advantages": torch.tensor(
+                        advantages, dtype=torch.float32, device=self.agent.device
+                    ),
+                    "old_means": torch.tensor(
+                        means_flat, dtype=torch.float32, device=self.agent.device
+                    ),
+                    "old_log_stds": torch.tensor(
+                        log_stds_flat, dtype=torch.float32, device=self.agent.device
+                    ),
                 }
 
                 metrics = {}
