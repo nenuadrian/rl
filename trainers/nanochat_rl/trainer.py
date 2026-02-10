@@ -1,6 +1,7 @@
 import torch
 import itertools
 import wandb
+from contextlib import nullcontext
 from nanochat.tasks.gsm8k import GSM8K
 from .agent import ChatRLAgent
 
@@ -17,6 +18,13 @@ class ChatRLTrainer:
         self.tokenizer = agent.tokenizer
         self.engine = agent.engine
         self.num_steps = (len(self.train_task) // args.examples_per_step) * args.num_epochs
+        # AMP / autocast setup (match scripts/chat_rl.py)
+        device_type = getattr(device, "type", None)
+        device_type = device_type if device_type is not None else str(device)
+        self.ptdtype = torch.float32 if getattr(args, "dtype", "bfloat16") == "float32" else torch.bfloat16
+        self.autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=self.ptdtype) if device_type == "cuda" else nullcontext()
+        # current training step (exposed to get_batch for deterministic seeding)
+        self._current_step = 0
 
     def get_batch(self):
         args = self.args
@@ -34,15 +42,17 @@ class ChatRLTrainer:
             masks = []
             num_sampling_steps = args.num_samples // args.device_batch_size
             for sampling_step in range(num_sampling_steps):
-                seed = None  # Optionally set as in original script
-                batch, batch_masks = engine.generate_batch(
-                    tokens,
-                    num_samples=args.device_batch_size,
-                    max_tokens=args.max_new_tokens,
-                    temperature=args.temperature,
-                    top_k=args.top_k,
-                    seed=seed,
-                )
+                # use deterministic seed per step/example/sampling_step similar to scripts/chat_rl.py
+                seed = hash((self._current_step, example_idx, sampling_step)) & 0x7FFFFFFF
+                with self.autocast_ctx:
+                    batch, batch_masks = engine.generate_batch(
+                        tokens,
+                        num_samples=args.device_batch_size,
+                        max_tokens=args.max_new_tokens,
+                        temperature=args.temperature,
+                        top_k=args.top_k,
+                        seed=seed,
+                    )
                 generated_token_sequences.extend(batch)
                 masks.extend(batch_masks)
             rewards = []
@@ -76,13 +86,14 @@ class ChatRLTrainer:
             conversation = val_task[idx]
             tokens = tokenizer.render_for_completion(conversation)
             prefix_length = len(tokens)
-            generated_token_sequences, masks = engine.generate_batch(
-                tokens,
-                num_samples=num_samples,
-                max_tokens=max_completion_tokens,
-                temperature=temperature,
-                top_k=top_k,
-            )
+            with self.autocast_ctx:
+                generated_token_sequences, masks = engine.generate_batch(
+                    tokens,
+                    num_samples=num_samples,
+                    max_tokens=max_completion_tokens,
+                    temperature=temperature,
+                    top_k=top_k,
+                )
             outcomes = []
             for sample_tokens in generated_token_sequences:
                 generated_tokens = sample_tokens[prefix_length:]
@@ -100,6 +111,8 @@ class ChatRLTrainer:
         examples_per_rank = args.examples_per_step
         batch_iterator = self.get_batch()
         for step in range(num_steps):
+            # expose current step for deterministic sampling seeds inside get_batch
+            self._current_step = step
             print(f"Starting step {step}/{num_steps}...")
             if step % args.eval_every == 0:
                 agent.eval_mode()
@@ -134,7 +147,9 @@ class ChatRLTrainer:
                     targets = targets_all[b0:b1]
                     rewards = rewards_all[b0:b1]
                     advantages = advantages_all[b0:b1]
-                    logp = agent.compute_logp(inputs, targets)
+                    # compute log-probs under autocast (matches scripts/chat_rl.py)
+                    with self.autocast_ctx:
+                        logp = agent.compute_logp(inputs, targets)
                     pg_obj = (logp * advantages.unsqueeze(-1)).sum()
                     num_valid = (targets >= 0).sum().clamp(min=1)
                     pg_obj = pg_obj / (num_valid * num_passes * examples_per_rank)
