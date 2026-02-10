@@ -110,10 +110,13 @@ class Trainer:
         self.means_buf: list[np.ndarray] = []
         self.log_stds_buf: list[np.ndarray] = []
 
-        # episode returns per environment
-        import numpy as _np
+        # episode returns per environment (scalar for single-env)
+        if self.num_envs == 1:
+            self.episode_return = 0.0
+        else:
+            import numpy as _np
 
-        self.episode_return = _np.zeros(self.num_envs, dtype=_np.float32)
+            self.episode_return = _np.zeros(self.num_envs, dtype=_np.float32)
 
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
@@ -173,14 +176,16 @@ class Trainer:
                 self.episode_return += np.asarray(reward)
                 for i in range(self.num_envs):
                     if bool(done[i]):
-                        print(f"step={step} env={i} episode_return={self.episode_return[i]:.2f}")
-                        log_wandb({"train/episode_return": float(self.episode_return[i])}, step=step)
+                        er = float(self.episode_return[i])
+                        print(f"step={step} env={i} episode_return={er:.2f}")
+                        log_wandb({"train/episode_return": er}, step=step)
                         self.episode_return[i] = 0.0
             else:
                 self.episode_return += float(reward)
                 if terminated or truncated:
-                    print(f"step={step} episode_return={self.episode_return:.2f}")
-                    log_wandb({"train/episode_return": float(self.episode_return)}, step=step)
+                    er = float(self.episode_return)
+                    print(f"step={step} episode_return={er:.2f}")
+                    log_wandb({"train/episode_return": er}, step=step)
                     obs, _ = self.env.reset()
                     obs = flatten_obs(obs)
                     self.episode_return = 0.0
