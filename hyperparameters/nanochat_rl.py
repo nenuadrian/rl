@@ -43,7 +43,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "save_every": 60,
         "model_step": None,
         "dtype": "bfloat16",
-        "checkpoint_dir": "/scratch/u6g/nenuadrian.u6g/.cache/nanochat/", 
+        "checkpoint_dir": "/scratch/u6g/nenuadrian.u6g/.cache/nanochat/base_checkpoints/d26/", 
     },
 }
 
