@@ -2,6 +2,9 @@
 
 [![Python tests](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml/badge.svg)](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml)
 
+[See the latest report here.](reports/latest/README.md)
+
+
 - [Reinforcement Learning Algorithms in PyTorch](#reinforcement-learning-algorithms-in-pytorch)
 	- [usage](#usage)
 	- [video](#video)
