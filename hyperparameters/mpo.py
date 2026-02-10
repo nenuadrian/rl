@@ -259,7 +259,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "retrace_steps": 2,
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
-    },"Walker2d-v5": {
+    },
+    "Walker2d-v5": {
         "updates_per_step": 1,
         "total_steps": 50_000_000,
         "update_after": 10_000,
@@ -268,7 +269,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_interval": 7_000,
         "save_interval": 50_000,
         "policy_layer_sizes": (256, 256, 256),
-        "critic_layer_sizes": (256, 256, 256),
+        "critic_layer_sizes": (512, 256, 256),
         "gamma": 0.995,
         "tau": 0.005,
         "policy_lr": 3e-4,
@@ -290,7 +291,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "retrace_steps": 2,
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
-    },"Ant-v5": {
+    },
+    "Ant-v5": {
         "updates_per_step": 1,
         "total_steps": 50_000_000,
         "update_after": 10_000,
@@ -299,7 +301,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_interval": 7_000,
         "save_interval": 50_000,
         "policy_layer_sizes": (256, 256, 256),
-        "critic_layer_sizes": (256, 256, 256),
+        "critic_layer_sizes": (512, 512, 256),
         "gamma": 0.995,
         "tau": 0.005,
         "policy_lr": 3e-4,
