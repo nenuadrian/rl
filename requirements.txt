@@ -8,3 +8,7 @@ numpy
 shimmy
 matplotlib
 pandas
+tokenizers
+rustbpe
+tiktoken
+datasets

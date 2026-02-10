@@ -46,8 +46,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["ppo", "vmpo", "mpo", "vmpo_parallel"],
+        choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "nanochat_rl", "nanochat_vmpo"],
     )
+
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -85,7 +86,87 @@ if __name__ == "__main__":
         config=vars(args),
     )
 
-    if algo == "ppo":
+    if algo == "nanochat_rl":
+        from trainers.nanochat_rl.trainer import ChatRLTrainer
+        from trainers.nanochat_rl.agent import ChatRLAgent, ChatRLConfig
+
+        chatrl_config = ChatRLConfig(
+            num_epochs=getattr(args, "num_epochs", 1),
+            device_batch_size=getattr(args, "device_batch_size", 8),
+            examples_per_step=getattr(args, "examples_per_step", 16),
+            num_samples=getattr(args, "num_samples", 16),
+            max_new_tokens=getattr(args, "max_new_tokens", 256),
+            temperature=getattr(args, "temperature", 1.0),
+            top_k=getattr(args, "top_k", 50),
+            embedding_lr=getattr(args, "embedding_lr", 0.2),
+            unembedding_lr=getattr(args, "unembedding_lr", 0.004),
+            matrix_lr=getattr(args, "matrix_lr", 0.02),
+            weight_decay=getattr(args, "weight_decay", 0.0),
+            init_lr_frac=getattr(args, "init_lr_frac", 0.05),
+            eval_every=getattr(args, "eval_every", 60),
+            eval_examples=getattr(args, "eval_examples", 400),
+            save_every=getattr(args, "save_every", 60),
+            model_tag=getattr(args, "model_tag", None),
+            model_step=getattr(args, "model_step", None),
+            dtype=getattr(args, "dtype", "bfloat16"),
+        )
+        _print_config("ChatRLConfig", chatrl_config)
+        agent = ChatRLAgent(
+            device,
+            model_tag=chatrl_config.model_tag,
+            model_step=chatrl_config.model_step,
+            dtype=chatrl_config.dtype,
+        )
+        agent.setup_optimizer(
+            embedding_lr=chatrl_config.embedding_lr,
+            unembedding_lr=chatrl_config.unembedding_lr,
+            matrix_lr=chatrl_config.matrix_lr,
+            weight_decay=chatrl_config.weight_decay,
+            init_lr_frac=chatrl_config.init_lr_frac,
+        )
+        trainer = ChatRLTrainer(agent, chatrl_config, device)
+        trainer.train()
+    elif algo == "nanochat_vmpo":
+        from trainers.nanochat_vmpo.trainer import ChatRLTrainer
+        from trainers.nanochat_vmpo.agent import ChatRLAgent, ChatRLConfig
+
+        chatrl_config = ChatRLConfig(
+            num_epochs=getattr(args, "num_epochs", 1),
+            device_batch_size=getattr(args, "device_batch_size", 8),
+            examples_per_step=getattr(args, "examples_per_step", 16),
+            num_samples=getattr(args, "num_samples", 16),
+            max_new_tokens=getattr(args, "max_new_tokens", 256),
+            temperature=getattr(args, "temperature", 1.0),
+            top_k=getattr(args, "top_k", 50),
+            embedding_lr=getattr(args, "embedding_lr", 0.2),
+            unembedding_lr=getattr(args, "unembedding_lr", 0.004),
+            matrix_lr=getattr(args, "matrix_lr", 0.02),
+            weight_decay=getattr(args, "weight_decay", 0.0),
+            init_lr_frac=getattr(args, "init_lr_frac", 0.05),
+            eval_every=getattr(args, "eval_every", 60),
+            eval_examples=getattr(args, "eval_examples", 400),
+            save_every=getattr(args, "save_every", 60),
+            model_tag=getattr(args, "model_tag", None),
+            model_step=getattr(args, "model_step", None),
+            dtype=getattr(args, "dtype", "bfloat16"),
+        )
+        _print_config("ChatRLConfig", chatrl_config)
+        agent = ChatRLAgent(
+            device,
+            model_tag=chatrl_config.model_tag,
+            model_step=chatrl_config.model_step,
+            dtype=chatrl_config.dtype,
+        )
+        agent.setup_optimizer(
+            embedding_lr=chatrl_config.embedding_lr,
+            unembedding_lr=chatrl_config.unembedding_lr,
+            matrix_lr=chatrl_config.matrix_lr,
+            weight_decay=chatrl_config.weight_decay,
+            init_lr_frac=chatrl_config.init_lr_frac,
+        )
+        trainer = ChatRLTrainer(agent, chatrl_config, device)
+        trainer.train()
+    elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
 
         _print_config(
