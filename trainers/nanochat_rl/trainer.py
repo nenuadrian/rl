@@ -52,7 +52,9 @@ class ChatRLTrainer:
                 self.config.num_samples // self.config.device_batch_size
             )
             for sampling_step in range(num_sampling_steps):
-                print(f"Sampling step {sampling_step + 1}/{num_sampling_steps} for example {example_idx}")
+                print(
+                    f"Sampling step {sampling_step + 1}/{num_sampling_steps} for example {example_idx}"
+                )
                 seed = (
                     hash((self._current_step, example_idx, sampling_step)) & 0x7FFFFFFF
                 )
@@ -140,6 +142,7 @@ class ChatRLTrainer:
             self._current_step = step
             print(f"Starting step {step}/{num_steps}...")
             if step % self.config.eval_every == 0:
+                print("Running evaluation...")
                 agent.eval_mode()
                 passk = torch.zeros(self.config.device_batch_size, device=device)
                 records_iter = self.run_gsm8k_eval(
@@ -169,6 +172,7 @@ class ChatRLTrainer:
 
             rewards_list = []
             sequence_lengths = []
+            print(f"Training on {examples_per_rank} examples for step {step}...")
             for example_step in range(examples_per_rank):
                 sequences_all, inputs_all, targets_all, rewards_all, advantages_all = (
                     next(batch_iterator)
@@ -176,6 +180,9 @@ class ChatRLTrainer:
                 agent.train_mode()
                 assert inputs_all.size(0) % self.config.device_batch_size == 0
                 num_passes = inputs_all.size(0) // self.config.device_batch_size
+                print(
+                    f"Example step {example_step} | Generated {inputs_all.size(0)} samples, training in {num_passes} passes"
+                )
                 for pass_idx in range(num_passes):
                     b0, b1 = (
                         pass_idx * self.config.device_batch_size,
