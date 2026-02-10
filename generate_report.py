@@ -1,5 +1,6 @@
 import wandb
 import os
+import shutil
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -97,7 +98,7 @@ def generate_report(
     os.makedirs(output_dir, exist_ok=True)
     report_dir = os.path.join(output_dir, f"report_{timestamp}")
     os.makedirs(report_dir, exist_ok=True)
-    report_path = os.path.join(report_dir, "report.md")
+    report_path = os.path.join(report_dir, "README.md")
     header = "| Environment | " + " | ".join(algorithms) + " |\n"
     # separator: one `---` per column (Environment and each algorithm)
     sep_cols = 1 + len(algorithms)
@@ -238,6 +239,15 @@ def generate_report(
             else:
                 f.write("No runs available for this environment.\n\n")
     print(f"Report generated: {report_path}")
+    # Create or replace a 'latest' copy of the report folder
+    latest_dir = os.path.join(output_dir, "latest")
+    try:
+        if os.path.exists(latest_dir):
+            shutil.rmtree(latest_dir)
+        shutil.copytree(report_dir, latest_dir)
+        print(f"Copied report to latest: {latest_dir}")
+    except Exception as e:
+        print(f"Warning: failed to create latest copy: {e}")
 
 
 def main():
