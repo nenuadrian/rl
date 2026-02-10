@@ -35,10 +35,7 @@ def flatten_obs(obs):
         for key in sorted(obs.keys()):
             p = np.asarray(obs[key], dtype=np.float32)
             if p.ndim == 0:
-                raise ValueError(
-                    f"Scalar observation under key '{key}'. "
-                    "Environment observations must be per-env arrays."
-                )
+                p = p.reshape(1)
             parts.append(p)
 
         # Infer whether this is vectorised by looking for a shared leading dim
@@ -68,14 +65,15 @@ def flatten_obs(obs):
             return np.concatenate(flat_parts, axis=1)
 
         # Single-env dict
+        flat_parts = []
         for key, p in zip(sorted(obs.keys()), parts):
             if p.ndim != 1:
                 raise ValueError(
-                    f"Non-1D array for key '{key}' in single-env observation: "
-                    f"shape {p.shape}"
+                    f"Unexpected shape for key '{key}' in single-env obs: {p.shape}"
                 )
+            flat_parts.append(p.reshape(-1))
 
-        return np.concatenate([p.reshape(-1) for p in parts], axis=0)
+        return np.concatenate(flat_parts, axis=0)
 
     arr = np.asarray(obs, dtype=np.float32)
 
