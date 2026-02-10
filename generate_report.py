@@ -2,12 +2,13 @@ import wandb
 import os
 import shutil
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import argparse
 from datetime import datetime
 
-PREFIX = "dm_control-"
+PREFIX = "env-"
 ALGORITHMS = ["ppo", "vmpo", "mpo"]
 ENTITY = "adrian-research"
 MIN_STEPS = 50_000
@@ -80,7 +81,11 @@ def collect_results(
                         results[key][algo] = {"val": val, "url": run.url, "run": run}
                     else:
                         if val > existing["val"]:
-                            results[key][algo] = {"val": val, "url": run.url, "run": run}
+                            results[key][algo] = {
+                                "val": val,
+                                "url": run.url,
+                                "run": run,
+                            }
     return results, environments, runs_by_algo
 
 
@@ -119,6 +124,7 @@ def generate_report(
             row.append(display)
         rows.append("| " + " | ".join(row) + " |\n")
         plotted_envs.append(environment)
+
     # Helper: fetch series from a wandb run for given keys
     def _get_series_from_run(run_obj, step_key="_step", val_key="eval/return_max"):
         # Try pandas=True first (if pandas is available), otherwise fallback
@@ -153,7 +159,7 @@ def generate_report(
     # Helper: create time-series plot for an environment using the best run per algorithm
     def save_time_series_plot(environment, results_map, algs, out_dir):
         fig, ax = plt.subplots(figsize=(8, 4.5))
-        colors = {algs[i]: c for i, c in enumerate(["#4C72B0", "#55A868", "#C44E52"]) }
+        colors = {algs[i]: c for i, c in enumerate(["#4C72B0", "#55A868", "#C44E52"])}
         any_plotted = False
         for a in algs:
             entry = results_map.get(environment, {}).get(a)
@@ -209,6 +215,7 @@ def generate_report(
                 if entry and entry.get("run") is not None:
                     config = dict(entry["run"].config)
                     import json
+
                     config_json = json.dumps(config, indent=2, sort_keys=True)
                     f.write(f"**{algo} config:**\n\n")
                     f.write("```json\n" + config_json + "\n```\n\n")
@@ -225,7 +232,12 @@ def generate_report(
 
             if env_runs:
                 # sort by value (descending), missing values go last
-                env_runs.sort(key=lambda r: (r["algorithm"], -(r["val"] if r.get("val") is not None else float("-inf"))))
+                env_runs.sort(
+                    key=lambda r: (
+                        r["algorithm"],
+                        -(r["val"] if r.get("val") is not None else float("-inf")),
+                    )
+                )
                 f.write("| Run | Algorithm | _step | eval/return_max |\n")
                 f.write("|---|---|---:|---:|\n")
                 for run_entry in env_runs:
