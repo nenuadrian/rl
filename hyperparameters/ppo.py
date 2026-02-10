@@ -46,7 +46,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "normalize_obs": True,
     },
     ("humanoid", "walk"): {
-        "num_envs": 8,
+        "num_envs": 32,
         "total_steps": 5_000_000,
         "eval_interval": 3_000,
         "save_interval": 250_000,
