@@ -193,10 +193,10 @@ class PPOAgent:
         ).to(device)
         self.value = ValueNetwork(obs_dim, critic_layer_sizes).to(device)
         self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=self.config.policy_lr
+            self.policy.parameters(), lr=self.config.policy_lr, eps=1e-5
         )
         self.value_opt = torch.optim.Adam(
-            self.value.parameters(), lr=self.config.value_lr
+            self.value.parameters(), lr=self.config.value_lr, eps=1e-5
         )
         
         print(self.policy)

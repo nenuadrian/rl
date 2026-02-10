@@ -94,7 +94,7 @@ def build_policy_for_algo(
             action_low=action_low,
             action_high=action_high,
         )
-    elif algo in {"vmpo", "vmpo_parallel", "vmpo_light"}:
+    elif algo in {"vmpo"}:
         from trainers.vmpo.gaussian_mlp_policy import GaussianMLPPolicy
 
         policy = GaussianMLPPolicy(

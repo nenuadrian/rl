@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "nanochat_rl", "nanochat_vmpo"],
+        choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo"],
     )
 
     parser.add_argument("--domain", type=str, required=True)
@@ -220,42 +220,6 @@ if __name__ == "__main__":
             vf_coef=float(args.vf_coef),
             max_grad_norm=float(args.max_grad_norm),
             target_kl=float(args.target_kl),
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
-            out_dir=args.out_dir,
-        )
-    elif algo == "vmpo_parallel":
-        from trainers.vmpo_parallel.trainer import Trainer as VMPOParallelTrainer
-        from trainers.vmpo_parallel.agent import VMPOParallelConfig
-
-        vmpo_config = VMPOParallelConfig(
-            gamma=float(args.gamma),
-            policy_lr=float(args.policy_lr),
-            value_lr=float(args.value_lr),
-            topk_fraction=float(args.topk_fraction),
-            temperature_init=float(args.temperature_init),
-            temperature_lr=float(args.temperature_lr),
-            epsilon_eta=float(args.epsilon_eta),
-            epsilon_mu=float(args.epsilon_mu),
-            epsilon_sigma=float(args.epsilon_sigma),
-            alpha_lr=float(args.alpha_lr),
-            max_grad_norm=float(args.max_grad_norm),
-        )
-        _print_config("VMPOParallelConfig", vmpo_config)
-
-        trainer = VMPOParallelTrainer(
-            domain=args.domain,
-            task=args.task,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            num_envs=int(args.num_envs),
-            rollout_steps=int(args.rollout_steps),
-            config=vmpo_config,
-        )
-        trainer.train(
-            total_steps=args.total_steps,
-            updates_per_step=int(args.updates_per_step),
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,

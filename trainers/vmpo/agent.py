@@ -66,20 +66,21 @@ class VMPOAgent:
                 {"params": shared_params, "lr": self.config.policy_lr},
                 {"params": policy_params, "lr": self.config.policy_lr},
                 {"params": value_params, "lr": self.config.value_lr},
-            ]
+            ],
+            eps=1e-5
         )
 
         # Temperature dual (eta)
         temperature_init_t = torch.tensor(self.config.temperature_init, device=device)
         temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
         self.log_temperature = nn.Parameter(torch.log(temperature_init_t))
-        self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.temperature_lr)
+        self.eta_opt = torch.optim.Adam([self.log_temperature], lr=self.config.temperature_lr, eps=1e-5)
 
         # KL duals (mean / std)
         self.log_alpha_mu = nn.Parameter(torch.zeros(1, device=device))
         self.log_alpha_sigma = nn.Parameter(torch.zeros(1, device=device))
         self.alpha_opt = torch.optim.Adam(
-            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
+            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr, eps=1e-5
         )
 
     # -------- Acting --------

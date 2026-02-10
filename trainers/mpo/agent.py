@@ -293,12 +293,12 @@ class MPOAgent:
 
         # Train policy encoder + head together; critics share a separate encoder.
         self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=self.config.policy_lr
+            self.policy.parameters(), lr=self.config.policy_lr, eps=1e-5
         )
 
         # Critic optimizer.
         self.q_opt = torch.optim.Adam(
-            list(self.q1.parameters()) + list(self.q2.parameters()), lr=self.config.q_lr
+            list(self.q1.parameters()) + list(self.q2.parameters()), lr=self.config.q_lr, eps=1e-5
         )
 
         # Dual variables (temperature + KL multipliers) in log-space.
@@ -336,7 +336,8 @@ class MPOAgent:
             [
                 {"params": temperature_params, "lr": self.config.temperature_lr},
                 {"params": alpha_params, "lr": self.config.lambda_lr},
-            ]
+            ],
+            eps=1e-5
         )
 
     def _forward_kl_diag_gaussians(
