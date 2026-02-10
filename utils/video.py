@@ -32,7 +32,7 @@ def find_latest_checkpoint(out_dir: str, algo: str) -> str:
 
     candidates: list[tuple[int | None, float, str]] = []
     for name in os.listdir(out_dir):
-        if not name.startswith(f"{algo}_step_") or not name.endswith(".pt"):
+        if not name.startswith(f"{algo}") or not name.endswith(".pt"):
             continue
         match = pattern.match(name)
         step = int(match.group(1)) if match else None
