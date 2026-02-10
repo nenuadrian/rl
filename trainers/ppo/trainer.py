@@ -185,7 +185,7 @@ class Trainer:
 
         self.domain = domain
         self.task = task
-        
+
         self.last_eval = 0
         self.last_checkpoint = 0
 
@@ -199,9 +199,9 @@ class Trainer:
         if self.num_envs > 1:
             obs, _ = self.env.reset()
             # obs is a dict mapping -> per-key arrays with leading dim N
-            obs = flatten_obs(obs)  
-            eval_interval *= self.num_envs  
-            save_interval *= self.num_envs  
+            obs = flatten_obs(obs)
+            eval_interval *= self.num_envs
+            save_interval *= self.num_envs
         else:
             obs, _ = self.env.reset()
             obs = flatten_obs(obs)
@@ -263,10 +263,7 @@ class Trainer:
                             f"step={step+1} env={i} episode_return={self.episode_return[i]:.2f}"
                         )
                         log_wandb(
-                            {
-                                "train/episode_return": float(self.episode_return[i]),
-                                "env_id": i,
-                            },
+                            {"train/episode_return": float(self.episode_return[i])},
                             step=step + 1,
                         )
                         self.episode_return[i] = 0.0
@@ -325,7 +322,10 @@ class Trainer:
                     self.task,
                     obs_normalizer=self.obs_normalizer,
                 )
-                print(f"step={step} " + " ".join(f"{k}={v:.3f}" for k, v in metrics.items()))
+                print(
+                    f"step={step} "
+                    + " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
+                )
                 log_wandb(metrics, step=step)
 
             if save_interval > 0 and self.last_checkpoint < step // save_interval:

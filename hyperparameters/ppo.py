@@ -68,7 +68,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("walker", "walk"): {
         "num_envs": 4,
         "total_steps": 10_000_000,
-        "eval_interval": 100_000,
+        "eval_interval": 50_000,
         "save_interval": 100_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 256, 256),
