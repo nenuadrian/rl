@@ -32,3 +32,28 @@ python generate_video.py ppo --domain cheetah --task run \
 ## hyperparameters
 
 Hyperparameters are defined in the `hyperparameters/*.py` files for each algorithm.
+
+
+## nanochat
+
+```bash
+export WANDB_RUN="nanochat_test_run"
+export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
+mkdir -p $NANOCHAT_BASE_DIR
+
+python -m nanochat.dataset -n 8
+python -m nanochat.dataset -n 370 
+
+# train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
+python -m nanochat.scripts.tok_train
+# evaluate the tokenizer (report compression ratio etc.)
+python -m nanochat.scripts.tok_eval
+
+
+python -m nanochat.scripts.base_train --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN
+
+python -m nanochat.scripts.base_eval --device-batch-size=16
+
+python -m nanochat.scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN
+python -m nanochat.scripts.chat_eval -i sft
+```
