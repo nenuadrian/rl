@@ -15,7 +15,6 @@
 python main.py mpo --domain cheetah --task run
 python main.py ppo --domain cheetah --task run
 python main.py vmpo --domain cheetah --task run
-python main.py vmpo_parallel --domain cheetah --task run
 python main.py nanochat_rl --domain test --task test
 python main.py nanochat_vmpo --domain test --task test
 ```
