@@ -48,10 +48,10 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
     ("humanoid", "walk"): {
         "num_envs": 32,
         "total_steps": 5_000_000,
-        "eval_interval": 3_000,
+        "eval_interval": 2_000,
         "save_interval": 250_000,
         "policy_layer_sizes": (256, 256, 256),
-        "critic_layer_sizes": (512, 256, 256),
+        "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 8192,
         "update_epochs": 6,
         "gamma": 0.99,
