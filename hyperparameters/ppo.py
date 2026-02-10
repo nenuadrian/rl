@@ -73,7 +73,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_interval": 15_000,
         "save_interval": 50_000,
         "policy_layer_sizes": (256, 256, 256),
-        "critic_layer_sizes": (512, 256, 256),
+        "critic_layer_sizes": (256, 256, 256),
         "rollout_steps": 2048,
         "update_epochs": 4,
         "gamma": 0.99,

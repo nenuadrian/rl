@@ -101,7 +101,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     "dm_control/walker/walk": {
-        "updates_per_step": 1,
+        "updates_per_step": 2,
         "total_steps": 40_000_000,
         "update_after": 500_000,
         "batch_size": 256,
@@ -109,7 +109,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_interval": 3_000,
         "save_interval": 50_000,
         "policy_layer_sizes": (256, 256, 256),
-        "critic_layer_sizes": (512, 256, 256),
+        "critic_layer_sizes": (256, 256, 256),
         "gamma": 0.995,
         "tau": 0.005,
         "policy_lr": 3e-4,
