@@ -107,7 +107,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/walker/walk": {
-        "num_envs": 4,
+        "num_envs": 2,
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
