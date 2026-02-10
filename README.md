@@ -12,11 +12,10 @@
 ## usage
 
 ```bash
-python main.py mpo --domain cheetah --task run
-python main.py ppo --domain cheetah --task run
-python main.py vmpo --domain cheetah --task run
-python main.py nanochat_rl --domain test --task test
-python main.py nanochat_vmpo --domain test --task test
+python main.py mpo --env dm_control/cheetah/run
+python main.py ppo --env HalfCheetah-v5
+python main.py vmpo --env dm_control/cheetah/run
+python main.py nanochat_rl --env isambard
 ```
 
 ## video
@@ -24,15 +23,15 @@ python main.py nanochat_vmpo --domain test --task test
 Generate a rollout video from the latest saved checkpoint:
 
 ```bash
-python generate_video.py ppo --domain cheetah --task run
+python generate_video.py ppo --env dm_control/cheetah/run
 ```
 
 Optionally specify a checkpoint path and output file:
 
 ```bash
-python generate_video.py ppo --domain cheetah --task run \
-	--checkpoint checkpoints/ppo/cheetah/run/ppo_step_50000.pt \
-	--video_out videos/ppo-cheetah-run.mp4
+python generate_video.py ppo --env dm_control/cheetah/run \
+	--checkpoint checkpoints/ppo/dm_control-cheetah-run/ppo_step_50000.pt \
+	--video_out videos/ppo-dm_control-cheetah-run.mp4
 ```
 
 ## hyperparameters
