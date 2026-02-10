@@ -66,7 +66,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "normalize_obs": True,
     },
     ("walker", "walk"): {
-        "num_envas": 4,
+        "num_envs": 4,
         "total_steps": 10_000_000,
         "eval_interval": 100_000,
         "save_interval": 100_000,
