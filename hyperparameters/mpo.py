@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 
-PRESETS: dict[tuple[str, str], dict[str, Any]] = {
-    ("cheetah", "run"): {
+PRESETS: dict[str, dict[str, Any]] = {
+    "dm_control/cheetah/run": {
         "updates_per_step": 1,
         "total_steps": 20_000_000,
         "update_after": 1_000,
@@ -36,7 +36,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("humanoid", "run"): {
+    "dm_control/humanoid/run": {
         "updates_per_step": 1,
         "total_steps": 50_000_000,
         "update_after": 5_000,
@@ -68,7 +68,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("humanoid", "walk"): {
+    "dm_control/humanoid/walk": {
         "updates_per_step": 1,
         "total_steps": 50_000_000,
         "update_after": 500_000,
@@ -100,7 +100,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("walker", "walk"): {
+    "dm_control/walker/walk": {
         "updates_per_step": 1,
         "total_steps": 40_000_000,
         "update_after": 500_000,
@@ -132,7 +132,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("walker", "run"): {
+    "dm_control/walker/run": {
         "updates_per_step": 1,
         "total_steps": 40_000_000,
         "update_after": 2_000,
@@ -164,7 +164,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("hopper", "stand"): {
+    "dm_control/hopper/stand": {
         "updates_per_step": 1,
         "total_steps": 2_000_000,
         "update_after": 1_000,
@@ -196,7 +196,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
-    ("cartpole", "swingup"): {
+    "dm_control/cartpole/swingup": {
         "updates_per_step": 1,
         "total_steps": 500_000,
         "update_after": 1_000,
@@ -228,12 +228,43 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "retrace_mc_actions": 8,
         "retrace_lambda": 0.95,
     },
+    "Humanoid-v5": {
+        "updates_per_step": 1,
+        "total_steps": 50_000_000,
+        "update_after": 5_000,
+        "batch_size": 512,
+        "replay_size": 2_000_000,
+        "eval_interval": 2_000,
+        "save_interval": 50_000,
+        "policy_layer_sizes": (256, 256, 256),
+        "critic_layer_sizes": (512, 256, 256),
+        "gamma": 0.995,
+        "tau": 0.005,
+        "policy_lr": 3e-4,
+        "q_lr": 3e-4,
+        "temperature_init": 3.0,
+        "temperature_lr": 3e-4,
+        "kl_epsilon": 0.1,
+        "mstep_kl_epsilon": 0.1,
+        "epsilon_mean": None,
+        "epsilon_stddev": None,
+        "per_dim_constraining": False,
+        "lambda_init": 1.0,
+        "lambda_lr": 3e-4,
+        "action_penalization": False,
+        "epsilon_penalty": 0.001,
+        "max_grad_norm": 1.0,
+        "action_samples": 256,
+        "use_retrace": True,
+        "retrace_steps": 2,
+        "retrace_mc_actions": 8,
+        "retrace_lambda": 0.95,
+    },
 }
 
 
-def get(domain: str, task: str) -> dict[str, Any]:
-    key = (domain, task)
-    if key not in PRESETS:
-        available = ", ".join([f"{d}/{t}" for (d, t) in sorted(PRESETS.keys())])
-        raise KeyError(f"No MPO preset for {domain}/{task}. Available: {available}")
-    return dict(PRESETS[key])
+def get(env_id: str) -> dict[str, Any]:
+    if env_id not in PRESETS:
+        available = ", ".join(sorted(PRESETS.keys()))
+        raise KeyError(f"No MPO preset for {env_id}. Available: {available}")
+    return dict(PRESETS[env_id])

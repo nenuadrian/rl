@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 
-PRESETS: dict[tuple[str, str], dict[str, Any]] = {
-    ("cheetah", "run"): {
+PRESETS: dict[str, dict[str, Any]] = {
+    "dm_control/cheetah/run": {
         "total_steps": 10_000_000,
         "eval_interval": 50_000,
         "save_interval": 500_000,
@@ -23,7 +23,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 1e-4,
         "max_grad_norm": 2.0,
     },
-    ("humanoid", "run"): {
+    "dm_control/humanoid/run": {
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -42,7 +42,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 1e-4,
         "max_grad_norm": 0.5,
     },
-    ("humanoid", "walk"): {
+    "dm_control/humanoid/walk": {
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -61,7 +61,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 1e-4,
         "max_grad_norm": 0.5,
     },
-    ("hopper", "stand"): {
+    "dm_control/hopper/stand": {
         "total_steps": 5_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -80,7 +80,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 1e-3,
         "max_grad_norm": 0.5,
     },
-    ("cartpole", "swingup"): {
+    "dm_control/cartpole/swingup": {
         "total_steps": 2_000_000,
         "eval_interval": 10_000,
         "save_interval": 25_000,
@@ -101,7 +101,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "kl_std_coef": 1e-3,
         "max_grad_norm": 0.5,
     },
-    ("walker", "walk"): {
+    "dm_control/walker/walk": {
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -120,7 +120,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 5e-4,
         "max_grad_norm": 0.5,
     },
-    ("walker", "run"): {
+    "dm_control/walker/run": {
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -139,12 +139,30 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "alpha_lr": 5e-4,
         "max_grad_norm": 0.5,
     },
+    "Humanoid-v5": {
+        "total_steps": 30_000_000,
+        "eval_interval": 50_000,
+        "save_interval": 100_000,
+        "policy_layer_sizes": (512, 256, 256),
+        "rollout_steps": 8192,
+        "updates_per_step": 5,
+        "gamma": 0.995,
+        "policy_lr": 5e-5,
+        "value_lr": 1e-4,
+        "topk_fraction": 0.3,
+        "temperature_init": 2.0,
+        "temperature_lr": 5e-4,
+        "epsilon_eta": 0.3,
+        "epsilon_mu": 0.05,
+        "epsilon_sigma": 3e-4,
+        "alpha_lr": 1e-4,
+        "max_grad_norm": 0.5,
+    },
 }
 
 
-def get(domain: str, task: str) -> dict[str, Any]:
-    key = (domain, task)
-    if key not in PRESETS:
-        available = ", ".join([f"{d}/{t}" for (d, t) in sorted(PRESETS.keys())])
-        raise KeyError(f"No VMPO preset for {domain}/{task}. Available: {available}")
-    return dict(PRESETS[key])
+def get(env_id: str) -> dict[str, Any]:
+    if env_id not in PRESETS:
+        available = ", ".join(sorted(PRESETS.keys()))
+        raise KeyError(f"No VMPO preset for {env_id}. Available: {available}")
+    return dict(PRESETS[env_id])

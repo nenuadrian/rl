@@ -19,28 +19,30 @@ def get_runs_for_algorithm(
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project}")
     filtered = []
-    for run in runs:
-        steps = run.summary.get("_step", 0)
-        if steps >= min_steps:
-            filtered.append(run)
+    try:
+        for run in runs:
+            steps = run.summary.get("_step", 0)
+            if steps >= min_steps:
+                filtered.append(run)
+    except Exception as e:
+        print(f"Error fetching runs for {project}: {e}")
     return filtered
 
 
 def parse_run_name(run_name):
-    # Expected: algo-domain-task-other-data
+    # Expected: prefix-env-... (e.g., ppo-Humanoid-v5-...)
     parts = run_name.split("-")
-    if len(parts) < 3:
-        return None, None
-    domain = parts[1]
-    task = parts[2]
-    return domain, task
+    if len(parts) < 2:
+        return None
+    environment = parts[1]
+    return environment
 
 
 def collect_results(
     algorithms=ALGORITHMS, prefix=PREFIX, entity=ENTITY, min_steps=MIN_STEPS
 ):
     results = {}
-    domains_tasks = set()
+    environments = set()
     runs_by_algo = {algo: [] for algo in algorithms}
     for algo in algorithms:
         runs = get_runs_for_algorithm(
@@ -48,10 +50,10 @@ def collect_results(
         )
         print(f"Found {len(runs)} runs for algorithm '{algo}' with prefix '{prefix}'")
         for run in runs:
-            domain, task = parse_run_name(run.name)
-            if domain and task:
-                key = (domain, task)
-                domains_tasks.add(key)
+            environment = parse_run_name(run.name)
+            if environment:
+                key = environment
+                environments.add(key)
 
                 steps = run.summary.get("_step", 0)
                 val = run.summary.get("eval/return_max", None)
@@ -61,15 +63,14 @@ def collect_results(
                     {
                         "name": run.name,
                         "url": run.url,
-                        "domain": domain,
-                        "task": task,
+                        "environment": environment,
                         "steps": steps,
                         "val": val,
                         "run_obj": run,
                     }
                 )
 
-                # keep best value per domain/task for the main table
+                # keep best value per environment for the main table
                 if val is not None:
                     if key not in results:
                         results[key] = {}
@@ -79,7 +80,7 @@ def collect_results(
                     else:
                         if val > existing["val"]:
                             results[key][algo] = {"val": val, "url": run.url, "run": run}
-    return results, domains_tasks, runs_by_algo
+    return results, environments, runs_by_algo
 
 
 def generate_report(
@@ -89,7 +90,7 @@ def generate_report(
     min_steps=MIN_STEPS,
     output_dir="reports",
 ):
-    results, domains_tasks, runs_by_algo = collect_results(
+    results, environments, runs_by_algo = collect_results(
         algorithms=algorithms, prefix=prefix, entity=entity, min_steps=min_steps
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,25 +98,17 @@ def generate_report(
     report_dir = os.path.join(output_dir, f"report_{timestamp}")
     os.makedirs(report_dir, exist_ok=True)
     report_path = os.path.join(report_dir, "report.md")
-    header = "| Domain | Task | " + " | ".join(algorithms) + " |\n"
-    # separator: one `---` per column (Domain, Task, and each algorithm)
-    sep_cols = 2 + len(algorithms)
+    header = "| Environment | " + " | ".join(algorithms) + " |\n"
+    # separator: one `---` per column (Environment and each algorithm)
+    sep_cols = 1 + len(algorithms)
     header += "|" + "---|" * sep_cols + "\n"
     rows = []
-    # Keep ordered list of domain/task rows that we will plot
-    plotted_rows = []
-    for domain, task in sorted(domains_tasks):
+    # Keep ordered list of environments that we will plot
+    plotted_envs = []
+    for environment in sorted(environments):
         # only include rows where at least two algorithms have eval/return_max > 100
-        entry_map = results.get((domain, task), {})
-        present_count = sum(
-            1
-            for algo in algorithms
-            if (entry_map.get(algo) is not None and entry_map.get(algo).get("val") is not None and entry_map.get(algo).get("val") > 100)
-        )
-        if present_count < 2:
-            continue
-
-        row = [domain, task]
+        entry_map = results.get(environment, {})
+        row = [environment]
         for algo in algorithms:
             entry = entry_map.get(algo)
             if entry:
@@ -124,7 +117,7 @@ def generate_report(
                 display = "-"
             row.append(display)
         rows.append("| " + " | ".join(row) + " |\n")
-        plotted_rows.append((domain, task))
+        plotted_envs.append(environment)
     # Helper: fetch series from a wandb run for given keys
     def _get_series_from_run(run_obj, step_key="_step", val_key="eval/return_max"):
         # Try pandas=True first (if pandas is available), otherwise fallback
@@ -156,13 +149,13 @@ def generate_report(
         except Exception:
             return steps, vals
 
-    # Helper: create time-series plot for a domain/task using the best run per algorithm
-    def save_time_series_plot(domain, task, results_map, algs, out_dir):
+    # Helper: create time-series plot for an environment using the best run per algorithm
+    def save_time_series_plot(environment, results_map, algs, out_dir):
         fig, ax = plt.subplots(figsize=(8, 4.5))
         colors = {algs[i]: c for i, c in enumerate(["#4C72B0", "#55A868", "#C44E52"]) }
         any_plotted = False
         for a in algs:
-            entry = results_map.get((domain, task), {}).get(a)
+            entry = results_map.get(environment, {}).get(a)
             if not entry or entry.get("run") is None:
                 continue
             run_obj = entry.get("run")
@@ -176,21 +169,21 @@ def generate_report(
             return None
         ax.set_xlabel("_step")
         ax.set_ylabel("eval/return_max")
-        ax.set_title(f"{domain} - {task}")
+        ax.set_title(f"{environment}")
         ax.legend()
-        fname = f"{domain}_{task}.png".replace("/", "_")
+        fname = f"{environment}.png".replace("/", "_")
         path = os.path.join(out_dir, fname)
         fig.tight_layout()
         fig.savefig(path)
         plt.close(fig)
         return fname
 
-    # Generate plots for each included domain/task
+    # Generate plots for each included environment
     images = {}
-    for domain, task in plotted_rows:
-        img_name = save_time_series_plot(domain, task, results, algorithms, report_dir)
+    for environment in plotted_envs:
+        img_name = save_time_series_plot(environment, results, algorithms, report_dir)
         if img_name:
-            images[(domain, task)] = img_name
+            images[environment] = img_name
 
     with open(report_path, "w") as f:
         f.write(f"# Report\n\n")
@@ -199,17 +192,17 @@ def generate_report(
             f.write(r)
         f.write("\n")
 
-        # Insert per-domain/task image sections and a table of runs for that domain/task
-        for domain, task in plotted_rows:
-            img = images.get((domain, task))
-            f.write(f"## {domain} - {task}\n\n")
+        # Insert per-environment image sections and a table of runs for that environment
+        for environment in plotted_envs:
+            img = images.get(environment)
+            f.write(f"## {environment}\n\n")
             if img:
-                f.write(f"![{domain} {task}]({img})\n\n")
+                f.write(f"![{environment}]({img})\n\n")
             else:
                 f.write("No data available for plot.\n\n")
 
             # Insert wandb config JSON markdown for each best run per algorithm
-            entry_map = results.get((domain, task), {})
+            entry_map = results.get(environment, {})
             for algo in algorithms:
                 entry = entry_map.get(algo)
                 if entry and entry.get("run") is not None:
@@ -219,22 +212,22 @@ def generate_report(
                     f.write(f"**{algo} config:**\n\n")
                     f.write("```json\n" + config_json + "\n```\n\n")
 
-            # Gather runs for this domain/task across all algorithms
-            domain_runs = []
+            # Gather runs for this environment across all algorithms
+            env_runs = []
             for algo in algorithms:
                 for run_entry in runs_by_algo.get(algo, []):
-                    if run_entry.get("domain") == domain and run_entry.get("task") == task:
+                    if run_entry.get("environment") == environment:
                         # include algorithm label for clarity
                         r = run_entry.copy()
                         r["algorithm"] = algo
-                        domain_runs.append(r)
+                        env_runs.append(r)
 
-            if domain_runs:
+            if env_runs:
                 # sort by value (descending), missing values go last
-                domain_runs.sort(key=lambda r: (r["algorithm"], -(r["val"] if r.get("val") is not None else float("-inf"))))
+                env_runs.sort(key=lambda r: (r["algorithm"], -(r["val"] if r.get("val") is not None else float("-inf"))))
                 f.write("| Run | Algorithm | _step | eval/return_max |\n")
                 f.write("|---|---|---:|---:|\n")
-                for run_entry in domain_runs:
+                for run_entry in env_runs:
                     name_link = f"[{run_entry['name']}]({run_entry['url']})"
                     algo = run_entry.get("algorithm")
                     steps = run_entry.get("steps", 0)
@@ -243,7 +236,7 @@ def generate_report(
                     f.write(f"| {name_link} | {algo} | {steps} | {val_display} |\n")
                 f.write("\n")
             else:
-                f.write("No runs available for this domain/task.\n\n")
+                f.write("No runs available for this environment.\n\n")
     print(f"Report generated: {report_path}")
 
 

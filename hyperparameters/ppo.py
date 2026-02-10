@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 
-PRESETS: dict[tuple[str, str], dict[str, Any]] = {
-    ("cheetah", "run"): {
+PRESETS: dict[str, dict[str, Any]] = {
+    "dm_control/cheetah/run": {
         "num_envs": 4,
         "total_steps": 3_000_000,
         "eval_interval": 10_000,
@@ -25,7 +25,8 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("humanoid", "run"): {
+    "dm_control/humanoid/run": {
+        "num_envs": 8,
         "total_steps": 10_000_000,
         "eval_interval": 25_000,
         "save_interval": 1_000_000,
@@ -45,14 +46,14 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("humanoid", "walk"): {
+    "dm_control/humanoid/walk": {
         "num_envs": 32,
         "total_steps": 5_000_000,
         "eval_interval": 2_000,
         "save_interval": 250_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
-        "rollout_steps": 8192,
+        "rollout_steps": 2048,
         "update_epochs": 6,
         "gamma": 0.99,
         "gae_lambda": 0.95,
@@ -66,7 +67,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("walker", "walk"): {
+    "dm_control/walker/walk": {
         "num_envs": 4,
         "total_steps": 10_000_000,
         "eval_interval": 15_000,
@@ -87,7 +88,7 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("walker", "run"): {
+    "dm_control/walker/run": {
         "num_envs": 4,
         "total_steps": 5_000_000,
         "eval_interval": 15_000,
@@ -108,7 +109,8 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("hopper", "stand"): {
+    "dm_control/hopper/stand": {
+        "num_envs": 4,
         "total_steps": 2_000_000,
         "eval_interval": 10_000,
         "save_interval": 1_000_000,
@@ -128,7 +130,8 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": True,
     },
-    ("cartpole", "swingup"): {
+    "dm_control/cartpole/swingup": {
+        "num_envs": 1,
         "total_steps": 1_000_000,
         "eval_interval": 5_000,
         "save_interval": 1_000_000,
@@ -148,12 +151,32 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
         "target_kl": 0.02,
         "normalize_obs": False,
     },
+    "Humanoid-v5": {
+        "num_envs": 8,
+        "total_steps": 10_000_000,
+        "eval_interval": 10_000,
+        "save_interval": 1_000_000,
+        "policy_layer_sizes": (256, 256, 256),
+        "critic_layer_sizes": (512, 256, 256),
+        "rollout_steps": 8192,
+        "update_epochs": 12,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "minibatch_size": 512,
+        "policy_lr": 1e-4,
+        "value_lr": 2e-5,
+        "clip_ratio": 0.15,
+        "ent_coef": 3e-4,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "target_kl": 0.02,
+        "normalize_obs": True,
+    },
 }
 
 
-def get(domain: str, task: str) -> dict[str, Any]:
-    key = (domain, task)
-    if key not in PRESETS:
-        available = ", ".join([f"{d}/{t}" for (d, t) in sorted(PRESETS.keys())])
-        raise KeyError(f"No PPO preset for {domain}/{task}. Available: {available}")
-    return dict(PRESETS[key])
+def get(env_id: str) -> dict[str, Any]:
+    if env_id not in PRESETS:
+        available = ", ".join(sorted(PRESETS.keys()))
+        raise KeyError(f"No PPO preset for {env_id}. Available: {available}")
+    return dict(PRESETS[env_id])

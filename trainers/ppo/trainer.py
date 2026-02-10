@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from trainers.ppo.agent import PPOAgent, PPOConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
+from utils.env import evaluate, flatten_obs, make_env, infer_obs_dim
 from utils.obs_normalizer import ObsNormalizer
 from utils.wandb_utils import log_wandb
 
@@ -113,8 +113,7 @@ class RolloutBuffer:
 class Trainer:
     def __init__(
         self,
-        domain: str,
-        task: str,
+        env_id: str,
         seed: int,
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...],
@@ -135,28 +134,30 @@ class Trainer:
         num_envs: int = 1,
     ):
         self.num_envs = int(num_envs)
-
+        self.env_id = env_id
         if self.num_envs > 1:
             env_fns = [
-                (lambda i=i: make_dm_control_env(domain, task, seed=seed + i))
+                (lambda i=i: make_env(env_id, seed=seed + i))
                 for i in range(self.num_envs)
             ]
             self.env = gym.vector.AsyncVectorEnv(env_fns)
             obs_space = self.env.single_observation_space
             act_space = self.env.single_action_space
         else:
-            self.env = make_dm_control_env(domain, task, seed=seed)
+            self.env = make_env(env_id, seed=seed)
             obs_space = self.env.observation_space
             act_space = self.env.action_space
-
         obs_dim = infer_obs_dim(obs_space)
-        act_dim = int(np.prod(act_space.shape))
-
+        if act_space.shape is None:
+            raise ValueError("Action space has no shape.")
+        act_dim = int(np.prod(np.array(act_space.shape)))
+        action_low = getattr(act_space, "low", None)
+        action_high = getattr(act_space, "high", None)
         self.agent = PPOAgent(
             obs_dim=obs_dim,
             act_dim=act_dim,
-            action_low=act_space.low,
-            action_high=act_space.high,
+            action_low=action_low,
+            action_high=action_high,
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             critic_layer_sizes=critic_layer_sizes,
@@ -172,20 +173,14 @@ class Trainer:
                 target_kl=target_kl,
             ),
         )
-
         self.rollout_steps = rollout_steps
         self.update_epochs = update_epochs
         self.minibatch_size = minibatch_size
-
         self.obs_normalizer = ObsNormalizer(obs_dim) if normalize_obs else None
         self.buffer = RolloutBuffer.create(
             obs_dim, act_dim, rollout_steps, self.num_envs
         )
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
-
-        self.domain = domain
-        self.task = task
-
         self.last_eval = 0
         self.last_checkpoint = 0
 
@@ -224,13 +219,11 @@ class Trainer:
 
                 if self.num_envs > 1:
                     next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                    # next_obs is a dict from vectorised env; flatten the whole dict
-                    next_obs = flatten_obs(next_obs)  # <-- fixed
-                    done = (terminated | truncated).astype(np.float32)
+                    next_obs = flatten_obs(next_obs)
+                    done = np.asarray(terminated) | np.asarray(truncated)
+                    reward = np.asarray(reward)
                 else:
-                    next_obs, reward, terminated, truncated, _ = self.env.step(
-                        action[0]
-                    )
+                    next_obs, reward, terminated, truncated, _ = self.env.step(action[0])
                     next_obs = flatten_obs(next_obs)
                     reward = np.asarray([reward])
                     done = np.asarray([float(terminated or truncated)])
@@ -251,14 +244,14 @@ class Trainer:
                         i,
                         obs[i] if self.num_envs > 1 else obs,
                         action[i],
-                        float(reward[i]),
-                        float(done[i]),
+                        float(reward[i]) if reward.shape[0] > 1 else float(reward[0]),
+                        float(done[i]) if done.shape[0] > 1 else float(done[0]),
                         float(value[i]),
                         float(logp[i]),
                     )
-                    self.episode_return[i] += reward[i]
+                    self.episode_return[i] += float(reward[i]) if reward.shape[0] > 1 else float(reward[0])
                     # Log episode return for each env when done
-                    if done[i]:
+                    if (done[i] if done.shape[0] > 1 else done[0]):
                         print(
                             f"step={step+1} env={i} episode_return={self.episode_return[i]:.2f}"
                         )
@@ -318,8 +311,7 @@ class Trainer:
                 metrics = evaluate(
                     self.agent.device,
                     self.agent.policy,
-                    self.domain,
-                    self.task,
+                    self.env_id,
                     obs_normalizer=self.obs_normalizer,
                 )
                 print(

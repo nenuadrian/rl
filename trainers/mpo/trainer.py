@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent, MPOConfig
-from utils.env import evaluate, flatten_obs, make_dm_control_env, infer_obs_dim
+from utils.env import evaluate, flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 
 
@@ -134,11 +134,10 @@ class MPOReplayBuffer:
         }
 
 
-class Trainer:
+class MPOTrainer:
     def __init__(
         self,
-        domain: str,
-        task: str,
+        env_id: str,
         seed: int,
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...],
@@ -146,7 +145,8 @@ class Trainer:
         replay_size: int,
         config: MPOConfig,
     ):
-        self.env = make_dm_control_env(domain, task, seed=seed)
+        self.env = make_env(env_id, seed=seed)
+        self.env_id = env_id
 
         obs_dim = infer_obs_dim(self.env.observation_space)
         if not isinstance(self.env.action_space, gym.spaces.Box):
@@ -157,8 +157,6 @@ class Trainer:
         action_low = self.env.action_space.low
         action_high = self.env.action_space.high
 
-        self.domain = domain
-        self.task = task
 
         self.agent = MPOAgent(
             obs_dim=obs_dim,
@@ -238,24 +236,24 @@ class Trainer:
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
 
-            if eval_interval > 0 and step % eval_interval == 0:
-                metrics = evaluate(
-                    self.agent.device, self.agent.policy, self.domain, self.task
-                )
-                metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
-                print(f"step={step} {metrics_str}")
-                log_wandb(metrics, step=step)
+                if eval_interval > 0 and step % eval_interval == 0:
+                    metrics = evaluate(
+                        self.agent.device, self.agent.policy, self.env_id
+                    )
+                    metrics_str = " ".join(f"{k}={v:.3f}" for k, v in metrics.items())
+                    print(f"step={step} {metrics_str}")
+                    log_wandb(metrics, step=step)
 
-            if save_interval > 0 and step % save_interval == 0:
-                ckpt_path = os.path.join(out_dir, f"mpo.pt")
-                torch.save(
-                    {
-                        "policy": self.agent.policy.state_dict(),
-                        "q1": self.agent.q1.state_dict(),
-                        "q2": self.agent.q2.state_dict(),
-                    },
-                    ckpt_path,
-                )
-                print(f"saved checkpoint: {ckpt_path}")
+                if save_interval > 0 and step % save_interval == 0:
+                    ckpt_path = os.path.join(out_dir, f"mpo.pt")
+                    torch.save(
+                        {
+                            "policy": self.agent.policy.state_dict(),
+                            "q1": self.agent.q1.state_dict(),
+                            "q2": self.agent.q2.state_dict(),
+                        },
+                        ckpt_path,
+                    )
+                    print(f"saved checkpoint: {ckpt_path}")
 
         self.env.close()

@@ -4,8 +4,8 @@ from typing import Any
 
 
 
-PRESETS: dict[tuple[str, str], dict[str, Any]] = {
-    ("test", "test"): {
+PRESETS: dict[str, dict[str, Any]] = {
+    "test": {
         "num_epochs": 1,
         "device_batch_size": 8,
         "examples_per_step": 16,
@@ -28,9 +28,8 @@ PRESETS: dict[tuple[str, str], dict[str, Any]] = {
 }
 
 
-def get(domain: str, task: str) -> dict[str, Any]:
-    key = (domain, task)
-    if key not in PRESETS:
-        available = ", ".join([f"{d}/{t}" for (d, t) in sorted(PRESETS.keys())])
-        raise KeyError(f"No PPO preset for {domain}/{task}. Available: {available}")
-    return dict(PRESETS[key])
+def get(env_id: str) -> dict[str, Any]:
+    if env_id not in PRESETS:
+        available = ", ".join(sorted(PRESETS.keys()))
+        raise KeyError(f"No nanochat_vmpo preset for {env_id}. Available: {available}")
+    return dict(PRESETS[env_id])

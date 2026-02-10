@@ -10,12 +10,12 @@ from utils.env import set_seed
 from utils.wandb_utils import finish_wandb, init_wandb
 
 
-def _load_preset(algo: str, domain: str, task: str) -> dict:
+def _load_preset(algo: str, env_id: str) -> dict:
     module = importlib.import_module(f"hyperparameters.{algo}")
     get_fn = getattr(module, "get", None)
     if get_fn is None:
-        raise RuntimeError(f"hyperparameters.{algo} must define get(domain, task)")
-    preset = get_fn(domain, task)
+        raise RuntimeError(f"hyperparameters.{algo} must define get(env_id)")
+    preset = get_fn(env_id)
     if not isinstance(preset, dict):
         raise TypeError(
             f"hyperparameters.{algo}.get must return a dict, got {type(preset)}"
@@ -49,8 +49,7 @@ if __name__ == "__main__":
         choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo"],
     )
 
-    parser.add_argument("--domain", type=str, required=True)
-    parser.add_argument("--task", type=str, required=True)
+    parser.add_argument("--env", type=str, required=True, help="Environment ID, e.g. dm_control/walker/walk or Humanoid-v5")
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--out_dir", type=str, default="checkpoints")
@@ -63,7 +62,7 @@ if __name__ == "__main__":
     if algo is None:
         raise ValueError("Missing algorithm subcommand")
 
-    preset = _load_preset(algo, args.domain, args.task)
+    preset = _load_preset(algo, args.env)
     _apply_preset(args, preset)
 
     _print_resolved_args(args)
@@ -71,13 +70,13 @@ if __name__ == "__main__":
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    args.out_dir = os.path.join(args.out_dir, algo, args.domain, args.task)
+    args.out_dir = os.path.join(args.out_dir, algo, args.env.replace("/", "-"))
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    group = args.wandb_group or f"{algo}-{args.domain}-{args.task}"
-    run_name = f"{algo}-{args.domain}-{args.task}"
-    project = args.wandb_project or f"dm_control-{algo}"
+    group = args.wandb_group or f"{algo}-{args.env}"
+    run_name = f"{algo}-{args.env}"
+    project = args.wandb_project or f"env-{algo}"
     init_wandb(
         project=project,
         entity=args.wandb_entity,
@@ -189,8 +188,7 @@ if __name__ == "__main__":
         )
 
         trainer = PPOTrainer(
-            domain=args.domain,
-            task=args.task,
+            env_id=args.env,
             seed=args.seed,
             device=device,
             policy_layer_sizes=tuple(args.policy_layer_sizes),
@@ -236,8 +234,7 @@ if __name__ == "__main__":
         _print_config("VMPOConfig", vmpo_config)
 
         trainer = VMPOTrainer(
-            domain=args.domain,
-            task=args.task,
+            env_id=args.env,
             seed=args.seed,
             device=device,
             policy_layer_sizes=tuple(args.policy_layer_sizes),
@@ -252,7 +249,7 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
-        from trainers.mpo.trainer import Trainer as MPOTrainer
+        from trainers.mpo.trainer import MPOTrainer
         from trainers.mpo.agent import MPOConfig
 
         mpo_config = MPOConfig(
@@ -285,8 +282,7 @@ if __name__ == "__main__":
         _print_config("MPOConfig", mpo_config)
 
         trainer = MPOTrainer(
-            domain=args.domain,
-            task=args.task,
+            env_id=args.env,
             seed=args.seed,
             device=device,
             policy_layer_sizes=tuple(args.policy_layer_sizes),

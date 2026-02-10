@@ -99,32 +99,32 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
-def make_dm_control_env(domain, task, seed=None, render_mode=None):
-    """Create a dm_control environment via shimmy's Gymnasium wrapper."""
-    env = gym.make(
-        f"dm_control/{domain}-{task}-v0",
-        render_mode=render_mode,
-    )
+def make_env(env_id: str, seed=None, render_mode=None):
+    if env_id.startswith("dm_control/"):
+        # Parse dm_control/domain/task
+        _, domain, task = env_id.split("/")
+        env = gym.make(
+            f"dm_control/{domain}-{task}-v0",
+            render_mode=render_mode,
+        )
+    else:
+        env = gym.make(env_id, render_mode=render_mode)
     if seed is not None:
         env.reset(seed=seed)
-        try:
-            env.action_space.seed(seed)
-        except Exception:
-            pass
+        env.action_space.seed(seed)
     return env
 
 
 def evaluate(
     device,
     policy,
-    domain: str,
-    task: str,
+    env_id: str,
     n_episodes: int = 10,
     max_steps: int = 1000,
     obs_normalizer=None,
     eval_seed: int = 0,
 ):
-    env = make_dm_control_env(domain, task, seed=eval_seed)
+    env = make_env(env_id, seed=eval_seed)
     assert isinstance(env.action_space, gym.spaces.Box)
 
     policy.eval()
