@@ -240,6 +240,7 @@ if __name__ == "__main__":
             policy_layer_sizes=tuple(args.policy_layer_sizes),
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
+            num_envs=int(args.num_envs),
         )
         trainer.train(
             total_steps=args.total_steps,

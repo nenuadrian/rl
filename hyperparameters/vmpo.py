@@ -24,6 +24,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 2.0,
     },
     "dm_control/humanoid/run": {
+        "num_envs": 1,
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -43,6 +44,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/humanoid/walk": {
+        "num_envs": 1,
         "total_steps": 30_000_000,
         "eval_interval": 50_000,
         "save_interval": 100_000,
@@ -62,6 +64,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/hopper/stand": {
+        "num_envs": 1,
         "total_steps": 5_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -81,6 +84,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/cartpole/swingup": {
+        "num_envs": 1,
         "total_steps": 2_000_000,
         "eval_interval": 10_000,
         "save_interval": 25_000,
@@ -102,6 +106,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/walker/walk": {
+        "num_envs": 1,
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -121,6 +126,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "dm_control/walker/run": {
+        "num_envs": 1,
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
@@ -140,12 +146,13 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_grad_norm": 0.5,
     },
     "Humanoid-v5": {
+        "num_envs": 4,
         "total_steps": 30_000_000,
-        "eval_interval": 50_000,
+        "eval_interval": 5_000,
         "save_interval": 100_000,
         "policy_layer_sizes": (512, 256, 256),
         "rollout_steps": 8192,
-        "updates_per_step": 5,
+        "updates_per_step": 2,
         "gamma": 0.995,
         "policy_lr": 5e-5,
         "value_lr": 1e-4,

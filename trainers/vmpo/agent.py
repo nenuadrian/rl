@@ -89,24 +89,52 @@ class VMPOAgent:
         obs: np.ndarray,
         deterministic: bool = False,
     ) -> Tuple[np.ndarray, float, np.ndarray, np.ndarray]:
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        obs_np = np.asarray(obs)
+
+        # Support single observation (1D) or batched observations (2D)
+        if obs_np.ndim == 1:
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device).unsqueeze(0)
+            squeeze_out = True
+        else:
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device)
+            squeeze_out = False
 
         with torch.no_grad():
             mean, log_std, value = self.policy.forward_all(obs_t)
             action_t = self.policy.sample_action(mean, log_std, deterministic)
 
-        return (
-            action_t.cpu().numpy().squeeze(0),
-            float(value.item()),
-            mean.cpu().numpy().squeeze(0),
-            log_std.cpu().numpy().squeeze(0),
-        )
+        action_np = action_t.cpu().numpy()
+        mean_np = mean.cpu().numpy()
+        log_std_np = log_std.cpu().numpy()
+        value_np = value.cpu().numpy().squeeze(-1)
+
+        if squeeze_out:
+            return (
+                action_np.squeeze(0),
+                float(value_np.item()),
+                mean_np.squeeze(0),
+                log_std_np.squeeze(0),
+            )
+        else:
+            return action_np, value_np, mean_np, log_std_np
 
     def value(self, obs: np.ndarray) -> float:
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        obs_np = np.asarray(obs)
+        if obs_np.ndim == 1:
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device).unsqueeze(0)
+            squeeze_out = True
+        else:
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device)
+            squeeze_out = False
+
         with torch.no_grad():
-            v = self.policy.value(obs_t)
-        return float(v.item())
+            v = self.policy.value(obs_t).squeeze(-1)
+
+        v_np = v.cpu().numpy()
+        if squeeze_out:
+            return float(v_np.item())
+        else:
+            return v_np
 
     # -------- Learning --------
     def update(self, batch: dict) -> dict:
