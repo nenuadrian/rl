@@ -217,7 +217,7 @@ def generate_report(
                     import json
                     config_json = json.dumps(config, indent=2, sort_keys=True)
                     f.write(f"**{algo} config:**\n\n")
-                    f.write("```json\n" + config_json + "\n```)\n\n")
+                    f.write("```json\n" + config_json + "\n```\n\n")
 
             # Gather runs for this domain/task across all algorithms
             domain_runs = []
