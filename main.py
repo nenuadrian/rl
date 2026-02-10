@@ -127,8 +127,8 @@ if __name__ == "__main__":
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train()
     elif algo == "nanochat_vmpo":
-        from trainers.nanochat_vmpo.trainer import ChatRLTrainer
-        from trainers.nanochat_vmpo.agent import ChatRLAgent, ChatRLConfig
+        from trainers.nanochat_vmpo.trainer import VMPOTrainer
+        from trainers.nanochat_vmpo.agent import VMPOAgent, ChatRLConfig
 
         chatrl_config = ChatRLConfig(
             num_epochs=getattr(args, "num_epochs", 1),
@@ -151,7 +151,7 @@ if __name__ == "__main__":
             dtype=getattr(args, "dtype", "bfloat16"),
         )
         _print_config("ChatRLConfig", chatrl_config)
-        agent = ChatRLAgent(
+        agent = VMPOAgent(
             device,
             model_tag=chatrl_config.model_tag,
             model_step=chatrl_config.model_step,
@@ -164,7 +164,7 @@ if __name__ == "__main__":
             weight_decay=chatrl_config.weight_decay,
             init_lr_frac=chatrl_config.init_lr_frac,
         )
-        trainer = ChatRLTrainer(agent, chatrl_config, device)
+        trainer = VMPOTrainer(agent, chatrl_config, device)
         trainer.train()
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer

@@ -2,13 +2,14 @@ import torch
 import itertools
 import wandb
 from nanochat.tasks.gsm8k import GSM8K
-from .agent import ChatRLAgent
+from .agent import VMPOAgent
 
 from nanochat.checkpoint_manager import save_checkpoint
 import os
 
-class ChatRLTrainer:
-    def __init__(self, agent: ChatRLAgent, args, device):
+
+class VMPOTrainer:
+    def __init__(self, agent: VMPOAgent, args, device):
         self.agent = agent
         self.args = args
         self.device = device
@@ -16,7 +17,9 @@ class ChatRLTrainer:
         self.val_task = GSM8K(subset="main", split="test")
         self.tokenizer = agent.tokenizer
         self.engine = agent.engine
-        self.num_steps = (len(self.train_task) // args.examples_per_step) * args.num_epochs
+        self.num_steps = (
+            len(self.train_task) // args.examples_per_step
+        ) * args.num_epochs
 
     def get_batch(self):
         args = self.args
@@ -57,7 +60,9 @@ class ChatRLTrainer:
                 for seq in generated_token_sequences
             ]
             padded_masks = [mask + [0] * (max_length - len(mask)) for mask in masks]
-            ids = torch.tensor(padded_generated_token_sequences, dtype=torch.long, device=device)
+            ids = torch.tensor(
+                padded_generated_token_sequences, dtype=torch.long, device=device
+            )
             mask_ids = torch.tensor(padded_masks, dtype=torch.long, device=device)
             inputs = ids[:, :-1]
             targets = ids[:, 1:].clone()
@@ -67,11 +72,22 @@ class ChatRLTrainer:
             advantages = rewards - mu
             yield generated_token_sequences, inputs, targets, rewards, advantages
 
-    def run_gsm8k_eval(self, max_examples=None, num_samples=1, max_completion_tokens=256, temperature=0.0, top_k=50):
+    def run_gsm8k_eval(
+        self,
+        max_examples=None,
+        num_samples=1,
+        max_completion_tokens=256,
+        temperature=0.0,
+        top_k=50,
+    ):
         val_task = self.val_task
         tokenizer = self.tokenizer
         engine = self.engine
-        max_examples = min(max_examples, len(val_task)) if max_examples is not None else len(val_task)
+        max_examples = (
+            min(max_examples, len(val_task))
+            if max_examples is not None
+            else len(val_task)
+        )
         for idx in range(0, max_examples):
             conversation = val_task[idx]
             tokens = tokenizer.render_for_completion(conversation)
@@ -100,6 +116,7 @@ class ChatRLTrainer:
         examples_per_rank = args.examples_per_step
         batch_iterator = self.get_batch()
         for step in range(num_steps):
+            print(f"=== Starting step {step}/{num_steps} ===")
             if step % args.eval_every == 0:
                 agent.eval_mode()
                 passk = torch.zeros(args.device_batch_size, device=device)
@@ -113,40 +130,79 @@ class ChatRLTrainer:
                     passk[k - 1] = sum(
                         any(o["is_correct"] for o in r["outcomes"][:k]) for r in records
                     )
-                num_records = torch.tensor(len(records), dtype=torch.long, device=device)
+                num_records = torch.tensor(
+                    len(records), dtype=torch.long, device=device
+                )
                 passk = passk / num_records.item()
-                print_passk = [f"Pass@{k}: {passk[k - 1].item():.4f}" for k in range(1, args.device_batch_size + 1)]
+                print_passk = [
+                    f"Pass@{k}: {passk[k - 1].item():.4f}"
+                    for k in range(1, args.device_batch_size + 1)
+                ]
                 print(f"Step {step} | {', '.join(print_passk)}")
-                log_passk = {f"pass@{k}": passk[k - 1].item() for k in range(1, args.device_batch_size + 1)}
+                log_passk = {
+                    f"pass@{k}": passk[k - 1].item()
+                    for k in range(1, args.device_batch_size + 1)
+                }
                 wandb.log({"step": step, **log_passk})
 
             rewards_list = []
             sequence_lengths = []
             for example_step in range(examples_per_rank):
-                sequences_all, inputs_all, targets_all, rewards_all, advantages_all = next(batch_iterator)
+                sequences_all, inputs_all, targets_all, rewards_all, advantages_all = (
+                    next(batch_iterator)
+                )
                 agent.train_mode()
                 assert inputs_all.size(0) % args.device_batch_size == 0
                 num_passes = inputs_all.size(0) // args.device_batch_size
                 for pass_idx in range(num_passes):
-                    b0, b1 = pass_idx * args.device_batch_size, (pass_idx + 1) * args.device_batch_size
+                    b0, b1 = (
+                        pass_idx * args.device_batch_size,
+                        (pass_idx + 1) * args.device_batch_size,
+                    )
                     inputs = inputs_all[b0:b1]
                     targets = targets_all[b0:b1]
                     rewards = rewards_all[b0:b1]
                     advantages = advantages_all[b0:b1]
                     logp = agent.compute_logp(inputs, targets)
-                    pg_obj = (logp * advantages.unsqueeze(-1)).sum()
+                    # --- VMPO: Compute KLs and update duals (placeholders) ---
+                    # Compute KLs between current and reference model
+                    kl_mu, kl_sigma = agent.compute_kl(inputs, targets)
+
+                    # Update dual variables (eta, alpha_mu, alpha_sigma)
+                    agent.update_duals(advantages, kl_mu, kl_sigma)
+
+                    # --- Policy loss (VMPO-style) ---
+                    weights = agent.compute_importance_weights(advantages)
+                    weighted_nll = -(weights.detach() * logp).sum()
                     num_valid = (targets >= 0).sum().clamp(min=1)
-                    pg_obj = pg_obj / (num_valid * num_passes * examples_per_rank)
-                    loss = -pg_obj
-                    loss.backward()
-                    print(f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}")
+                    weighted_nll = weighted_nll / (
+                        num_valid * num_passes * examples_per_rank
+                    )
+                    # Add KL penalties (now real KLs)
+                    alpha_mu = agent.log_alpha_mu.exp().detach()
+                    alpha_sigma = agent.log_alpha_sigma.exp().detach()
+                    policy_loss = (
+                        weighted_nll + alpha_mu * kl_mu + alpha_sigma * kl_sigma
+                    )
+                    policy_loss.backward()
+                    print(
+                        f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {policy_loss.item():.6f} | KL: {kl_mu.item():.4f}±{kl_sigma.item():.4f} | Average reward: {rewards.mean().item()}"
+                    )
                 rewards_list.append(rewards_all.mean().item())
                 sequence_lengths.extend(len(seq) for seq in sequences_all)
 
             mean_reward = sum(rewards_list) / len(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)
-            print(f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}")
-            wandb.log({"step": step, "reward": mean_reward, "sequence_length": mean_sequence_length})
+            print(
+                f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}"
+            )
+            wandb.log(
+                {
+                    "step": step,
+                    "reward": mean_reward,
+                    "sequence_length": mean_sequence_length,
+                }
+            )
 
             lrm = 1.0 - step / num_steps
             for group in agent.optimizer.param_groups:
