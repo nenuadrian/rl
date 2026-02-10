@@ -268,10 +268,6 @@ class Trainer:
                 returns, advantages = self.buffer.compute_returns_advantages(
                     last_value, self.agent.config.gamma, self.agent.config.gae_lambda
                 )
-                advantages = (advantages - advantages.mean()) / (
-                    advantages.std() + 1e-8
-                )
-
                 early_stop = False
                 for _ in range(effective_update_epochs):
                     for (
@@ -281,6 +277,9 @@ class Trainer:
                         values_old_b,
                         idx_b,
                     ) in self.buffer.minibatches(effective_minibatch_size):
+                        # Per-minibatch advantage normalization (CleanRL style)
+                        mb_advantages = advantages[idx_b]
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
                         batch = {
                             "obs": torch.tensor(
                                 obs_b, dtype=torch.float32, device=self.agent.device
@@ -306,7 +305,7 @@ class Trainer:
                                 device=self.agent.device,
                             ),
                             "advantages": torch.tensor(
-                                advantages[idx_b],
+                                mb_advantages,
                                 dtype=torch.float32,
                                 device=self.agent.device,
                             ),
