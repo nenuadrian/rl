@@ -127,46 +127,6 @@ if __name__ == "__main__":
         )
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train()
-    elif algo == "nanochat_vmpo":
-        from trainers.nanochat_vmpo.trainer import VMPOTrainer
-        from trainers.nanochat_vmpo.agent import VMPOAgent, ChatRLConfig
-
-        chatrl_config = ChatRLConfig(
-            num_epochs=args.num_epochs,
-            device_batch_size=args.device_batch_size,
-            examples_per_step=args.examples_per_step,
-            num_samples=args.num_samples,
-            max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            embedding_lr=args.embedding_lr,
-            unembedding_lr=args.unembedding_lr,
-            matrix_lr=args.matrix_lr,
-            weight_decay=args.weight_decay,
-            init_lr_frac=args.init_lr_frac,
-            eval_every=args.eval_every,
-            eval_examples=args.eval_examples,
-            save_every=args.save_every,
-            model_tag=args.model_tag,
-            model_step=args.model_step,
-            dtype=args.dtype,
-        )
-        _print_config("ChatRLConfig", chatrl_config)
-        agent = VMPOAgent(
-            device,
-            model_tag=chatrl_config.model_tag,
-            model_step=chatrl_config.model_step,
-            dtype=chatrl_config.dtype,
-        )
-        agent.setup_optimizer(
-            embedding_lr=chatrl_config.embedding_lr,
-            unembedding_lr=chatrl_config.unembedding_lr,
-            matrix_lr=chatrl_config.matrix_lr,
-            weight_decay=chatrl_config.weight_decay,
-            init_lr_frac=chatrl_config.init_lr_frac,
-        )
-        trainer = VMPOTrainer(agent, chatrl_config, device)
-        trainer.train()
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer
 

@@ -9,3 +9,4 @@ __pycache__/
 checkpoints/
 wandb/
 videos/
+**/.DS_Store
