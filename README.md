@@ -59,6 +59,8 @@ python -m nanochat.scripts.tok_eval
 python -m nanochat.scripts.base_train --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
 # OR train with torchrun for better performance
 export TORCH_COMPILE_DISABLE=1
+export OMP_NUM_THREADS=1
+
 torchrun --standalone --nproc_per_node=4 -m nanochat.scripts.base_train -- --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
 
 python -m nanochat.scripts.base_eval --device-batch-size=16
