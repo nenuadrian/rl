@@ -20,43 +20,74 @@ def infer_obs_dim(obs_space: gym.Space) -> int:
 
 
 def flatten_obs(obs):
-    """Flatten dm_control observations.
+    """
+    Flatten dm_control / Gymnasium observations.
 
-    Supports both single-env observations (returns shape (obs_dim,)) and
-    vector-env observations (returns shape (num_envs, obs_dim,)).
+    Returns:
+      - (obs_dim,)            for single-env observations
+      - (num_envs, obs_dim)   for vectorised observations
     """
     if isinstance(obs, dict):
-        parts = [np.asarray(obs[key], dtype=np.float32) for key in sorted(obs.keys())]
-        if not parts:
+        if not obs:
             return np.asarray([], dtype=np.float32)
 
-        # Vector env: values typically have shape (N, k) but some keys may be
-        # per-env scalars with shape (N,). Treat those as (N, 1).
-        if any(p.ndim >= 2 for p in parts):
-            n = next(int(p.shape[0]) for p in parts if p.ndim >= 2)
-            for p in parts:
-                if p.ndim == 0:
-                    raise ValueError(
-                        "Unexpected scalar in dict observation for vector env; expected per-env arrays"
-                    )
-                if int(p.shape[0]) != n:
-                    raise ValueError(
-                        f"Mismatched leading dims in dict observation: expected {n}, got {p.shape}"
-                    )
+        parts = []
+        for key in sorted(obs.keys()):
+            p = np.asarray(obs[key], dtype=np.float32)
+            if p.ndim == 0:
+                raise ValueError(
+                    f"Scalar observation under key '{key}'. "
+                    "Environment observations must be per-env arrays."
+                )
+            parts.append(p)
 
-            flat_parts = [p.reshape(n, 1) if p.ndim == 1 else p.reshape(n, -1) for p in parts]
+        # Infer whether this is vectorised by looking for a shared leading dim
+        leading_dims = [p.shape[0] for p in parts if p.ndim >= 2]
+        is_vectorised = len(leading_dims) > 0
+
+        if is_vectorised:
+            n = leading_dims[0]
+            for key, p in zip(sorted(obs.keys()), parts):
+                if p.ndim == 1:
+                    # Per-env scalar → (N, 1)
+                    if p.shape[0] != n:
+                        raise ValueError(
+                            f"Mismatched batch size for key '{key}': "
+                            f"expected {n}, got {p.shape[0]}"
+                        )
+                else:
+                    if p.shape[0] != n:
+                        raise ValueError(
+                            f"Mismatched batch size for key '{key}': "
+                            f"expected {n}, got {p.shape[0]}"
+                        )
+
+            flat_parts = [
+                p.reshape(n, 1) if p.ndim == 1 else p.reshape(n, -1) for p in parts
+            ]
             return np.concatenate(flat_parts, axis=1)
 
-        # Single env
-        flat_parts_1d = [p.reshape(-1) for p in parts]
-        return np.concatenate(flat_parts_1d, axis=0)
+        # Single-env dict
+        for key, p in zip(sorted(obs.keys()), parts):
+            if p.ndim != 1:
+                raise ValueError(
+                    f"Non-1D array for key '{key}' in single-env observation: "
+                    f"shape {p.shape}"
+                )
+
+        return np.concatenate([p.reshape(-1) for p in parts], axis=0)
 
     arr = np.asarray(obs, dtype=np.float32)
+
     if arr.ndim == 0:
+        # Single scalar
         return arr.reshape(1)
+
     if arr.ndim == 1:
+        # Single env, already flat
         return arr
-    # Already batched (N, obs_dim) or higher-rank: keep batch dim and flatten the rest.
+
+    # Vectorised or higher-rank: keep batch dim, flatten the rest
     return arr.reshape(arr.shape[0], -1)
 
 
@@ -90,19 +121,23 @@ def evaluate(
     policy,
     domain: str,
     task: str,
-    n_episodes=10,
-    max_steps=1000,
+    n_episodes: int = 10,
+    max_steps: int = 1000,
     obs_normalizer=None,
+    eval_seed: int = 0,
 ):
-    env = make_dm_control_env(domain, task)
+    env = make_dm_control_env(domain, task, seed=eval_seed)
     assert isinstance(env.action_space, gym.spaces.Box)
+
+    policy.eval()
     returns = []
 
-    for _ in range(n_episodes):
-        obs, _ = env.reset()
+    for ep in range(n_episodes):
+        obs, _ = env.reset(seed=eval_seed + ep)
         obs = flatten_obs(obs)
         if obs_normalizer is not None:
             obs = obs_normalizer.normalize(obs)
+
         ep_return = 0.0
 
         for _ in range(max_steps):
@@ -111,7 +146,10 @@ def evaluate(
             with torch.no_grad():
                 mean, log_std = policy(obs_t)
                 action = policy.sample_action(
-                    obs=obs_t, mean=mean, log_std=log_std, deterministic=True
+                    obs=obs_t,
+                    mean=mean,
+                    log_std=log_std,
+                    deterministic=True,
                 )
                 action = action.cpu().numpy().squeeze(0)
 
@@ -132,6 +170,7 @@ def evaluate(
 
         returns.append(ep_return)
 
+    policy.train()
     env.close()
 
     return {

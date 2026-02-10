@@ -18,20 +18,23 @@ from utils.wandb_utils import log_wandb
 # Rollout buffer (time-major, vectorised-safe)
 # =========================
 
+
 @dataclass
 class RolloutBuffer:
-    obs: np.ndarray        # (T, N, obs_dim)
-    actions: np.ndarray    # (T, N, act_dim)
-    rewards: np.ndarray    # (T, N)
-    dones: np.ndarray      # (T, N)
-    values: np.ndarray     # (T, N)
+    obs: np.ndarray  # (T, N, obs_dim)
+    actions: np.ndarray  # (T, N, act_dim)
+    rewards: np.ndarray  # (T, N)
+    dones: np.ndarray  # (T, N)
+    values: np.ndarray  # (T, N)
     log_probs: np.ndarray  # (T, N)
     T: int
     N: int
     ptr: int = 0
 
     @classmethod
-    def create(cls, obs_dim: int, act_dim: int, rollout_steps: int, num_envs: int) -> "RolloutBuffer":
+    def create(
+        cls, obs_dim: int, act_dim: int, rollout_steps: int, num_envs: int
+    ) -> "RolloutBuffer":
         return cls(
             obs=np.zeros((rollout_steps, num_envs, obs_dim), dtype=np.float32),
             actions=np.zeros((rollout_steps, num_envs, act_dim), dtype=np.float32),
@@ -82,7 +85,9 @@ class RolloutBuffer:
                 next_values = self.values[t + 1]
 
             non_terminal = 1.0 - self.dones[t]
-            delta = self.rewards[t] + gamma * next_values * non_terminal - self.values[t]
+            delta = (
+                self.rewards[t] + gamma * next_values * non_terminal - self.values[t]
+            )
             last_gae = delta + gamma * gae_lambda * non_terminal * last_gae
             advantages[t] = last_gae
 
@@ -102,7 +107,7 @@ class RolloutBuffer:
         idx = np.arange(self.T * self.N)
         np.random.shuffle(idx)
         for start in range(0, len(idx), batch_size):
-            yield idx[start:start + batch_size]
+            yield idx[start : start + batch_size]
 
 
 class Trainer:
@@ -173,11 +178,16 @@ class Trainer:
         self.minibatch_size = minibatch_size
 
         self.obs_normalizer = ObsNormalizer(obs_dim) if normalize_obs else None
-        self.buffer = RolloutBuffer.create(obs_dim, act_dim, rollout_steps, self.num_envs)
+        self.buffer = RolloutBuffer.create(
+            obs_dim, act_dim, rollout_steps, self.num_envs
+        )
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
 
         self.domain = domain
         self.task = task
+        
+        self.last_eval = 0
+        self.last_checkpoint = 0
 
     def train(
         self,
@@ -188,7 +198,10 @@ class Trainer:
     ):
         if self.num_envs > 1:
             obs, _ = self.env.reset()
-            obs = np.asarray([flatten_obs(o) for o in obs])
+            # obs is a dict mapping -> per-key arrays with leading dim N
+            obs = flatten_obs(obs)  
+            eval_interval *= self.num_envs  
+            save_interval *= self.num_envs  
         else:
             obs, _ = self.env.reset()
             obs = flatten_obs(obs)
@@ -211,13 +224,22 @@ class Trainer:
 
                 if self.num_envs > 1:
                     next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                    next_obs = np.asarray([flatten_obs(o) for o in next_obs])
+                    # next_obs is a dict from vectorised env; flatten the whole dict
+                    next_obs = flatten_obs(next_obs)  # <-- fixed
                     done = (terminated | truncated).astype(np.float32)
                 else:
-                    next_obs, reward, terminated, truncated, _ = self.env.step(action[0])
+                    next_obs, reward, terminated, truncated, _ = self.env.step(
+                        action[0]
+                    )
                     next_obs = flatten_obs(next_obs)
                     reward = np.asarray([reward])
                     done = np.asarray([float(terminated or truncated)])
+
+                # Defensive check
+                if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
+                    raise ValueError(
+                        f"flatten_obs returned unexpected array at step: shape={getattr(next_obs,'shape',None)}"
+                    )
 
                 if self.obs_normalizer:
                     self.obs_normalizer.update(next_obs)
@@ -235,6 +257,19 @@ class Trainer:
                         float(logp[i]),
                     )
                     self.episode_return[i] += reward[i]
+                    # Log episode return for each env when done
+                    if done[i]:
+                        print(
+                            f"step={step+1} env={i} episode_return={self.episode_return[i]:.2f}"
+                        )
+                        log_wandb(
+                            {
+                                "train/episode_return": float(self.episode_return[i]),
+                                "env_id": i,
+                            },
+                            step=step + 1,
+                        )
+                        self.episode_return[i] = 0.0
 
                 obs = next_obs
                 step += self.num_envs
@@ -271,11 +306,18 @@ class Trainer:
                         "returns": ret_f[idx].unsqueeze(-1),
                         "advantages": adv_f[idx].unsqueeze(-1),
                     }
-                    self.agent.update(batch)
+                    metrics = self.agent.update(batch)
+                    log_wandb(metrics, step=step)
+                    approx_kl = metrics.get("approx_kl", None)
+                    if approx_kl is not None:
+                        if approx_kl > 1.5 * self.agent.config.target_kl:
+                            # Stop PPO updates early to preserve trust region
+                            break
 
             self.buffer.reset()
 
-            if eval_interval > 0 and step % eval_interval == 0:
+            if eval_interval > 0 and self.last_eval < step // eval_interval:
+                self.last_eval = step // eval_interval
                 metrics = evaluate(
                     self.agent.device,
                     self.agent.policy,
@@ -283,9 +325,12 @@ class Trainer:
                     self.task,
                     obs_normalizer=self.obs_normalizer,
                 )
+                print(f"step={step} " + " ".join(f"{k}={v:.3f}" for k, v in metrics.items()))
                 log_wandb(metrics, step=step)
 
-            if save_interval > 0 and step % save_interval == 0:
+            if save_interval > 0 and self.last_checkpoint < step // save_interval:
+                self.last_checkpoint = step // save_interval
+                print(f"Saving checkpoint at step {step} to {out_dir}")
                 os.makedirs(out_dir, exist_ok=True)
                 torch.save(
                     {

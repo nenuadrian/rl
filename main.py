@@ -208,6 +208,7 @@ if __name__ == "__main__":
             max_grad_norm=float(args.max_grad_norm),
             target_kl=float(args.target_kl),
             normalize_obs=bool(args.normalize_obs),
+            num_envs=int(args.num_envs),
         )
         trainer.train(
             total_steps=args.total_steps,
