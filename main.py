@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
+        choices=["ppo", "vmpo", "mpo", "vmpo_parallel"],
     )
     parser.add_argument("--domain", type=str, required=True)
     parser.add_argument("--task", type=str, required=True)
@@ -210,35 +210,6 @@ if __name__ == "__main__":
         trainer.train(
             total_steps=args.total_steps,
             updates_per_step=int(args.updates_per_step),
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
-            out_dir=args.out_dir,
-        )
-    elif algo == "vmpo_light":
-        from trainers.vmpo_light.trainer import Trainer as VMPOLightTrainer
-        from trainers.vmpo_light.agent import VMPOLightConfig
-
-        vmpo_config = VMPOLightConfig(
-            gamma=float(args.gamma),
-            policy_lr=float(args.policy_lr),
-            value_lr=float(args.value_lr),
-            temperature_init=float(args.temperature_init),
-            temperature_lr=float(args.temperature_lr),
-            epsilon_eta=float(args.epsilon_eta),
-        )
-        _print_config("VMPOLightConfig", vmpo_config)
-
-        trainer = VMPOLightTrainer(
-            domain=args.domain,
-            task=args.task,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            rollout_steps=int(args.rollout_steps),
-            config=vmpo_config,
-        )
-        trainer.train(
-            total_steps=args.total_steps,
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
             out_dir=args.out_dir,

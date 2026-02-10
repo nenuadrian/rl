@@ -263,7 +263,7 @@ class Trainer:
                 next_eval_at += int(eval_interval)
 
             if next_save_at is not None and global_step >= next_save_at:
-                ckpt_path = os.path.join(out_dir, f"vmpo_step_{global_step}.pt")
+                ckpt_path = os.path.join(out_dir, f"vmpo_parallel.pt")
                 torch.save(
                     {
                         "policy": self.agent.policy.state_dict(),

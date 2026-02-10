@@ -188,7 +188,7 @@ class Trainer:
                 log_wandb(metrics, step=step)
 
             if save_interval > 0 and step % save_interval == 0:
-                ckpt_path = os.path.join(out_dir, f"vmpo_step_{step}.pt")
+                ckpt_path = os.path.join(out_dir, f"vmpo.pt")
                 torch.save(
                     {
                         "policy": self.agent.policy.state_dict(),
