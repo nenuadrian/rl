@@ -210,7 +210,9 @@ class MPOTrainer:
             if terminated or truncated:
                 if step >= update_after:
                     log_wandb(
-                        {"train/episode_return": float(self.episode_return)}, step=step
+                        {"train/episode_return": float(self.episode_return)},
+                        step=step,
+                        silent=True,
                     )
                 obs, _ = self.env.reset()
                 obs = flatten_obs(obs)
