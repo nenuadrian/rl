@@ -1,7 +1,7 @@
 # Agent for chat RL (GRPO/REINFORCE style)
 import torch
 from nanochat.engine import Engine
-from nanochat.checkpoint_manager import load_model
+from nanochat.checkpoint_manager import build_model, find_last_step
 
 from dataclasses import dataclass
 
@@ -23,22 +23,32 @@ class ChatRLConfig:
     eval_every: int = 60
     eval_examples: int = 400
     save_every: int = 60
-    model_tag: str | None = None
     model_step: int | None = None
     dtype: str = "bfloat16"
 
 
 class ChatRLAgent:
-    def __init__(self, device, model_tag=None, model_step=None, dtype="bfloat16"):
+    def __init__(
+        self,
+        device,
+        checkpoint_dir,
+        embedding_lr,
+        unembedding_lr,
+        matrix_lr,
+        weight_decay,
+        init_lr_frac,
+        model_step=None,
+        dtype="bfloat16",
+    ):
         self.device = device
         self.ptdtype = torch.float32 if dtype == "float32" else torch.bfloat16
-        self.model, self.tokenizer, self.meta = load_model(
-            "base", device, phase="eval", model_tag=model_tag, step=model_step
+        if model_step is None:
+            # guess the step by defaulting to the last step
+            model_step = find_last_step(checkpoint_dir)
+        self.model, self.tokenizer, self.meta = build_model(
+            checkpoint_dir, model_step, device, "rl"
         )
         self.engine = Engine(self.model, self.tokenizer)
-        self.optimizer = None
-
-    def setup_optimizer(self, embedding_lr, unembedding_lr, matrix_lr, weight_decay, init_lr_frac):
         self.optimizer = self.model.setup_optimizer(
             unembedding_lr=unembedding_lr,
             embedding_lr=embedding_lr,
@@ -62,7 +72,9 @@ class ChatRLAgent:
 
     def compute_logp(self, inputs, targets, loss_reduction="none"):
         # Returns negative log-probabilities for REINFORCE objective
-        return -self.model(inputs, targets, loss_reduction=loss_reduction).view_as(inputs)
+        return -self.model(inputs, targets, loss_reduction=loss_reduction).view_as(
+            inputs
+        )
 
     def train_mode(self):
         self.model.train()

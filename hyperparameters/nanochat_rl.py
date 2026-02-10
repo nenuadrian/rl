@@ -24,6 +24,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "model_tag": None,
         "model_step": None,
         "dtype": "bfloat16",
+        "checkpoint_dir": "c/mnt/iusers01/fatpou01/compsci01/mbax2an2/scratch/nanochat-chatrl-speedrun", 
     },
 }
 

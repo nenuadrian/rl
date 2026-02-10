@@ -10,7 +10,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "update_after": 1_000,
         "batch_size": 256,
         "replay_size": 1_000_000,
-        "eval_interval": 10_000,
+        "eval_interval": 5_000,
         "save_interval": 50_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (256, 256, 256),

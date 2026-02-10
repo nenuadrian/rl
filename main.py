@@ -49,7 +49,12 @@ if __name__ == "__main__":
         choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo"],
     )
 
-    parser.add_argument("--env", type=str, required=True, help="Environment ID, e.g. dm_control/walker/walk or Humanoid-v5")
+    parser.add_argument(
+        "--env",
+        type=str,
+        required=True,
+        help="Environment ID, e.g. dm_control/walker/walk or Humanoid-v5",
+    )
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--out_dir", type=str, default="checkpoints")
@@ -105,18 +110,15 @@ if __name__ == "__main__":
             eval_every=args.eval_every,
             eval_examples=args.eval_examples,
             save_every=args.save_every,
-            model_tag=args.model_tag,
             model_step=args.model_step,
             dtype=args.dtype,
         )
         _print_config("ChatRLConfig", chatrl_config)
         agent = ChatRLAgent(
             device,
-            model_tag=chatrl_config.model_tag,
             model_step=chatrl_config.model_step,
             dtype=chatrl_config.dtype,
-        )
-        agent.setup_optimizer(
+            checkpoint_dir=args.checkpoint_dir,
             embedding_lr=chatrl_config.embedding_lr,
             unembedding_lr=chatrl_config.unembedding_lr,
             matrix_lr=chatrl_config.matrix_lr,
