@@ -16,7 +16,7 @@ def _base_lm_ppo_preset(model_name: str) -> dict[str, Any]:
         "clip_epsilon": 0.2,
         "max_grad_norm": 1.0,
         "ent_coef": 1e-3,
-        "head_only_steps": 0,
+        "head_only_steps": 150,
         "eval_every": 25,
         "eval_examples": 512,
         "save_every": 500,
