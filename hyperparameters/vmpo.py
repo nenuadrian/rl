@@ -5,7 +5,7 @@ from typing import Any
 
 PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
-        "num_envs": 1,
+        "num_envs": 16,
         "total_steps": 10_000_000,
         "eval_interval": 25_000,
         "save_interval": 500_000,
@@ -107,12 +107,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         "normalize_advantages": True,
     },
     "dm_control/walker/walk": {
-        "num_envs": 2,
+        "num_envs": 16,
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
-        "policy_layer_sizes": (256, 256, 256),
-        "value_layer_sizes": (256, 256),
+        "policy_layer_sizes": (256, 256),
+        "value_layer_sizes": (512, 256),
         "rollout_steps": 4096,
         "updates_per_step": 2,
         "gamma": 0.99,
@@ -132,7 +132,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "normalize_advantages": True,
     },
     "dm_control/walker/run": {
-        "num_envs": 1,
+        "num_envs": 16,
         "total_steps": 40_000_000,
         "eval_interval": 25_000,
         "save_interval": 50_000,
