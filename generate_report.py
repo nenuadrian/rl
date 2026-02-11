@@ -1,6 +1,7 @@
 import wandb
 import os
 import shutil
+import subprocess
 import matplotlib
 
 matplotlib.use("Agg")
@@ -258,8 +259,27 @@ def generate_report(
             shutil.rmtree(latest_dir)
         shutil.copytree(report_dir, latest_dir)
         print(f"Copied report to latest: {latest_dir}")
+
+        # Also generate a PDF inside reports/latest from the copied README.
+        latest_readme = os.path.join(latest_dir, "README.md")
+        latest_pdf = os.path.join(latest_dir, "report.pdf")
+        pandoc_cmd = [
+            "pandoc",
+            "--from=gfm",
+            "--toc",
+            "-V",
+            "fontsize=10pt",
+            "-V",
+            "geometry:margin=1.5cm",
+            "--pdf-engine=xelatex",
+            "-o",
+            latest_pdf,
+            latest_readme,
+        ]
+        subprocess.run(pandoc_cmd, check=True)
+        print(f"Generated PDF report: {latest_pdf}")
     except Exception as e:
-        print(f"Warning: failed to create latest copy: {e}")
+        print(f"Warning: failed to create latest copy/pdf: {e}")
 
 
 def main():
