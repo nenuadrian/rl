@@ -202,13 +202,18 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert preset_135m["model_name"] == "HuggingFaceTB/SmolLM-135M"
     assert preset_360m["model_name"] == "HuggingFaceTB/SmolLM-360M"
     assert preset_135m["kl_coef"] > 0.0
+    assert preset_135m["ent_coef"] > 0.0
+    assert preset_135m["head_only_steps"] >= 0
     assert preset_135m["kl_coef_min"] >= 1e-3
     assert preset_135m["kl_coef_up_mult"] <= 1.05
     assert preset_360m["target_ref_kl"] > 0.0
     assert preset_135m["advantage_mode"] == "ema_baseline"
     assert preset_360m["normalize_advantages"] is True
-    assert preset_135m["mle_warm_start_steps"] >= 100
-    assert preset_360m["mle_warm_start_batch_size"] > 0
+    assert preset_135m["dataset_name"] == "glue"
+    assert preset_135m["dataset_config"] == "sst2"
+    assert preset_360m["prompt_template"].startswith("Sentence:")
+    assert tuple(preset_135m["negative_label_ids"]) == (0,)
+    assert tuple(preset_360m["positive_label_ids"]) == (1,)
 
     with pytest.raises(KeyError):
         get_lm_preset("any-env-id")

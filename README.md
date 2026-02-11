@@ -75,7 +75,3 @@ python -m nanochat.scripts.chat_eval -i sft
 ```bash
 python generate_report.py
 ```
-
-This generates:
-- `reports/latest/README.md`
-- `reports/latest/report.pdf` (via `pandoc` + `xelatex`, if available)

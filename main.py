@@ -131,21 +131,15 @@ if __name__ == "__main__":
             weight_decay=float(args.weight_decay),
             num_steps=int(args.num_steps),
             prompts_per_step=int(args.prompts_per_step),
-            group_size=int(args.group_size),
             ppo_epochs=int(args.ppo_epochs),
             minibatch_size=int(args.minibatch_size),
             clip_epsilon=float(args.clip_epsilon),
             max_grad_norm=float(args.max_grad_norm),
-            max_new_tokens=int(args.max_new_tokens),
-            temperature=float(args.temperature),
-            top_k=int(args.top_k),
+            ent_coef=float(args.ent_coef),
+            head_only_steps=int(getattr(args, "head_only_steps", 0)),
             eval_every=int(args.eval_every),
             eval_examples=int(args.eval_examples),
             save_every=int(args.save_every),
-            train_min_operand=int(args.train_min_operand),
-            train_max_operand=int(args.train_max_operand),
-            eval_min_operand=int(args.eval_min_operand),
-            eval_max_operand=int(args.eval_max_operand),
             reward_std_eps=float(args.reward_std_eps),
             advantage_mode=str(args.advantage_mode),
             normalize_advantages=bool(args.normalize_advantages),
@@ -156,9 +150,29 @@ if __name__ == "__main__":
             kl_adaptation_factor=float(args.kl_adaptation_factor),
             kl_coef_up_mult=float(args.kl_coef_up_mult),
             kl_coef_down_div=float(args.kl_coef_down_div),
-            mle_warm_start_steps=int(getattr(args, "mle_warm_start_steps", 0)),
-            mle_warm_start_batch_size=int(getattr(args, "mle_warm_start_batch_size", 32)),
-            mle_warm_start_log_every=int(getattr(args, "mle_warm_start_log_every", 50)),
+            dataset_name=str(args.dataset_name),
+            dataset_config=(
+                None if getattr(args, "dataset_config", None) is None else str(args.dataset_config)
+            ),
+            train_split=str(args.train_split),
+            eval_split=str(args.eval_split),
+            text_key=str(args.text_key),
+            label_key=str(args.label_key),
+            negative_label_ids=tuple(int(v) for v in args.negative_label_ids),
+            positive_label_ids=tuple(int(v) for v in args.positive_label_ids),
+            prompt_template=str(args.prompt_template),
+            max_prompt_length=int(args.max_prompt_length),
+            train_subset_size=(
+                None
+                if getattr(args, "train_subset_size", None) is None
+                else int(args.train_subset_size)
+            ),
+            eval_subset_size=(
+                None
+                if getattr(args, "eval_subset_size", None) is None
+                else int(args.eval_subset_size)
+            ),
+            train_transformer=bool(args.train_transformer),
             seed=int(args.seed),
         )
         _print_config("LMGRPOConfig", lm_config)

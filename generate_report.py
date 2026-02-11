@@ -261,12 +261,13 @@ def generate_report(
         print(f"Copied report to latest: {latest_dir}")
 
         # Also generate a PDF inside reports/latest from the copied README.
-        latest_readme = os.path.join(latest_dir, "README.md")
-        latest_pdf = os.path.join(latest_dir, "report.pdf")
+        latest_readme = "README.md"
+        latest_pdf = "report.pdf"
         pandoc_cmd = [
             "pandoc",
             "--from=gfm",
             "--toc",
+            f"--resource-path={latest_dir}",
             "-V",
             "fontsize=10pt",
             "-V",
@@ -276,8 +277,8 @@ def generate_report(
             latest_pdf,
             latest_readme,
         ]
-        subprocess.run(pandoc_cmd, check=True)
-        print(f"Generated PDF report: {latest_pdf}")
+        subprocess.run(pandoc_cmd, check=True, cwd=latest_dir)
+        print(f"Generated PDF report: {os.path.join(latest_dir, latest_pdf)}")
     except Exception as e:
         print(f"Warning: failed to create latest copy/pdf: {e}")
 
