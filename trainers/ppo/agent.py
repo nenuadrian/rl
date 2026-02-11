@@ -241,7 +241,8 @@ class PPOAgent:
         values_old = batch.get("values_old", None)
 
         log_probs = self.policy.log_prob(obs, actions)
-        ratio = torch.exp(log_probs - old_log_probs)
+        log_ratio = log_probs - old_log_probs
+        ratio = torch.exp(log_ratio)
 
         clipped_ratio = torch.clamp(
             ratio, 1.0 - self.config.clip_ratio, 1.0 + self.config.clip_ratio
@@ -274,6 +275,9 @@ class PPOAgent:
             ratio_mean = ratio.mean()
             ratio_std = ratio.std(unbiased=False)
             value_mae = (values - returns).abs().mean()
+            old_approx_kl = (-log_ratio).mean()
+            # k3 estimator from http://joschu.net/blog/kl-approx.html
+            approx_kl = ((ratio - 1.0) - log_ratio).mean()
 
         self.policy_opt.zero_grad()
         policy_loss.backward()
@@ -285,12 +289,11 @@ class PPOAgent:
         nn.utils.clip_grad_norm_(self.value.parameters(), self.config.max_grad_norm)
         self.value_opt.step()
 
-        approx_kl = (old_log_probs - log_probs).mean().abs()
-
         return {
             "loss/policy": float(policy_loss.item()),
             "loss/value": float(value_loss.item()),
             "entropy": float(entropy.item()),
+            "old_approx_kl": float(old_approx_kl.item()),
             "approx_kl": float(approx_kl.item()),
             "policy/log_std_mean": float(log_std_mean.item()),
             "policy/log_std_std": float(log_std_std.item()),

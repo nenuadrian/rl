@@ -9,7 +9,6 @@ import torch
 
 from trainers.ppo.agent import PPOAgent, PPOConfig
 from utils.env import flatten_obs, make_env, infer_obs_dim
-from utils.obs_normalizer import ObsNormalizer
 from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
 
@@ -41,7 +40,16 @@ class PPOTrainer:
         self.num_envs = int(num_envs)
         self.env_id = env_id
         env_fns = [
-            (lambda i=i: make_env(env_id, seed=seed + i)) for i in range(self.num_envs)
+            (
+                lambda i=i: make_env(
+                    env_id,
+                    seed=seed + i,
+                    ppo_wrappers=True,
+                    gamma=gamma,
+                    normalize_observation=normalize_obs,
+                )
+            )
+            for i in range(self.num_envs)
         ]
         # Avoid NEXT_STEP synthetic transitions after done=True.
         self.env = gym.vector.AsyncVectorEnv(
@@ -78,7 +86,7 @@ class PPOTrainer:
         self.rollout_steps = rollout_steps
         self.update_epochs = update_epochs
         self.minibatch_size = minibatch_size
-        self.obs_normalizer = ObsNormalizer(obs_dim) if normalize_obs else None
+        self.normalize_obs = bool(normalize_obs)
         self.buffer = RolloutBuffer.create(
             obs_dim, act_dim, rollout_steps, self.num_envs
         )
@@ -96,10 +104,6 @@ class PPOTrainer:
         obs, _ = self.env.reset()
         # obs is a dict mapping -> per-key arrays with leading dim N
         obs = flatten_obs(obs)
-
-        if self.obs_normalizer:
-            self.obs_normalizer.update(obs)
-            obs = self.obs_normalizer.normalize(obs)
 
         step = 0
         while step < total_steps:
@@ -121,10 +125,6 @@ class PPOTrainer:
                     raise ValueError(
                         f"flatten_obs returned unexpected array at step: shape={getattr(next_obs,'shape',None)}"
                     )
-
-                if self.obs_normalizer:
-                    self.obs_normalizer.update(next_obs)
-                    next_obs = self.obs_normalizer.normalize(next_obs)
 
                 for i in range(self.num_envs):
                     self.buffer.add(
@@ -196,7 +196,8 @@ class PPOTrainer:
                     agent=self.agent,
                     env_id=self.env_id,
                     seed=self.seed + 1000,
-                    obs_normalizer=self.obs_normalizer,
+                    gamma=self.agent.config.gamma,
+                    normalize_observation=self.normalize_obs,
                 )
                 log_wandb(metrics, step=step)
 
@@ -221,14 +222,26 @@ def _evaluate_vectorized(
     env_id: str,
     n_episodes: int = 10,
     seed: int = 42,
-    obs_normalizer: ObsNormalizer | None = None,
+    gamma: float = 0.99,
+    normalize_observation: bool = True,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
     eval_envs = gym.vector.SyncVectorEnv(
-        [lambda i=i: make_env(env_id, seed=seed + i) for i in range(n_episodes)]
+        [
+            (
+                lambda i=i: make_env(
+                    env_id,
+                    seed=seed + i,
+                    ppo_wrappers=True,
+                    gamma=gamma,
+                    normalize_observation=normalize_observation,
+                )
+            )
+            for i in range(n_episodes)
+        ]
     )
 
     agent.policy.eval()
@@ -240,8 +253,6 @@ def _evaluate_vectorized(
 
     while len(final_returns) < n_episodes:
         obs = flatten_obs(obs)
-        if obs_normalizer is not None:
-            obs = obs_normalizer.normalize(obs)
 
         obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
         action = agent.policy.sample_action(obs_t, deterministic=True).cpu().numpy()

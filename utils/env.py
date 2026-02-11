@@ -99,7 +99,18 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
-def make_env(env_id: str, seed=None, render_mode=None):
+def make_env(
+    env_id: str,
+    seed=None,
+    render_mode=None,
+    *,
+    ppo_wrappers: bool = False,
+    gamma: float = 0.99,
+    normalize_observation: bool = True,
+    clip_observation: float | None = 10.0,
+    normalize_reward: bool = True,
+    clip_reward: float | None = 10.0,
+):
     if env_id.startswith("dm_control/"):
         # Parse dm_control/domain/task
         _, domain, task = env_id.split("/")
@@ -112,4 +123,26 @@ def make_env(env_id: str, seed=None, render_mode=None):
     if seed is not None:
         env.reset(seed=seed)
         env.action_space.seed(seed)
+
+    if ppo_wrappers:
+        # CleanRL-style wrapper stack for continuous-control PPO.
+        if isinstance(env.observation_space, gym.spaces.Dict):
+            env = gym.wrappers.FlattenObservation(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        if isinstance(env.action_space, gym.spaces.Box):
+            env = gym.wrappers.ClipAction(env)
+        if normalize_observation:
+            env = gym.wrappers.NormalizeObservation(env)
+            if clip_observation is not None:
+                env = gym.wrappers.TransformObservation(
+                    env,
+                    lambda obs: np.clip(obs, -clip_observation, clip_observation),
+                )
+        if normalize_reward:
+            env = gym.wrappers.NormalizeReward(env, gamma=gamma)
+            if clip_reward is not None:
+                env = gym.wrappers.TransformReward(
+                    env,
+                    lambda reward: np.clip(reward, -clip_reward, clip_reward),
+                )
     return env
