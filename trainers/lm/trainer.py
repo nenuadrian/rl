@@ -572,7 +572,7 @@ class LMTrainer:
             "eval/accuracy": float(num_correct) / float(total),
             "eval/format_rate": float(num_format) / float(total),
             "eval/ten_plus_three_correct": ten_plus_three_correct,
-            "eval/return_max": float(num_correct) * 0.5 + float(num_format) * 0.5,
+            "eval/return_max": float(num_correct) / float(total),
         }
 
     def _save_checkpoint(self, out_dir: Path, step: int) -> None:
