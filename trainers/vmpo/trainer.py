@@ -28,18 +28,16 @@ class Trainer:
         self.env_id = env_id
         self.seed = seed
 
-        if self.num_envs > 1:
-            env_fns = [
-                (lambda i=i: make_env(env_id, seed=seed + i))
-                for i in range(self.num_envs)
-            ]
-            self.env = gym.vector.AsyncVectorEnv(env_fns)
-            obs_space = self.env.single_observation_space
-            act_space = self.env.single_action_space
-        else:
-            self.env = make_env(env_id, seed=seed)
-            obs_space = self.env.observation_space
-            act_space = self.env.action_space
+        env_fns = [
+            (lambda i=i: make_env(env_id, seed=seed + i))
+            for i in range(self.num_envs)
+        ]
+        # Always use vectorized env, even when num_envs == 1.
+        self.env = gym.vector.AsyncVectorEnv(
+            env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
+        )
+        obs_space = self.env.single_observation_space
+        act_space = self.env.single_action_space
 
         obs_dim = infer_obs_dim(obs_space)
         if not isinstance(self.env.action_space, gym.spaces.Box):
@@ -74,13 +72,8 @@ class Trainer:
         self.means_buf: list[np.ndarray] = []
         self.log_stds_buf: list[np.ndarray] = []
 
-        # episode returns per environment (scalar for single-env)
-        if self.num_envs == 1:
-            self.episode_return = 0.0
-        else:
-            import numpy as _np
-
-            self.episode_return = _np.zeros(self.num_envs, dtype=_np.float32)
+        # episode returns per environment
+        self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
 
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
@@ -102,25 +95,16 @@ class Trainer:
         out_dir: str,
         updates_per_step: int = 1,
     ):
-        if self.num_envs > 1:
-            obs, _ = self.env.reset()
-            obs = flatten_obs(obs)
-        else:
-            obs, _ = self.env.reset()
-            obs = flatten_obs(obs)
+        obs, _ = self.env.reset()
+        obs = flatten_obs(obs)
 
         for step in range(1, total_steps + 1):
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
-            if self.num_envs > 1:
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                next_obs = flatten_obs(next_obs)
-                done = np.asarray(terminated) | np.asarray(truncated)
-                reward = np.asarray(reward)
-            else:
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                next_obs = flatten_obs(next_obs)
-                done = float(terminated)
+            next_obs, reward, terminated, truncated, _ = self.env.step(action)
+            next_obs = flatten_obs(next_obs)
+            done = np.asarray(terminated) | np.asarray(truncated)
+            reward = np.asarray(reward, dtype=np.float32)
 
             # Store step data (works for single- and multi-env)
             self.obs_buf.append(obs)
@@ -133,34 +117,21 @@ class Trainer:
 
             obs = next_obs
 
-            if self.num_envs > 1:
-                self.episode_return += np.asarray(reward)
+            self.episode_return += reward
 
-                finished_returns = []
-                for i in range(self.num_envs):
-                    if done[i]:
-                        finished_returns.append(self.episode_return[i])
-                        self.episode_return[i] = 0.0
-
-                if finished_returns:
-                    mean_return = float(np.mean(finished_returns))
-                    log_wandb(
-                        {
-                            "train/episode_return_mean": mean_return,
-                            "train/episode_return_min": float(np.min(finished_returns)),
-                            "train/episode_return_max": float(np.max(finished_returns)),
-                        },
-                        step=step,
-                        silent=True,
-                    )
-            else:
-                self.episode_return += float(reward)
-                if terminated or truncated:
-                    er = float(self.episode_return)
-                    log_wandb({"train/episode_return": er}, step=step)
-                    obs, _ = self.env.reset()
-                    obs = flatten_obs(obs)
-                    self.episode_return = 0.0
+            finished_mask = done.astype(bool)
+            if np.any(finished_mask):
+                finished_returns = self.episode_return[finished_mask]
+                self.episode_return[finished_mask] = 0.0
+                log_wandb(
+                    {
+                        "train/episode_return_mean": float(np.mean(finished_returns)),
+                        "train/episode_return_min": float(np.min(finished_returns)),
+                        "train/episode_return_max": float(np.max(finished_returns)),
+                    },
+                    step=step,
+                    silent=True,
+                )
 
             if self._rollout_full():
                 # Stack collected arrays and reshape for batch processing
@@ -173,53 +144,27 @@ class Trainer:
                 log_stds_arr = np.stack(self.log_stds_buf)
 
                 last_value = self.agent.value(obs)
-                if self.num_envs > 1:
-                    last_value = last_value * (1.0 - dones_arr[-1])
+                last_value = last_value * (1.0 - dones_arr[-1])
 
-                # If multi-env, obs_arr shape (T, N, obs_dim) -> flatten to (T*N, obs_dim)
-                if obs_arr.ndim == 3:
-                    T, N, _ = obs_arr.shape
-                    obs_flat = obs_arr.reshape(T * N, -1)
-                    actions_flat = actions_arr.reshape(T * N, -1)
-                    rewards_flat = rewards_arr.reshape(T, N)
-                    dones_flat = dones_arr.reshape(T, N)
-                    values_flat = values_arr.reshape(T, N)
-                    means_flat = means_arr.reshape(T * N, -1)
-                    log_stds_flat = log_stds_arr.reshape(T * N, -1)
+                # obs_arr shape (T, N, obs_dim) -> flatten to (T*N, obs_dim)
+                T, N, _ = obs_arr.shape
+                obs_flat = obs_arr.reshape(T * N, -1)
+                actions_flat = actions_arr.reshape(T * N, -1)
+                rewards_flat = rewards_arr.reshape(T, N)
+                dones_flat = dones_arr.reshape(T, N)
+                values_flat = values_arr.reshape(T, N)
+                means_flat = means_arr.reshape(T * N, -1)
+                log_stds_flat = log_stds_arr.reshape(T * N, -1)
 
-                    returns = _compute_returns(
-                        rewards_flat, dones_flat, last_value, self.agent.config.gamma
-                    )
-                    returns_flat = returns.reshape(T * N, 1)
-                    values_flat2 = values_flat.reshape(T * N, 1)
-                else:
-                    # single-env case: obs_arr shape (T, obs_dim)
-                    obs_flat = obs_arr
-                    actions_flat = actions_arr
-                    rewards_flat = rewards_arr.reshape(-1)
-                    dones_flat = dones_arr.reshape(-1)
-                    values_flat = values_arr.reshape(-1)
-                    means_flat = means_arr.reshape(-1, means_arr.shape[-1])
-                    log_stds_flat = log_stds_arr.reshape(-1, log_stds_arr.shape[-1])
-
-                    returns = _compute_returns(
-                        rewards_flat, dones_flat, last_value, self.agent.config.gamma
-                    )
-                    returns_flat = returns.reshape(-1, 1)
-                    values_flat2 = values_flat.reshape(-1, 1)
+                returns = _compute_returns(
+                    rewards_flat, dones_flat, last_value, self.agent.config.gamma
+                )
+                returns_flat = returns.reshape(T * N, 1)
+                values_flat2 = values_flat.reshape(T * N, 1)
 
                 advantages = returns_flat - values_flat2
                 # Zero advantages where done == 1
                 advantages[dones_flat.reshape(-1) == 1.0] = 0.0
-                
-                if values_arr.ndim == 2:  # (T, N)
-                    values_arr = np.concatenate(
-                        [values_arr, last_value[None, ...]], axis=0
-                    )
-                else:  # (T,)
-                    values_arr = np.concatenate(
-                        [values_arr, np.array([last_value], dtype=values_arr.dtype)], axis=0
-                    )
 
                 batch = {
                     "obs": torch.tensor(
