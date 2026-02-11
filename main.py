@@ -151,8 +151,11 @@ if __name__ == "__main__":
             normalize_advantages=bool(args.normalize_advantages),
             baseline_momentum=float(args.baseline_momentum),
             kl_coef=float(args.kl_coef),
+            kl_coef_min=float(args.kl_coef_min),
             target_ref_kl=float(args.target_ref_kl),
             kl_adaptation_factor=float(args.kl_adaptation_factor),
+            kl_coef_up_mult=float(args.kl_coef_up_mult),
+            kl_coef_down_div=float(args.kl_coef_down_div),
             seed=int(args.seed),
         )
         _print_config("LMGRPOConfig", lm_config)

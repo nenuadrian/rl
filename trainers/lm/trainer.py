@@ -8,7 +8,6 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from utils.wandb_utils import log_wandb
 
@@ -34,7 +33,7 @@ class LMGRPOConfig:
     clip_epsilon: float = 0.2
     max_grad_norm: float = 1.0
     max_new_tokens: int = 24
-    temperature: float = 0.9
+    temperature: float = 0.5
     top_k: int = 40
     eval_every: int = 25
     eval_examples: int = 64
@@ -48,8 +47,11 @@ class LMGRPOConfig:
     normalize_advantages: bool = True
     baseline_momentum: float = 0.9
     kl_coef: float = 0.02
+    kl_coef_min: float = 1e-3
     target_ref_kl: float = 0.08
     kl_adaptation_factor: float = 1.5
+    kl_coef_up_mult: float = 1.02
+    kl_coef_down_div: float = 1.02
     seed: int = 0
 
 
@@ -94,6 +96,13 @@ class LMTrainer:
             and self.optimizer is not None
         ):
             return
+
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+        except ImportError as exc:
+            raise RuntimeError(
+                "transformers is required for LM training. Install with `pip install transformers`."
+            ) from exc
 
         tokenizer = AutoTokenizer.from_pretrained(
             self.config.model_name,
@@ -161,17 +170,11 @@ class LMTrainer:
     @classmethod
     def _reward(cls, problem: ArithmeticProblem, text: str) -> float:
         prefix = f"So {problem.a} + {problem.b} = "
-        reward = 0.0
-        if prefix in text:
-            reward += 0.2
-
+        reward = 0.5 if prefix in text else 0.0
         parsed = cls._parse_answer(problem, text)
-        if parsed is not None:
-            delta = abs(parsed - problem.answer)
-            reward += 0.8 / (1.0 + float(delta))
-            if parsed == problem.answer:
-                reward = 1.0
-        return min(reward, 1.0)
+        if parsed == problem.answer:
+            reward += 0.5
+        return reward
 
     def _sample_problem(self, min_operand: int, max_operand: int) -> ArithmeticProblem:
         a = self.train_rng.randint(min_operand, max_operand)
@@ -204,7 +207,7 @@ class LMTrainer:
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         completion_mask: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         outputs = model(input_ids=input_ids, attention_mask=attention_mask)
         logits = outputs.logits[:, :-1, :]
         target_ids = input_ids[:, 1:]
@@ -214,7 +217,22 @@ class LMTrainer:
         token_log_probs = token_log_probs.squeeze(-1)
         masked_log_probs = token_log_probs * completion_mask
         token_counts = completion_mask.sum(dim=1).clamp(min=1.0)
-        return masked_log_probs.sum(dim=1) / token_counts
+        # Use joint sequence log-prob (sum), not per-token mean, for PPO ratios.
+        return masked_log_probs.sum(dim=1), logits, token_counts
+
+    @staticmethod
+    def _sequence_exact_kl(
+        policy_logits: torch.Tensor,
+        reference_logits: torch.Tensor,
+        completion_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        policy_log_probs = F.log_softmax(policy_logits.float(), dim=-1)
+        reference_log_probs = F.log_softmax(reference_logits.float(), dim=-1)
+        policy_probs = policy_log_probs.exp()
+        token_kl = (policy_probs * (policy_log_probs - reference_log_probs)).sum(dim=-1)
+        masked_token_kl = token_kl * completion_mask
+        # Preferred formulation: sum token KL over completion tokens for each sequence.
+        return masked_token_kl.sum(dim=1)
 
     def _tokenize_prompts(self, prompts: list[str]) -> dict[str, torch.Tensor]:
         assert self.tokenizer is not None
@@ -304,25 +322,19 @@ class LMTrainer:
         completion_mask[:, completion_start - 1 :] = 1.0
 
         with torch.no_grad():
-            old_seq_log_probs = self._sequence_log_probs(
+            old_seq_log_probs, _, _ = self._sequence_log_probs(
                 self.model,
                 input_ids=generated,
                 attention_mask=attention_mask,
                 completion_mask=completion_mask,
-            ).detach()
-            ref_seq_log_probs = self._sequence_log_probs(
-                self.reference_model,
-                input_ids=generated,
-                attention_mask=attention_mask,
-                completion_mask=completion_mask,
-            ).detach()
+            )
+            old_seq_log_probs = old_seq_log_probs.detach()
 
         rollout = {
             "input_ids": generated.detach(),
             "attention_mask": attention_mask.detach(),
             "completion_mask": completion_mask.detach(),
             "old_seq_log_probs": old_seq_log_probs,
-            "ref_seq_log_probs": ref_seq_log_probs,
             "advantages": advantages,
             "rewards": rewards.detach(),
         }
@@ -391,7 +403,6 @@ class LMTrainer:
         attention_mask = rollout["attention_mask"]
         completion_mask = rollout["completion_mask"]
         old_seq_log_probs = rollout["old_seq_log_probs"]
-        ref_seq_log_probs = rollout["ref_seq_log_probs"]
         advantages = rollout["advantages"]
         rewards = rollout["rewards"]
 
@@ -411,7 +422,7 @@ class LMTrainer:
             for start in range(0, total, minibatch_size):
                 idx = permutation[start : start + minibatch_size]
 
-                seq_log_probs = self._sequence_log_probs(
+                seq_log_probs, policy_logits, token_counts = self._sequence_log_probs(
                     self.model,
                     input_ids=input_ids[idx],
                     attention_mask=attention_mask[idx],
@@ -423,9 +434,18 @@ class LMTrainer:
                 policy_objective = torch.min(
                     ratios * advantages[idx], clipped_ratios * advantages[idx]
                 )
-                ref_log_ratio = seq_log_probs - ref_seq_log_probs[idx]
-                # Non-negative approximation to KL(current || reference).
-                ref_kl = torch.exp(ref_log_ratio) - 1.0 - ref_log_ratio
+                with torch.no_grad():
+                    _, reference_logits, _ = self._sequence_log_probs(
+                        self.reference_model,
+                        input_ids=input_ids[idx],
+                        attention_mask=attention_mask[idx],
+                        completion_mask=completion_mask[idx],
+                    )
+                ref_kl = self._sequence_exact_kl(
+                    policy_logits=policy_logits,
+                    reference_logits=reference_logits,
+                    completion_mask=completion_mask[idx],
+                )
                 objective = policy_objective - (self.kl_coef * ref_kl)
                 loss = -objective.mean()
 
@@ -437,7 +457,7 @@ class LMTrainer:
                 )
                 self.optimizer.step()
 
-                approx_kl = 0.5 * old_log_ratio.pow(2).mean()
+                approx_kl = 0.5 * (old_log_ratio / token_counts).pow(2).mean()
                 losses.append(loss.detach())
                 ratio_means.append(ratios.mean().detach())
                 approx_kls.append(approx_kl.detach())
@@ -457,12 +477,12 @@ class LMTrainer:
         advantage_std = advantages.std(unbiased=False).item()
 
         if mean_ref_kl > (self.config.target_ref_kl * self.config.kl_adaptation_factor):
-            self.kl_coef *= 1.1
+            self.kl_coef *= self.config.kl_coef_up_mult
         elif mean_ref_kl < (
             self.config.target_ref_kl / self.config.kl_adaptation_factor
         ):
-            self.kl_coef /= 1.1
-        self.kl_coef = float(max(self.kl_coef, 1e-6))
+            self.kl_coef /= self.config.kl_coef_down_div
+        self.kl_coef = float(max(self.kl_coef, self.config.kl_coef_min))
 
         return {
             "train/loss": mean_loss,
@@ -558,9 +578,13 @@ class LMTrainer:
             if step == 1 or step % 10 == 0:
                 sample_problem = problems[0]
                 sample_text = sampled_texts[0].replace("\n", " ").strip()
+                eval_acc = metrics.get("eval/accuracy")
+                acc_display = (
+                    f"{float(eval_acc):.3f}" if eval_acc is not None else "n/a"
+                )
                 print(
                     f"step={step} reward={metrics['train/reward_mean']:.3f} "
-                    f"acc={metrics.get('eval/accuracy', float('nan')):.3f} "
+                    f"acc={acc_display} "
                     f"sample='So {sample_problem.a} + {sample_problem.b} = ...' "
                     f"model_output='{sample_text[:120]}'"
                 )

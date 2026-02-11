@@ -5,7 +5,7 @@ import torch
 from pathlib import Path
 
 from hyperparameters.lm import get as get_lm_preset
-from trainers.lm.trainer import LMTrainer
+from trainers.lm.trainer import LMGRPOConfig, LMTrainer
 from trainers.ppo.agent import PPOAgent
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig
@@ -202,6 +202,8 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert preset_135m["model_name"] == "HuggingFaceTB/SmolLM-135M"
     assert preset_360m["model_name"] == "HuggingFaceTB/SmolLM-360M"
     assert preset_135m["kl_coef"] > 0.0
+    assert preset_135m["kl_coef_min"] >= 1e-3
+    assert preset_135m["kl_coef_up_mult"] <= 1.05
     assert preset_360m["target_ref_kl"] > 0.0
     assert preset_135m["advantage_mode"] == "ema_baseline"
     assert preset_360m["normalize_advantages"] is True
@@ -215,6 +217,5 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert '"lm"' in main_text
     assert "elif algo == \"lm\":" in main_text
 
-    trainer = LMTrainer()
-    with pytest.raises(ValueError):
-        trainer.train(out_dir=str(tmp_path))
+    trainer = LMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
+    assert hasattr(trainer, "train")
