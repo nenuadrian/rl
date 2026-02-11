@@ -9,11 +9,12 @@ from utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy
 
 
 def _load_preset(algo: str, domain: str, task: str) -> dict:
+def _load_preset(algo: str, env_id: str) -> dict:
     module = importlib.import_module(f"hyperparameters.{algo}")
     get_fn = getattr(module, "get", None)
     if get_fn is None:
-        raise RuntimeError(f"hyperparameters.{algo} must define get(domain, task)")
-    preset = get_fn(domain, task)
+        raise RuntimeError(f"hyperparameters.{algo} must define get(env_id)")
+    preset = get_fn(env_id)
     if not isinstance(preset, dict):
         raise TypeError(
             f"hyperparameters.{algo}.get must return a dict, got {type(preset)}"
@@ -35,8 +36,12 @@ def parse_args() -> argparse.Namespace:
         choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
         help="Which algorithm's checkpoint to load.",
     )
-    parser.add_argument("--domain", type=str, required=True)
-    parser.add_argument("--task", type=str, required=True)
+    parser.add_argument(
+        "--env",
+        type=str,
+        required=True,
+        help="Environment ID, e.g. dm_control/cheetah/run or HalfCheetah-v5",
+    )
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument(
@@ -51,14 +56,14 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional checkpoint path (.pt). If omitted, uses the latest checkpoint "
-            "found under --out_dir/{algo}/{domain}/{task}."
+            "found under --out_dir/{algo}/{env}."
         ),
     )
     parser.add_argument(
         "--video_out",
         type=str,
         default=None,
-        help="Output video path. Defaults to videos/{algo}-{domain}-{task}.mp4",
+        help="Output video path. Defaults to videos/{algo}-{env}.mp4",
     )
     parser.add_argument("--video_max_steps", type=int, default=1000)
     parser.add_argument("--fps", type=int, default=30)
@@ -69,10 +74,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    preset = _load_preset(args.algo, args.domain, args.task)
+    preset = _load_preset(args.algo, args.env)
     for key, value in preset.items():
-        # Only set preset values for fields that don't already exist.
-        # This keeps the script flexible even if we later add CLI overrides.
         if not hasattr(args, key):
             setattr(args, key, value)
 
@@ -82,7 +85,9 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    run_out_dir = os.path.join(args.out_dir, args.algo, args.domain, args.task)
+    # Replace slashes in env for directory and filename
+    env_dir = args.env.replace("/", "-")
+    run_out_dir = os.path.join(args.out_dir, args.algo, env_dir)
 
     checkpoint_path = (
         str(args.checkpoint)
@@ -92,14 +97,13 @@ def main() -> None:
     out_path = (
         str(args.video_out)
         if args.video_out is not None
-        else os.path.join("videos", f"{args.algo}-{args.domain}-{args.task}.mp4")
+        else os.path.join("videos", f"{args.algo}-{env_dir}.mp4")
     )
 
     saved_path, n_frames = render_policy_video(
         checkpoint_path=checkpoint_path,
         algo=args.algo,
-        domain=args.domain,
-        task=args.task,
+        env_id=args.env,
         out_path=out_path,
         seed=int(args.seed),
         config=VideoRenderConfig(

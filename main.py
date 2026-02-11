@@ -223,12 +223,6 @@ if __name__ == "__main__":
             temperature_lr=float(args.temperature_lr),
             kl_epsilon=float(args.kl_epsilon),
             mstep_kl_epsilon=float(args.mstep_kl_epsilon),
-            epsilon_mean=(
-                None if args.epsilon_mean is None else float(args.epsilon_mean)
-            ),
-            epsilon_stddev=(
-                None if args.epsilon_stddev is None else float(args.epsilon_stddev)
-            ),
             per_dim_constraining=bool(args.per_dim_constraining),
             lambda_init=float(args.lambda_init),
             lambda_lr=float(args.lambda_lr),

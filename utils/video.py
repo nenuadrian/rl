@@ -141,8 +141,7 @@ def render_policy_video(
     *,
     checkpoint_path: str,
     algo: str,
-    domain: str,
-    task: str,
+    env_id: str,
     out_path: str,
     seed: int,
     config: VideoRenderConfig = VideoRenderConfig(),
@@ -164,7 +163,15 @@ def render_policy_video(
         )
 
     # Build policy once
-    dummy_env = make_dm_control_env(domain, task, seed=seed, render_mode="rgb_array")
+    # Parse env_id for dm_control or gym style
+    if env_id.startswith("dm_control/"):
+        # e.g. dm_control/cheetah/run
+        _, domain, task = env_id.split("/")
+        dummy_env = make_dm_control_env(domain, task, seed=seed, render_mode="rgb_array")
+    else:
+        # e.g. HalfCheetah-v5
+        dummy_env = gym.make(env_id, render_mode="rgb_array")
+
     if not isinstance(dummy_env.action_space, gym.spaces.Box):
         raise TypeError(
             f"Expected a continuous (Box) action space for video rendering, got {type(dummy_env.action_space)}"
@@ -192,9 +199,11 @@ def render_policy_video(
     best_frames = []
 
     for attempt in range(num_attempts):
-        env = make_dm_control_env(
-            domain, task, seed=seed + attempt, render_mode="rgb_array"
-        )
+        if env_id.startswith("dm_control/"):
+            _, domain, task = env_id.split("/")
+            env = make_dm_control_env(domain, task, seed=seed + attempt, render_mode="rgb_array")
+        else:
+            env = gym.make(env_id, render_mode="rgb_array")
         frames: list[np.ndarray] = []
         total_reward = 0.0
         obs, _ = env.reset()

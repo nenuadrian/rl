@@ -198,19 +198,14 @@ class DiagonalGaussianPolicy(nn.Module):
 class MPOConfig:
     gamma: float = 0.99
     tau: float = 0.005
-
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
-
     # MPO loss hyperparameters (aligned with Acme JAX MPO loss).
     # E-step (non-parametric) KL constraint.
     kl_epsilon: float = 0.1
     # M-step (parametric) mean/stddev KL constraints.
     mstep_kl_epsilon: float = 0.1
-    epsilon_mean: float | None = None
-    epsilon_stddev: float | None = None
     per_dim_constraining: bool = True
-
     # Dual variables (temperature + alphas). We keep legacy names `eta_*` and
     # `lambda_*` to match existing CLI/hparams, but they now correspond to
     # Acme's `temperature` and `alpha_{mean,stddev}`.
@@ -218,27 +213,16 @@ class MPOConfig:
     temperature_lr: float = 3e-4
     lambda_init: float = 1.0
     lambda_lr: float = 3e-4
-
     # Optional action penalization (MO-MPO style). By default disabled because
     # this implementation already clips executed actions to env bounds.
     action_penalization: bool = False
     epsilon_penalty: float = 0.001
-
-    # Misc.
     max_grad_norm: float = 1.0
     action_samples: int = 20
-
-    # Retrace (optional).
     use_retrace: bool = False
     retrace_steps: int = 2
     retrace_mc_actions: int = 8
     retrace_lambda: float = 0.95
-
-    def __post_init__(self) -> None:
-        if self.epsilon_mean is None:
-            self.epsilon_mean = float(self.mstep_kl_epsilon)
-        if self.epsilon_stddev is None:
-            self.epsilon_stddev = float(self.mstep_kl_epsilon)
 
 
 class MPOAgent:
@@ -691,18 +675,8 @@ class MPOAgent:
         loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
         loss_kl_penalty = loss_kl_mean + loss_kl_std
 
-        epsilon_mean = (
-            float(self.config.epsilon_mean)
-            if self.config.epsilon_mean is not None
-            else float(self.config.mstep_kl_epsilon)
-        )
-        epsilon_stddev = (
-            float(self.config.epsilon_stddev)
-            if self.config.epsilon_stddev is not None
-            else float(self.config.mstep_kl_epsilon)
-        )
-        loss_alpha_mean = (alpha_mean * (epsilon_mean - mean_kl_mean.detach())).sum()
-        loss_alpha_std = (alpha_std * (epsilon_stddev - mean_kl_std.detach())).sum()
+        loss_alpha_mean = (alpha_mean * (self.config.mstep_kl_epsilon - mean_kl_mean.detach())).sum()
+        loss_alpha_std = (alpha_std * (self.config.mstep_kl_epsilon - mean_kl_std.detach())).sum()
 
         # Update dual variables (temperature + alphas).
         dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
