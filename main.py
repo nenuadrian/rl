@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo"],
+        choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo", "lm"],
     )
 
     parser.add_argument(
@@ -120,6 +120,11 @@ if __name__ == "__main__":
             config=chatrl_config,
         )
         trainer = ChatRLTrainer(agent, chatrl_config, device)
+        trainer.train(out_dir=args.out_dir)
+    elif algo == "lm":
+        from trainers.lm.trainer import LMTrainer
+
+        trainer = LMTrainer()
         trainer.train(out_dir=args.out_dir)
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer

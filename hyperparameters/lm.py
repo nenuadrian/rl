@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+PRESETS: dict[str, dict[str, Any]] = {
+    "smollm-135m": {
+        "model_name": "HuggingFaceTB/SmolLM-135M",
+        "dtype": "bfloat16",
+        "learning_rate": 1e-6,
+        "weight_decay": 0.0,
+        "num_steps": 300,
+        "prompts_per_step": 12,
+        "group_size": 4,
+        "ppo_epochs": 2,
+        "minibatch_size": 12,
+        "clip_epsilon": 0.2,
+        "max_grad_norm": 1.0,
+        "max_new_tokens": 24,
+        "temperature": 0.9,
+        "top_k": 40,
+        "eval_every": 25,
+        "eval_examples": 64,
+        "save_every": 100,
+        "train_min_operand": 0,
+        "train_max_operand": 30,
+        "eval_min_operand": 0,
+        "eval_max_operand": 30,
+        "reward_std_eps": 1e-6,
+    },
+    "smollm-360m": {
+        "model_name": "HuggingFaceTB/SmolLM-360M",
+        "dtype": "bfloat16",
+        "learning_rate": 8e-7,
+        "weight_decay": 0.0,
+        "num_steps": 300,
+        "prompts_per_step": 8,
+        "group_size": 4,
+        "ppo_epochs": 2,
+        "minibatch_size": 8,
+        "clip_epsilon": 0.2,
+        "max_grad_norm": 1.0,
+        "max_new_tokens": 24,
+        "temperature": 0.9,
+        "top_k": 40,
+        "eval_every": 25,
+        "eval_examples": 64,
+        "save_every": 100,
+        "train_min_operand": 0,
+        "train_max_operand": 30,
+        "eval_min_operand": 0,
+        "eval_max_operand": 30,
+        "reward_std_eps": 1e-6,
+    },
+}
+
+
+def get(env_id: str) -> dict[str, Any]:
+    if env_id not in PRESETS:
+        available = ", ".join(sorted(PRESETS.keys()))
+        raise KeyError(f"No LM preset for {env_id}. Available: {available}")
+    return dict(PRESETS[env_id])

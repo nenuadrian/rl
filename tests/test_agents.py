@@ -1,6 +1,10 @@
 import numpy as np
 import torch
 
+from pathlib import Path
+
+from hyperparameters.lm import get as get_lm_preset
+from trainers.lm.trainer import LMTrainer
 from trainers.ppo.agent import PPOAgent
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig
@@ -189,3 +193,17 @@ def test_mpo_agent_act_and_update():
     # Update should actually modify parameters.
     assert _any_param_changed(q1_before, agent.q1)
     assert _any_param_changed(policy_before, agent.policy)
+
+
+def test_lm_preset_and_trainer_noop(tmp_path):
+    preset = get_lm_preset("any-env-id")
+    assert preset == {}
+
+    main_source = Path(__file__).resolve().parents[1] / "main.py"
+    main_text = main_source.read_text()
+    assert "choices=" in main_text
+    assert '"lm"' in main_text
+    assert "elif algo == \"lm\":" in main_text
+
+    trainer = LMTrainer()
+    trainer.train(out_dir=str(tmp_path))
