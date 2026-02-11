@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from utils.wandb_utils import log_wandb
 
@@ -69,27 +70,23 @@ class LMTrainer:
 
     def __init__(
         self,
-        config: LMGRPOConfig | None = None,
+        config: LMGRPOConfig,
         device: torch.device | None = None,
     ):
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         self.config = config
-        seed = self.config.seed if self.config is not None else 0
+        seed = self.config.seed
         self.train_rng = random.Random(seed)
         self.model: Any | None = None
         self.reference_model: Any | None = None
         self.tokenizer: Any | None = None
         self.optimizer: torch.optim.Optimizer | None = None
-        self.kl_coef: float = self.config.kl_coef if self.config is not None else 0.0
+        self.kl_coef: float = self.config.kl_coef
         self.reward_baseline: float | None = None
 
     def _ensure_initialized(self) -> None:
-        if self.config is None:
-            raise ValueError(
-                "LMTrainer requires preset args. Run via `python main.py lm --env smollm-135m`."
-            )
         if (
             self.model is not None
             and self.reference_model is not None
@@ -97,13 +94,6 @@ class LMTrainer:
             and self.optimizer is not None
         ):
             return
-
-        try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-        except ImportError as exc:
-            raise RuntimeError(
-                "transformers is required for LM training. Install with `pip install transformers`."
-            ) from exc
 
         tokenizer = AutoTokenizer.from_pretrained(
             self.config.model_name,
