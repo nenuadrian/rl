@@ -1,122 +1,17 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Iterator, Tuple
+from typing import Dict, Tuple
 
 import gymnasium as gym
 import numpy as np
 import torch
 
 from trainers.ppo.agent import PPOAgent, PPOConfig
-from utils.env import evaluate, flatten_obs, make_env, infer_obs_dim
+from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.obs_normalizer import ObsNormalizer
 from utils.wandb_utils import log_wandb
-
-
-# =========================
-# Rollout buffer (time-major, vectorised-safe)
-# =========================
-
-
-@dataclass
-class RolloutBuffer:
-    obs: np.ndarray  # (T, N, obs_dim)
-    actions: np.ndarray  # (T, N, act_dim)
-    rewards: np.ndarray  # (T, N)
-    dones: np.ndarray  # (T, N)
-    values: np.ndarray  # (T, N)
-    log_probs: np.ndarray  # (T, N)
-    T: int
-    N: int
-    ptr: int = 0
-
-    @classmethod
-    def create(
-        cls, obs_dim: int, act_dim: int, rollout_steps: int, num_envs: int
-    ) -> "RolloutBuffer":
-        return cls(
-            obs=np.zeros((rollout_steps, num_envs, obs_dim), dtype=np.float32),
-            actions=np.zeros((rollout_steps, num_envs, act_dim), dtype=np.float32),
-            rewards=np.zeros((rollout_steps, num_envs), dtype=np.float32),
-            dones=np.zeros((rollout_steps, num_envs), dtype=np.float32),
-            values=np.zeros((rollout_steps, num_envs), dtype=np.float32),
-            log_probs=np.zeros((rollout_steps, num_envs), dtype=np.float32),
-            T=rollout_steps,
-            N=num_envs,
-            ptr=0,
-        )
-
-    def reset(self) -> None:
-        self.ptr = 0
-
-    def add(
-        self,
-        t: int,
-        env_i: int,
-        obs: np.ndarray,
-        action: np.ndarray,
-        reward: float,
-        done: float,
-        value: float,
-        log_prob: float,
-    ) -> None:
-        self.obs[t, env_i] = obs
-        self.actions[t, env_i] = action
-        self.rewards[t, env_i] = reward
-        self.dones[t, env_i] = done
-        self.values[t, env_i] = value
-        self.log_probs[t, env_i] = log_prob
-        self.ptr = max(self.ptr, t + 1)
-
-    def compute_returns_advantages(
-        self,
-        last_values: np.ndarray,  # shape (N,)
-        gamma: float,
-        gae_lambda: float,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        T, N = self.ptr, self.N
-        if T <= 0:
-            raise ValueError("RolloutBuffer is empty.")
-
-        obs = self.obs[:T]
-        actions = self.actions[:T]
-        rewards = self.rewards[:T]
-        dones = self.dones[:T]
-        values = self.values[:T]
-        log_probs = self.log_probs[:T]
-
-        advantages = np.zeros((T, N), dtype=np.float32)
-        last_gae = np.zeros(N, dtype=np.float32)
-
-        for t in reversed(range(T)):
-            if t == T - 1:
-                next_values = last_values
-            else:
-                next_values = values[t + 1]
-
-            non_terminal = 1.0 - dones[t]
-            delta = rewards[t] + gamma * next_values * non_terminal - values[t]
-            last_gae = delta + gamma * gae_lambda * non_terminal * last_gae
-            advantages[t] = last_gae
-
-        returns = advantages + values
-
-        # flatten (T, N) -> (T*N)
-        return (
-            obs.reshape(T * N, -1),
-            actions.reshape(T * N, -1),
-            log_probs.reshape(T * N),
-            values.reshape(T * N),
-            returns.reshape(T * N),
-            advantages.reshape(T * N),
-        )
-
-    def minibatches(self, batch_size: int) -> Iterator[np.ndarray]:
-        idx = np.arange(self.ptr * self.N)
-        np.random.shuffle(idx)
-        for start in range(0, len(idx), batch_size):
-            yield idx[start : start + batch_size]
+from trainers.ppo.rollout_buffer import RolloutBuffer
 
 
 class Trainer:
@@ -142,23 +37,18 @@ class Trainer:
         normalize_obs: bool = False,
         num_envs: int = 1,
     ):
+        self.seed = seed
         self.num_envs = int(num_envs)
         self.env_id = env_id
-        if self.num_envs > 1:
-            env_fns = [
-                (lambda i=i: make_env(env_id, seed=seed + i))
-                for i in range(self.num_envs)
-            ]
-            # Avoid NEXT_STEP synthetic transitions after done=True.
-            self.env = gym.vector.AsyncVectorEnv(
-                env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
-            )
-            obs_space = self.env.single_observation_space
-            act_space = self.env.single_action_space
-        else:
-            self.env = make_env(env_id, seed=seed)
-            obs_space = self.env.observation_space
-            act_space = self.env.action_space
+        env_fns = [
+            (lambda i=i: make_env(env_id, seed=seed + i)) for i in range(self.num_envs)
+        ]
+        # Avoid NEXT_STEP synthetic transitions after done=True.
+        self.env = gym.vector.AsyncVectorEnv(
+            env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
+        )
+        obs_space = self.env.single_observation_space
+        act_space = self.env.single_action_space
         obs_dim = infer_obs_dim(obs_space)
         if act_space.shape is None:
             raise ValueError("Action space has no shape.")
@@ -203,13 +93,9 @@ class Trainer:
         save_interval: int,
         out_dir: str,
     ):
-        if self.num_envs > 1:
-            obs, _ = self.env.reset()
-            # obs is a dict mapping -> per-key arrays with leading dim N
-            obs = flatten_obs(obs)
-        else:
-            obs, _ = self.env.reset()
-            obs = flatten_obs(obs)
+        obs, _ = self.env.reset()
+        # obs is a dict mapping -> per-key arrays with leading dim N
+        obs = flatten_obs(obs)
 
         if self.obs_normalizer:
             self.obs_normalizer.update(obs)
@@ -219,26 +105,16 @@ class Trainer:
         while step < total_steps:
             for t in range(self.rollout_steps):
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
-                if self.num_envs == 1:
-                    obs_t = obs_t.unsqueeze(0)
 
                 action_t, logp_t, value_t = self.agent.act(obs_t, deterministic=False)
                 action = action_t.cpu().numpy()
                 logp = logp_t.cpu().numpy().squeeze(-1)
                 value = value_t.cpu().numpy().squeeze(-1)
 
-                if self.num_envs > 1:
-                    next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                    next_obs = flatten_obs(next_obs)
-                    done = np.asarray(terminated) | np.asarray(truncated)
-                    reward = np.asarray(reward)
-                else:
-                    next_obs, reward, terminated, truncated, _ = self.env.step(
-                        action[0]
-                    )
-                    next_obs = flatten_obs(next_obs)
-                    reward = np.asarray([reward])
-                    done = np.asarray([float(terminated or truncated)])
+                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                next_obs = flatten_obs(next_obs)
+                done = np.asarray(terminated) | np.asarray(truncated)
+                reward = np.asarray(reward)
 
                 # Defensive check
                 if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
@@ -254,18 +130,16 @@ class Trainer:
                     self.buffer.add(
                         t,
                         i,
-                        obs[i] if self.num_envs > 1 else obs,
+                        obs[i],
                         action[i],
-                        float(reward[i]) if reward.shape[0] > 1 else float(reward[0]),
-                        float(done[i]) if done.shape[0] > 1 else float(done[0]),
+                        float(reward[i]),
+                        float(done[i]),
                         float(value[i]),
                         float(logp[i]),
                     )
-                    self.episode_return[i] += (
-                        float(reward[i]) if reward.shape[0] > 1 else float(reward[0])
-                    )
+                    self.episode_return[i] += float(reward[i])
                     # Log episode return for each env when done
-                    if done[i] if done.shape[0] > 1 else done[0]:
+                    if done[i]:
                         log_wandb(
                             {"train/episode_return": float(self.episode_return[i])},
                             step=step + 1,
@@ -280,8 +154,6 @@ class Trainer:
 
             with torch.no_grad():
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
-                if self.num_envs == 1:
-                    obs_t = obs_t.unsqueeze(0)
                 last_values = self.agent.value(obs_t).cpu().numpy().squeeze(-1)
 
             data = self.buffer.compute_returns_advantages(
@@ -320,10 +192,10 @@ class Trainer:
 
             if eval_interval > 0 and self.last_eval < step // eval_interval:
                 self.last_eval = step // eval_interval
-                metrics = evaluate(
-                    self.agent.device,
-                    self.agent.policy,
-                    self.env_id,
+                metrics = _evaluate_vectorized(
+                    agent=self.agent,
+                    env_id=self.env_id,
+                    seed=self.seed + 1000,
                     obs_normalizer=self.obs_normalizer,
                 )
                 log_wandb(metrics, step=step)
@@ -341,3 +213,61 @@ class Trainer:
                 )
 
         self.env.close()
+
+
+@torch.no_grad()
+def _evaluate_vectorized(
+    agent: PPOAgent,
+    env_id: str,
+    n_episodes: int = 10,
+    seed: int = 42,
+    obs_normalizer: ObsNormalizer | None = None,
+) -> Dict[str, float]:
+    """
+    High-performance vectorized evaluation.
+    Runs all n_episodes in parallel using a SyncVectorEnv.
+    """
+    eval_envs = gym.vector.SyncVectorEnv(
+        [lambda i=i: make_env(env_id, seed=seed + i) for i in range(n_episodes)]
+    )
+
+    agent.policy.eval()
+    obs, _ = eval_envs.reset(seed=seed)
+
+    episode_returns = np.zeros(n_episodes, dtype=np.float32)
+    final_returns = []
+    dones = np.zeros(n_episodes, dtype=bool)
+
+    while len(final_returns) < n_episodes:
+        obs = flatten_obs(obs)
+        if obs_normalizer is not None:
+            obs = obs_normalizer.normalize(obs)
+
+        obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
+        action = agent.policy.sample_action(obs_t, deterministic=True).cpu().numpy()
+        action = np.clip(
+            action,
+            eval_envs.single_action_space.low,
+            eval_envs.single_action_space.high,
+        )
+
+        next_obs, reward, terminated, truncated, _ = eval_envs.step(action)
+        episode_returns += np.asarray(reward, dtype=np.float32)
+
+        done = np.asarray(terminated) | np.asarray(truncated)
+        for i in range(n_episodes):
+            if not dones[i] and done[i]:
+                final_returns.append(float(episode_returns[i]))
+                dones[i] = True
+
+        obs = next_obs
+
+    eval_envs.close()
+    agent.policy.train()
+
+    return {
+        "eval/return_mean": float(np.mean(final_returns)),
+        "eval/return_std": float(np.std(final_returns)),
+        "eval/return_min": float(np.min(final_returns)),
+        "eval/return_max": float(np.max(final_returns)),
+    }
