@@ -28,7 +28,7 @@ python -m tasks.spellingbee
 
 import re
 import random
-from tasks.common import Task
+from nanochat.tasks.common import Task
 from nanochat.common import download_file_with_lock
 
 # Letters of the alphabet

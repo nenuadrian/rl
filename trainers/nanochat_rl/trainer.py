@@ -2,7 +2,7 @@ import torch
 import itertools
 import wandb
 from contextlib import nullcontext
-from nanochat.tasks.gsm8k import GSM8K
+from nanochat.tasks.spellingbee import SpellingBee
 from .agent import ChatRLAgent, ChatRLConfig
 
 from nanochat.checkpoint_manager import save_checkpoint
@@ -13,8 +13,8 @@ class ChatRLTrainer:
         self.agent = agent
         self.config = config
         self.device = device
-        self.train_task = GSM8K(subset="main", split="train")
-        self.val_task = GSM8K(subset="main", split="test")
+        self.train_task = SpellingBee(size=config.train_examples, split="train")
+        self.val_task = SpellingBee(size=config.eval_examples, split="test")
         self.tokenizer = agent.tokenizer
         self.engine = agent.engine
         self.num_steps = (
@@ -94,7 +94,7 @@ class ChatRLTrainer:
             advantages = rewards - mu
             yield generated_token_sequences, inputs, targets, rewards, advantages
 
-    def run_gsm8k_eval(
+    def run_spellingbee_eval(
         self,
         max_examples=None,
         num_samples=1,
@@ -110,7 +110,9 @@ class ChatRLTrainer:
             if max_examples is not None
             else len(val_task)
         )
-        print(f"Running GSM8K evaluation on {max_examples} examples with {num_samples} samples each...")
+        print(
+            f"Running SpellingBee evaluation on {max_examples} examples with {num_samples} samples each..."
+        )
         for idx in range(0, max_examples):
             conversation = val_task[idx]
             tokens = tokenizer.render_for_completion(conversation)
@@ -147,7 +149,7 @@ class ChatRLTrainer:
                 print("Running evaluation...")
                 agent.eval_mode()
                 passk = torch.zeros(self.config.device_batch_size, device=device)
-                records_iter = self.run_gsm8k_eval(
+                records_iter = self.run_spellingbee_eval(
                     max_examples=self.config.eval_examples,
                     num_samples=self.config.device_batch_size,
                     temperature=1.0,
