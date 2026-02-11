@@ -1,7 +1,10 @@
 import torch
 import itertools
+import json
 import wandb
 from contextlib import nullcontext
+from dataclasses import asdict
+from pathlib import Path
 from nanochat.tasks.gsm8k import GSM8K, extract_answer
 from .agent import ChatRLAgent, ChatRLConfig
 
@@ -186,7 +189,101 @@ class ChatRLTrainer:
             print(record)
             yield record
 
+    @torch.no_grad()
+    def run_evaluation(
+        self,
+        out_dir: str | None = None,
+        *,
+        step: int = 0,
+    ) -> dict[str, float]:
+        val_task = self.val_task
+        tokenizer = self.tokenizer
+        engine = self.engine
+        max_examples = min(self.config.eval_examples, len(val_task))
+        if max_examples <= 0:
+            raise ValueError("eval_examples must be > 0 for evaluation-only mode")
+
+        num_samples = max(1, int(self.config.num_samples))
+        device_batch_size = max(1, int(self.config.device_batch_size))
+        num_sampling_steps = (num_samples + device_batch_size - 1) // device_batch_size
+        self.agent.eval_mode()
+        print(
+            f"Running GSM8K evaluation on {max_examples} examples with {num_samples} samples each..."
+        )
+
+        num_passed = 0
+        total = 0
+        for idx in range(max_examples):
+            conversation = val_task[idx]
+            tokens = tokenizer.render_for_completion(conversation)
+            prefix_length = len(tokens)
+            generated_token_sequences = []
+            for _ in range(num_sampling_steps):
+                samples_remaining = num_samples - len(generated_token_sequences)
+                step_samples = min(device_batch_size, samples_remaining)
+                with self.autocast_ctx:
+                    generated_batch, _ = engine.generate_batch(
+                        tokens,
+                        num_samples=step_samples,
+                        max_tokens=self.config.max_new_tokens,
+                        temperature=self.config.temperature,
+                        top_k=self.config.top_k,
+                    )
+                generated_token_sequences.extend(generated_batch)
+            completions = [
+                tokenizer.decode(sample_tokens[prefix_length:])
+                for sample_tokens in generated_token_sequences
+            ]
+            outcomes = [
+                val_task.evaluate(conversation, completion)
+                for completion in completions
+            ]
+            passed = any(outcomes)
+
+            total += 1
+            num_passed += int(passed)
+            print(
+                f"\r\033[K{num_passed}/{total} ({100 * num_passed / total:.2f}%)",
+                end="",
+                flush=True,
+            )
+
+        print()
+        accuracy = num_passed / total
+        print(f"Final: {num_passed}/{total} ({100 * accuracy:.2f}%)")
+
+        metrics = {
+            "eval/accuracy": float(accuracy),
+            "eval/return_max": float(accuracy),
+            "eval/num_passed": float(num_passed),
+            "eval/num_total": float(total),
+            "eval/num_samples": float(num_samples),
+        }
+        wandb.log({"step": step, **metrics})
+
+        if out_dir is not None:
+            output_dir = Path(out_dir)
+            eval_dir = output_dir / "evaluation"
+            eval_dir.mkdir(parents=True, exist_ok=True)
+            metrics_path = eval_dir / f"metrics_step_{step:06d}.json"
+            payload = {
+                "step": int(step),
+                "metrics": {k: float(v) for k, v in metrics.items()},
+                "config": asdict(self.config),
+            }
+            metrics_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            print(f"Saved evaluation metrics to {metrics_path}")
+
+        return metrics
+
     def train(self, out_dir: str):
+        if self.config.run_evaluation:
+            self.run_evaluation(out_dir=out_dir, step=0)
+            return
+
         agent = self.agent
         device = self.device
         num_steps = self.num_steps
@@ -293,18 +390,15 @@ class ChatRLTrainer:
 
             all_rewards = torch.cat(reward_tensors)
             all_advantages = torch.cat(advantage_tensors)
-            has_hash_frac = (
-                sum("####" in text for text in completion_texts)
-                / max(len(completion_texts), 1)
+            has_hash_frac = sum("####" in text for text in completion_texts) / max(
+                len(completion_texts), 1
             )
-            has_digit_frac = (
-                sum(any(ch.isdigit() for ch in text) for text in completion_texts)
-                / max(len(completion_texts), 1)
-            )
-            parsed_frac = (
-                sum(extract_answer(text) is not None for text in completion_texts)
-                / max(len(completion_texts), 1)
-            )
+            has_digit_frac = sum(
+                any(ch.isdigit() for ch in text) for text in completion_texts
+            ) / max(len(completion_texts), 1)
+            parsed_frac = sum(
+                extract_answer(text) is not None for text in completion_texts
+            ) / max(len(completion_texts), 1)
             mean_reward = sum(rewards_list) / len(rewards_list)
             max_reward = max(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)

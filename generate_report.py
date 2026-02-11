@@ -10,7 +10,7 @@ import argparse
 from datetime import datetime
 
 PREFIX = "env-"
-ALGORITHMS = ["ppo", "vmpo", "mpo"]
+ALGORITHMS = ["ppo", "vmpo", "mpo", "vmpo_sgd", "ppo_lm", "nanochat_rl"]
 ENTITY = "adrian-research"
 MIN_STEPS = 50_000
 

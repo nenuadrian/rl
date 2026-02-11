@@ -121,7 +121,7 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Run evaluation-only mode where supported (currently PPO-LM). "
+            "Run evaluation-only mode where supported (PPO-LM and nanochat_rl). "
             "Use --no-run_evaluation to force training mode."
         ),
     )

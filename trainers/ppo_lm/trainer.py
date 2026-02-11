@@ -167,11 +167,7 @@ class LMGRPOConfig:
     train_subset_size: int | None = None
     eval_subset_size: int | None = 512
 
-    prompt_template: str = (
-        "[MATH_TASK] Problem:\n"
-        "{query}\n\n"
-        "Solution:"
-    )
+    prompt_template: str = "[MATH_TASK] Problem:\n" "{query}\n\n" "Solution:"
 
     reward_correct: float = 1.0
     reward_has_answer_tag: float = 0.1
@@ -587,11 +583,12 @@ class PPOLMTrainer:
 
         answer_candidates = [extract_answer(resp) for resp in response_candidates]
         grading_results = [
-            int(ans is not None and ans == example.final_answer) for ans in answer_candidates
+            int(ans is not None and ans == example.final_answer)
+            for ans in answer_candidates
         ]
-        none_answer_extracted_frac = sum(ans is None for ans in answer_candidates) / len(
-            answer_candidates
-        )
+        none_answer_extracted_frac = sum(
+            ans is None for ans in answer_candidates
+        ) / len(answer_candidates)
         parseable_frac = sum(ans is not None for ans in answer_candidates) / len(
             answer_candidates
         )
@@ -1126,9 +1123,7 @@ class PPOLMTrainer:
             "eval/once_hit": once_hit,
             "eval/correct_frac": correct_frac,
             "eval/majority_vote_acc": majority_vote_acc,
-            "eval/none_answer_extracted_frac_per_problem": (
-                none_answer_extracted_frac
-            ),
+            "eval/none_answer_extracted_frac_per_problem": (none_answer_extracted_frac),
             "eval/unique_answer_count": unique_answer_count,
             "eval/parseable_frac": parseable_frac,
             "eval/has_answer_tag_frac": has_answer_tag_frac,
