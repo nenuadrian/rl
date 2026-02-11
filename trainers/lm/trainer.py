@@ -583,6 +583,52 @@ class LMTrainer:
         self.model.save_pretrained(checkpoint_dir)
         self.tokenizer.save_pretrained(checkpoint_dir)
 
+    @torch.no_grad()
+    def _print_mle_preview(self, step: int, num_examples: int = 2) -> None:
+        assert self.model is not None
+        assert self.tokenizer is not None
+        assert self.config is not None
+
+        preview_problems = [ArithmeticProblem(a=10, b=3, answer=13)]
+        for _ in range(max(0, num_examples - 1)):
+            preview_problems.append(
+                self._sample_problem(
+                    self.config.train_min_operand,
+                    self.config.train_max_operand,
+                )
+            )
+
+        prompts = [self._build_prompt(problem) for problem in preview_problems]
+        encoded = self._tokenize_prompts(prompts)
+        completion_start = self._completion_start_index(encoded)
+
+        was_training = self.model.training
+        self.model.eval()
+        generated = self.model.generate(
+            input_ids=encoded["input_ids"],
+            attention_mask=encoded["attention_mask"],
+            do_sample=False,
+            max_new_tokens=self.config.max_new_tokens,
+            min_new_tokens=self.config.max_new_tokens,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        ).detach()
+
+        completions = self.tokenizer.batch_decode(
+            self._split_completions(generated, completion_start),
+            skip_special_tokens=True,
+        )
+        if was_training:
+            self.model.train()
+
+        for problem, text in zip(preview_problems, completions):
+            preview = text.replace("\n", " ").strip()[:120]
+            print(
+                f"[MLE preview] step={step} "
+                f"prompt='So {problem.a} + {problem.b} = ...' "
+                f"expected={problem.answer} output='{preview}'"
+            )
+
     def mle_warm_start(self, num_steps: int, batch_size: int) -> None:
         assert self.model is not None
         assert self.reference_model is not None
@@ -652,6 +698,7 @@ class LMTrainer:
                     f"[MLE warm-start] step={step}/{num_steps} "
                     f"loss={loss_val:.4f} grad_norm={grad_val:.3f}"
                 )
+                self._print_mle_preview(step=step, num_examples=2)
                 log_wandb(
                     {
                         "warm_start/loss": loss_val,
