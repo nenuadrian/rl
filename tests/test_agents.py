@@ -5,6 +5,8 @@ import torch
 from pathlib import Path
 
 from hyperparameters.lm import get as get_lm_preset
+from hyperparameters.vmpo import get as get_vmpo_preset
+from hyperparameters.vmpo_sgd import get as get_vmpo_sgd_preset
 from trainers.lm.trainer import LMGRPOConfig, LMTrainer
 from trainers.ppo.agent import PPOAgent
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
@@ -82,6 +84,9 @@ def test_vmpo_agent_act_and_update():
             max_grad_norm=0.5,
         ),
     )
+    assert isinstance(agent.opt, torch.optim.Adam)
+    assert isinstance(agent.eta_opt, torch.optim.Adam)
+    assert isinstance(agent.alpha_opt, torch.optim.Adam)
 
     obs = np.random.randn(obs_dim).astype(np.float32)
     action, value, mean, log_std = agent.act(obs, deterministic=False)
@@ -112,6 +117,36 @@ def test_vmpo_agent_act_and_update():
     assert "loss/policy" in metrics
     assert "kl/mean" in metrics
     assert "kl/std" in metrics
+
+
+def test_vmpo_agent_supports_sgd_optimizer():
+    obs_dim = 6
+    act_dim = 2
+    action_low = -np.ones(act_dim, dtype=np.float32)
+    action_high = np.ones(act_dim, dtype=np.float32)
+
+    agent = VMPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        action_low=action_low,
+        action_high=action_high,
+        device=torch.device("cpu"),
+        policy_layer_sizes=(32, 32),
+        config=VMPOConfig(optimizer_type="sgd"),
+    )
+
+    assert isinstance(agent.opt, torch.optim.SGD)
+    assert isinstance(agent.eta_opt, torch.optim.SGD)
+    assert isinstance(agent.alpha_opt, torch.optim.SGD)
+
+
+def test_vmpo_preset_optimizer_selection():
+    env_id = "HalfCheetah-v5"
+    vmpo_preset = get_vmpo_preset(env_id)
+    vmpo_sgd_preset = get_vmpo_sgd_preset(env_id)
+
+    assert vmpo_preset["optimizer_type"] == "adam"
+    assert vmpo_sgd_preset["optimizer_type"] == "sgd"
 
 
 def test_mpo_agent_act_and_update():
@@ -222,7 +257,9 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     main_text = main_source.read_text()
     assert "choices=" in main_text
     assert '"lm"' in main_text
+    assert '"vmpo_sgd"' in main_text
     assert "elif algo == \"lm\":" in main_text
+    assert "elif algo in {\"vmpo\", \"vmpo_sgd\"}:" in main_text
 
     trainer = LMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
     assert hasattr(trainer, "train")

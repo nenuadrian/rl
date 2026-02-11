@@ -9,6 +9,16 @@ import torch
 from utils.env import set_seed
 from utils.wandb_utils import finish_wandb, init_wandb
 
+from trainers.vmpo.trainer import VMPOTrainer
+from trainers.vmpo_sgd.trainer import VMPOSGDTrainer
+from trainers.vmpo.agent import VMPOConfig
+from trainers.nanochat_rl.trainer import ChatRLTrainer
+from trainers.nanochat_rl.agent import ChatRLAgent, ChatRLConfig
+from trainers.mpo.trainer import MPOTrainer
+from trainers.mpo.agent import MPOConfig
+from trainers.ppo.trainer import PPOTrainer
+from trainers.lm.trainer import LMGRPOConfig, LMTrainer
+
 
 def _load_preset(algo: str, env_id: str) -> dict:
     module = importlib.import_module(f"hyperparameters.{algo}")
@@ -56,14 +66,18 @@ def _resolve_device(device_arg: str | None) -> torch.device:
 
     if device.type == "cuda":
         if not torch.cuda.is_available():
-            raise ValueError(f"Requested --device '{device_arg}' but CUDA is not available")
+            raise ValueError(
+                f"Requested --device '{device_arg}' but CUDA is not available"
+            )
         if device.index is not None and device.index >= torch.cuda.device_count():
             raise ValueError(
                 f"Requested --device '{device_arg}' but only {torch.cuda.device_count()} CUDA device(s) are visible"
             )
     elif device.type == "mps":
         if not torch.backends.mps.is_available():
-            raise ValueError(f"Requested --device '{device_arg}' but MPS is not available")
+            raise ValueError(
+                f"Requested --device '{device_arg}' but MPS is not available"
+            )
 
     return device
 
@@ -73,7 +87,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["ppo", "vmpo", "mpo", "nanochat_rl", "nanochat_vmpo", "lm"],
+        choices=[
+            "ppo",
+            "vmpo",
+            "vmpo_sgd",
+            "mpo",
+            "nanochat_rl",
+            "nanochat_vmpo",
+            "lm",
+        ],
     )
 
     parser.add_argument(
@@ -130,8 +152,6 @@ if __name__ == "__main__":
     )
 
     if algo == "nanochat_rl":
-        from trainers.nanochat_rl.trainer import ChatRLTrainer
-        from trainers.nanochat_rl.agent import ChatRLAgent, ChatRLConfig
 
         chatrl_config = ChatRLConfig(
             num_epochs=args.num_epochs,
@@ -162,7 +182,6 @@ if __name__ == "__main__":
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "lm":
-        from trainers.lm.trainer import LMGRPOConfig, LMTrainer
 
         lm_config = LMGRPOConfig(
             model_name=str(args.model_name),
@@ -192,7 +211,9 @@ if __name__ == "__main__":
             kl_coef_down_div=float(args.kl_coef_down_div),
             dataset_name=str(args.dataset_name),
             dataset_config=(
-                None if getattr(args, "dataset_config", None) is None else str(args.dataset_config)
+                None
+                if getattr(args, "dataset_config", None) is None
+                else str(args.dataset_config)
             ),
             train_split=str(args.train_split),
             eval_split=str(args.eval_split),
@@ -220,7 +241,6 @@ if __name__ == "__main__":
         trainer = LMTrainer(config=lm_config, device=device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "ppo":
-        from trainers.ppo.trainer import Trainer as PPOTrainer
 
         _print_config(
             "PPO config",
@@ -268,9 +288,7 @@ if __name__ == "__main__":
             save_interval=args.save_interval,
             out_dir=args.out_dir,
         )
-    elif algo == "vmpo":
-        from trainers.vmpo.trainer import Trainer as VMPOTrainer
-        from trainers.vmpo.agent import VMPOConfig
+    elif algo in {"vmpo", "vmpo_sgd"}:
 
         vmpo_config = VMPOConfig(
             gamma=float(args.gamma),
@@ -288,10 +306,16 @@ if __name__ == "__main__":
             popart_eps=float(args.popart_eps),
             popart_min_sigma=float(args.popart_min_sigma),
             normalize_advantages=bool(args.normalize_advantages),
+            optimizer_type=str(args.optimizer_type),
         )
         _print_config("VMPOConfig", vmpo_config)
 
-        trainer = VMPOTrainer(
+        if algo == "vmpo_sgd":
+            trainer_cls = VMPOSGDTrainer
+        else:
+            trainer_cls = VMPOTrainer
+
+        trainer = trainer_cls(
             env_id=args.env,
             seed=args.seed,
             device=device,
@@ -309,8 +333,6 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
-        from trainers.mpo.trainer import MPOTrainer
-        from trainers.mpo.agent import MPOConfig
 
         mpo_config = MPOConfig(
             gamma=float(args.gamma),

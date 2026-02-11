@@ -12,7 +12,7 @@ from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 
 
-class Trainer:
+class VMPOTrainer:
     def __init__(
         self,
         env_id: str,
@@ -317,3 +317,5 @@ def _evaluate_vectorized(
         "eval/return_min": float(np.min(final_returns)),
         "eval/return_max": float(np.max(final_returns)),
     }
+
+

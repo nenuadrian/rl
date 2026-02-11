@@ -28,6 +28,8 @@ class VMPOConfig:
     popart_beta: float = 3e-4
     popart_eps: float = 1e-4
     popart_min_sigma: float = 1e-4
+    optimizer_type: str = "adam"
+    sgd_momentum: float = 0.0
 
 
 class VMPOAgent:
@@ -60,7 +62,7 @@ class VMPOAgent:
         ).to(device)
 
         # We group parameters by network to apply specific LRs
-        self.opt = torch.optim.Adam(
+        self.opt = self._build_optimizer(
             [
                 {
                     "params": self.policy.policy_encoder.parameters(),
@@ -84,7 +86,6 @@ class VMPOAgent:
                     "lr": self.config.value_lr,
                 },
             ],
-            eps=1e-5,
         )
 
         # Lagrange Multipliers (Dual Variables)
@@ -93,8 +94,8 @@ class VMPOAgent:
         self.log_temperature = nn.Parameter(
             torch.log(torch.tensor(self.config.temperature_init, device=device))
         )
-        self.eta_opt = torch.optim.Adam(
-            [self.log_temperature], lr=self.config.temperature_lr, eps=1e-5
+        self.eta_opt = self._build_optimizer(
+            [self.log_temperature], lr=self.config.temperature_lr
         )
 
         # KL Penalties (alpha) for trust region
@@ -102,8 +103,26 @@ class VMPOAgent:
         self.log_alpha_mu = nn.Parameter(torch.tensor(np.log(1.0), device=device))
         self.log_alpha_sigma = nn.Parameter(torch.tensor(np.log(1.0), device=device))
 
-        self.alpha_opt = torch.optim.Adam(
-            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr, eps=1e-5
+        self.alpha_opt = self._build_optimizer(
+            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
+        )
+
+    def _build_optimizer(self, params, lr: float | None = None) -> torch.optim.Optimizer:
+        optimizer_type = self.config.optimizer_type.strip().lower()
+        kwargs: dict[str, float] = {}
+        if lr is not None:
+            kwargs["lr"] = float(lr)
+
+        if optimizer_type == "adam":
+            kwargs["eps"] = 1e-5
+            return torch.optim.Adam(params, **kwargs)
+        if optimizer_type == "sgd":
+            kwargs["momentum"] = float(self.config.sgd_momentum)
+            return torch.optim.SGD(params, **kwargs)
+
+        raise ValueError(
+            f"Unsupported VMPO optimizer_type '{self.config.optimizer_type}'. "
+            "Expected one of: adam, sgd."
         )
 
     def compute_gae(self, rewards, values, dones, gamma, lam):

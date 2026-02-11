@@ -264,4 +264,6 @@ def get(env_id: str) -> dict[str, Any]:
     if env_id not in PRESETS:
         available = ", ".join(sorted(PRESETS.keys()))
         raise KeyError(f"No VMPO preset for {env_id}. Available: {available}")
-    return dict(PRESETS[env_id])
+    preset = dict(PRESETS[env_id])
+    preset.setdefault("optimizer_type", "adam")
+    return preset

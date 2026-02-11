@@ -14,7 +14,7 @@ from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
 
 
-class Trainer:
+class PPOTrainer:
     def __init__(
         self,
         env_id: str,
