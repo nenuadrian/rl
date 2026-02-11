@@ -65,6 +65,13 @@ class GaussianPolicy(nn.Module):
         if action_low is None or action_high is None:
             action_low = -np.ones(act_dim, dtype=np.float32)
             action_high = np.ones(act_dim, dtype=np.float32)
+        if not (
+            np.all(np.isfinite(action_low)) and np.all(np.isfinite(action_high))
+        ):
+            raise ValueError(
+                "GaussianPolicy requires finite action bounds. "
+                "Received non-finite action_low/action_high."
+            )
 
         action_low_t = torch.tensor(action_low, dtype=torch.float32)
         action_high_t = torch.tensor(action_high, dtype=torch.float32)

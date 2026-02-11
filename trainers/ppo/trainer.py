@@ -63,6 +63,20 @@ class PPOTrainer:
         act_dim = int(np.prod(np.array(act_space.shape)))
         action_low = getattr(act_space, "low", None)
         action_high = getattr(act_space, "high", None)
+        # ClipAction exposes an unbounded action space on the wrapper.
+        # Our squashed Gaussian policy needs finite env bounds for scaling.
+        if action_low is None or action_high is None or not (
+            np.all(np.isfinite(action_low)) and np.all(np.isfinite(action_high))
+        ):
+            probe_env = make_env(env_id, seed=seed, ppo_wrappers=False)
+            try:
+                base_action_space = probe_env.action_space
+                if not isinstance(base_action_space, gym.spaces.Box):
+                    raise ValueError("PPO only supports continuous action spaces.")
+                action_low = np.asarray(base_action_space.low, dtype=np.float32)
+                action_high = np.asarray(base_action_space.high, dtype=np.float32)
+            finally:
+                probe_env.close()
         self.agent = PPOAgent(
             obs_dim=obs_dim,
             act_dim=act_dim,
