@@ -24,7 +24,6 @@ from nanochat.checkpoint_manager import load_model
 import torch.distributed as dist
 
 from nanochat.tasks.common import TaskMixture
-from nanochat.tasks.gsm8k import GSM8K
 from nanochat.tasks.mmlu import MMLU
 from nanochat.tasks.smoltalk import SmolTalk
 from nanochat.tasks.customjson import CustomJSON
@@ -106,8 +105,6 @@ identity_conversations_filepath = os.path.join(base_dir, "identity_conversations
 train_dataset = TaskMixture([
     SmolTalk(split="train"), # 460K rows of general conversations
     MMLU(subset="auxiliary_train", split="train"), # 100K rows of multiple choice problems drawn from ARC, MC_TEST, OBQA, RACE
-    GSM8K(subset="main", split="train"), # 8K rows teaching simple math and (calculator) tool use
-    GSM8K(subset="main", split="train"), # 2 epochs of GSM8K
     CustomJSON(filepath=identity_conversations_filepath), # 1000 rows of synthetic identity conversations
     CustomJSON(filepath=identity_conversations_filepath), # let's do 2 epochs of these
     SimpleSpelling(size=200000, split="train"), # 200K rows of Simple Spelling (e.g. spell the word 'apple')
@@ -116,7 +113,6 @@ train_dataset = TaskMixture([
 val_dataset = TaskMixture([
     SmolTalk(split="test"), # 24K rows in test set
     MMLU(subset="all", split="test", stop=5200), # 14K rows in test set, use only 5.2K to match the train ratios
-    GSM8K(subset="main", split="test", stop=420), # 1.32K rows in test set, use only 420 to match the train ratios
 ]) # total: 24K + 14K + 1.32K ~= 39K rows
 # DataLoader is defined here, it emits inputs, targets : 2D tensors of shape (device_batch_size, max_seq_len)
 # A big problem is that we don't know the final num_iterations in advance. So we create
