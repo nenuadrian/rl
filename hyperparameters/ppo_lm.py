@@ -159,16 +159,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         eval_examples=128,
         save_every=200,
     ),
-    "smollm-135m-gsm8k-baseline": _gsm8k_preset(
-        "HuggingFaceTB/SmolLM-135M-Instruct"
-    ),
-    "smollm-360m-gsm8k-baseline": _gsm8k_preset(
-        "HuggingFaceTB/SmolLM-360M-Instruct"
-    ),
     "deepseek-math-7b-base-gsm8k": _DEEPSEEK_MATH_7B_BASE_GSM8K,
-    "deepseek-ai/deepseek-math-7b-base": _DEEPSEEK_MATH_7B_BASE_GSM8K,
     "rho-math-1b-v0.1-gsm8k": _RHO_MATH_1B_V0_1_GSM8K,
-    "microsoft/rho-math-1b-v0.1": _RHO_MATH_1B_V0_1_GSM8K,
 }
 
 
