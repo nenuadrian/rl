@@ -10,3 +10,5 @@ checkpoints/
 wandb/
 videos/
 **/.DS_Store
+cleanrl
+VinePPO

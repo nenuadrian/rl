@@ -6,6 +6,25 @@ import shimmy
 import torch
 
 
+def _transform_observation(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        # Newer Gymnasium versions.
+        return gym.wrappers.TransformObservation(env, fn)
+    except TypeError:
+        # Older versions require the transformed observation space explicitly.
+        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
+
+
+def _transform_reward(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        return gym.wrappers.TransformReward(env, fn)
+    except TypeError:
+        # Some versions may require reward_range to be passed explicitly.
+        return gym.wrappers.TransformReward(env, fn, env.reward_range)
+
+
 def infer_obs_dim(obs_space: gym.Space) -> int:
     if isinstance(obs_space, gym.spaces.Dict):
         dims = []
@@ -134,14 +153,14 @@ def make_env(
         if normalize_observation:
             env = gym.wrappers.NormalizeObservation(env)
             if clip_observation is not None:
-                env = gym.wrappers.TransformObservation(
+                env = _transform_observation(
                     env,
                     lambda obs: np.clip(obs, -clip_observation, clip_observation),
                 )
         if normalize_reward:
             env = gym.wrappers.NormalizeReward(env, gamma=gamma)
             if clip_reward is not None:
-                env = gym.wrappers.TransformReward(
+                env = _transform_reward(
                     env,
                     lambda reward: np.clip(reward, -clip_reward, clip_reward),
                 )
