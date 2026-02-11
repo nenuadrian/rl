@@ -58,6 +58,36 @@ def _use_fa3():
 # =============================================================================
 # SDPA helpers
 # =============================================================================
+def _sdpa_call(q, k, v, *, is_causal=False, attn_mask=None, enable_gqa=False):
+    """
+    Compatibility wrapper for scaled_dot_product_attention across torch versions.
+
+    Older torch versions don't support `enable_gqa`; in that case, emulate GQA by
+    repeating KV heads to match Q heads.
+    """
+    kwargs = {}
+    if attn_mask is not None:
+        kwargs["attn_mask"] = attn_mask
+    kwargs["is_causal"] = is_causal
+    if enable_gqa:
+        kwargs["enable_gqa"] = True
+    try:
+        return F.scaled_dot_product_attention(q, k, v, **kwargs)
+    except TypeError:
+        # torch version without enable_gqa support
+        if "enable_gqa" in kwargs:
+            kwargs.pop("enable_gqa")
+            qh = q.size(1)
+            kh = k.size(1)
+            if qh != kh:
+                if qh % kh != 0:
+                    raise ValueError(f"GQA fallback requires q_heads divisible by kv_heads, got {qh} and {kh}")
+                n_rep = qh // kh
+                k = k.repeat_interleave(n_rep, dim=1)
+                v = v.repeat_interleave(n_rep, dim=1)
+        return F.scaled_dot_product_attention(q, k, v, **kwargs)
+
+
 def _sdpa_attention(q, k, v, window_size, enable_gqa):
     """
     SDPA attention with sliding window support.
@@ -69,7 +99,7 @@ def _sdpa_attention(q, k, v, window_size, enable_gqa):
 
     # Full context, same length
     if (window < 0 or window >= Tq) and Tq == Tk:
-        return F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=enable_gqa)
+        return _sdpa_call(q, k, v, is_causal=True, enable_gqa=enable_gqa)
 
     # Single token generation
     if Tq == 1:
@@ -78,7 +108,7 @@ def _sdpa_attention(q, k, v, window_size, enable_gqa):
             start = max(0, Tk - (window + 1))
             k = k[:, :, start:, :]
             v = v[:, :, start:, :]
-        return F.scaled_dot_product_attention(q, k, v, is_causal=False, enable_gqa=enable_gqa)
+        return _sdpa_call(q, k, v, is_causal=False, enable_gqa=enable_gqa)
 
     # Need explicit mask for sliding window/chunk inference
     device = q.device
@@ -91,7 +121,7 @@ def _sdpa_attention(q, k, v, window_size, enable_gqa):
     if window >= 0 and window < Tk:
         mask = mask & ((row_idx - col_idx) <= window)
     
-    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=enable_gqa)
+    return _sdpa_call(q, k, v, attn_mask=mask, enable_gqa=enable_gqa)
 
 # =============================================================================
 # Public API: Same interface as FA3
