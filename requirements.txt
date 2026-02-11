@@ -13,3 +13,4 @@ rustbpe
 tiktoken
 datasets
 torchao
+transformers

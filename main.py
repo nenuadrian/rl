@@ -122,9 +122,42 @@ if __name__ == "__main__":
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "lm":
-        from trainers.lm.trainer import LMTrainer
+        from trainers.lm.trainer import LMGRPOConfig, LMTrainer
 
-        trainer = LMTrainer()
+        lm_config = LMGRPOConfig(
+            model_name=str(args.model_name),
+            dtype=str(args.dtype),
+            learning_rate=float(args.learning_rate),
+            weight_decay=float(args.weight_decay),
+            num_steps=int(args.num_steps),
+            prompts_per_step=int(args.prompts_per_step),
+            group_size=int(args.group_size),
+            ppo_epochs=int(args.ppo_epochs),
+            minibatch_size=int(args.minibatch_size),
+            clip_epsilon=float(args.clip_epsilon),
+            max_grad_norm=float(args.max_grad_norm),
+            max_new_tokens=int(args.max_new_tokens),
+            temperature=float(args.temperature),
+            top_k=int(args.top_k),
+            eval_every=int(args.eval_every),
+            eval_examples=int(args.eval_examples),
+            save_every=int(args.save_every),
+            train_min_operand=int(args.train_min_operand),
+            train_max_operand=int(args.train_max_operand),
+            eval_min_operand=int(args.eval_min_operand),
+            eval_max_operand=int(args.eval_max_operand),
+            reward_std_eps=float(args.reward_std_eps),
+            advantage_mode=str(args.advantage_mode),
+            normalize_advantages=bool(args.normalize_advantages),
+            baseline_momentum=float(args.baseline_momentum),
+            kl_coef=float(args.kl_coef),
+            target_ref_kl=float(args.target_ref_kl),
+            kl_adaptation_factor=float(args.kl_adaptation_factor),
+            seed=int(args.seed),
+        )
+        _print_config("LMGRPOConfig", lm_config)
+
+        trainer = LMTrainer(config=lm_config, device=device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "ppo":
         from trainers.ppo.trainer import Trainer as PPOTrainer

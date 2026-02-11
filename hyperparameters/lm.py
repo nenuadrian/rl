@@ -27,6 +27,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_min_operand": 0,
         "eval_max_operand": 30,
         "reward_std_eps": 1e-6,
+        "advantage_mode": "ema_baseline",
+        "normalize_advantages": True,
+        "baseline_momentum": 0.9,
+        "kl_coef": 0.02,
+        "target_ref_kl": 0.08,
+        "kl_adaptation_factor": 1.5,
     },
     "smollm-360m": {
         "model_name": "HuggingFaceTB/SmolLM-360M",
@@ -51,6 +57,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_min_operand": 0,
         "eval_max_operand": 30,
         "reward_std_eps": 1e-6,
+        "advantage_mode": "ema_baseline",
+        "normalize_advantages": True,
+        "baseline_momentum": 0.9,
+        "kl_coef": 0.02,
+        "target_ref_kl": 0.08,
+        "kl_adaptation_factor": 1.5,
     },
 }
 

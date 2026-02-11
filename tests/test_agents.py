@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from pathlib import Path
@@ -195,9 +196,18 @@ def test_mpo_agent_act_and_update():
     assert _any_param_changed(policy_before, agent.policy)
 
 
-def test_lm_preset_and_trainer_noop(tmp_path):
-    preset = get_lm_preset("any-env-id")
-    assert preset == {}
+def test_lm_preset_and_trainer_wiring(tmp_path):
+    preset_135m = get_lm_preset("smollm-135m")
+    preset_360m = get_lm_preset("smollm-360m")
+    assert preset_135m["model_name"] == "HuggingFaceTB/SmolLM-135M"
+    assert preset_360m["model_name"] == "HuggingFaceTB/SmolLM-360M"
+    assert preset_135m["kl_coef"] > 0.0
+    assert preset_360m["target_ref_kl"] > 0.0
+    assert preset_135m["advantage_mode"] == "ema_baseline"
+    assert preset_360m["normalize_advantages"] is True
+
+    with pytest.raises(KeyError):
+        get_lm_preset("any-env-id")
 
     main_source = Path(__file__).resolve().parents[1] / "main.py"
     main_text = main_source.read_text()
@@ -206,4 +216,5 @@ def test_lm_preset_and_trainer_noop(tmp_path):
     assert "elif algo == \"lm\":" in main_text
 
     trainer = LMTrainer()
-    trainer.train(out_dir=str(tmp_path))
+    with pytest.raises(ValueError):
+        trainer.train(out_dir=str(tmp_path))
