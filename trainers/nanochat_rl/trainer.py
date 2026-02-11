@@ -206,6 +206,9 @@ class ChatRLTrainer:
         num_samples = max(1, int(self.config.num_samples))
         device_batch_size = max(1, int(self.config.device_batch_size))
         num_sampling_steps = (num_samples + device_batch_size - 1) // device_batch_size
+        progress_log_every = max(1, max_examples // 100)
+        text_rows: list[list[object]] = []
+        max_text_rows = min(max_examples, 512)
         self.agent.eval_mode()
         print(
             f"Running GSM8K evaluation on {max_examples} examples with {num_samples} samples each..."
@@ -239,6 +242,23 @@ class ChatRLTrainer:
                 for completion in completions
             ]
             passed = any(outcomes)
+            question_text = str(conversation["messages"][0]["content"])
+            first_response = completions[0] if completions else ""
+            first_correct_response = next(
+                (completion for completion, outcome in zip(completions, outcomes) if outcome),
+                "",
+            )
+
+            if len(text_rows) < max_text_rows:
+                text_rows.append(
+                    [
+                        int(idx),
+                        question_text,
+                        first_response,
+                        first_correct_response,
+                        int(passed),
+                    ]
+                )
 
             total += 1
             num_passed += int(passed)
@@ -247,6 +267,22 @@ class ChatRLTrainer:
                 end="",
                 flush=True,
             )
+            if total % progress_log_every == 0 or total == max_examples:
+                running_accuracy = num_passed / total
+                wandb.log(
+                    {
+                        "step": step,
+                        "eval/progress_accuracy": float(running_accuracy),
+                        "eval/progress_num_passed": float(num_passed),
+                        "eval/progress_num_total": float(total),
+                        "eval/progress_frac_complete": float(total / max_examples),
+                        "eval/latest_idx": int(idx),
+                        "eval/latest_question": question_text[:1024],
+                        "eval/latest_response": first_response[:2048],
+                        "eval/latest_correct_response": first_correct_response[:2048],
+                        "eval/latest_passed": int(passed),
+                    }
+                )
 
         print()
         accuracy = num_passed / total
@@ -260,6 +296,22 @@ class ChatRLTrainer:
             "eval/num_samples": float(num_samples),
         }
         wandb.log({"step": step, **metrics})
+        if text_rows:
+            wandb.log(
+                {
+                    "step": step,
+                    "eval/text_samples": wandb.Table(
+                        columns=[
+                            "idx",
+                            "question",
+                            "first_response",
+                            "first_correct_response",
+                            "passed",
+                        ],
+                        data=text_rows,
+                    ),
+                }
+            )
 
         if out_dir is not None:
             output_dir = Path(out_dir)
