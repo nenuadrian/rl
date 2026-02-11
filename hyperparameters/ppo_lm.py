@@ -65,8 +65,6 @@ def _gsm8k_preset(model_name: str, **overrides: Any) -> dict[str, Any]:
 
 
 PRESETS: dict[str, dict[str, Any]] = {
-    "smollm-135m": _gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
-    "smollm-360m": _gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
     "smollm-135m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
     "smollm-360m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
     "smollm-135m-gsm8k-socratic": _gsm8k_preset(

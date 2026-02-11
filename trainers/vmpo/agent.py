@@ -29,7 +29,7 @@ class VMPOConfig:
     popart_eps: float = 1e-4
     popart_min_sigma: float = 1e-4
     optimizer_type: str = "adam"
-    sgd_momentum: float = 0.0
+    sgd_momentum: float = 0.9
 
 
 class VMPOAgent:
