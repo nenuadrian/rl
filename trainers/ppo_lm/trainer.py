@@ -158,6 +158,7 @@ class LMGRPOConfig:
     eval_temperature: float = 0.35
     eval_top_p: float = 0.9
     eval_top_k: int = 0
+    eval_batch_size: int = 32
     generation_stop_strings: tuple[str, ...] = ("\n\n\nProblem:",)
 
     dataset_name: str = "openai/gsm8k"
@@ -194,6 +195,8 @@ class LMGRPOConfig:
             raise ValueError("eval_num_samples must be > 0")
         if self.eval_do_sample and self.eval_temperature <= 0:
             raise ValueError("eval_temperature must be > 0 when eval_do_sample is true")
+        if self.eval_batch_size <= 0:
+            raise ValueError("eval_batch_size must be > 0")
         if self.eval_examples is not None and self.eval_examples <= 0:
             raise ValueError("eval_examples must be > 0 when set")
 
@@ -905,20 +908,39 @@ class PPOLMTrainer:
 
         num_samples = max(1, int(self.config.eval_num_samples))
         expanded_prompts = [prompt for prompt in prompts for _ in range(num_samples)]
-        _, _, expanded_responses = self._generate_responses(
-            expanded_prompts,
-            do_sample=bool(self.config.eval_do_sample),
-            max_new_tokens=self.config.eval_max_new_tokens,
-            temperature=self.config.eval_temperature,
-            top_p=self.config.eval_top_p,
-            top_k=self.config.eval_top_k,
-        )
+        grouped: list[list[str]] = [[] for _ in range(len(prompts))]
 
-        grouped: list[list[str]] = []
-        for idx in range(len(prompts)):
-            start = idx * num_samples
-            end = start + num_samples
-            grouped.append(expanded_responses[start:end])
+        total = len(expanded_prompts)
+        start = 0
+        batch_size = max(1, int(self.config.eval_batch_size))
+        while start < total:
+            current_bs = min(batch_size, total - start)
+            batch_prompts = expanded_prompts[start : start + current_bs]
+            try:
+                _, _, batch_responses = self._generate_responses(
+                    batch_prompts,
+                    do_sample=bool(self.config.eval_do_sample),
+                    max_new_tokens=self.config.eval_max_new_tokens,
+                    temperature=self.config.eval_temperature,
+                    top_p=self.config.eval_top_p,
+                    top_k=self.config.eval_top_k,
+                )
+            except torch.OutOfMemoryError:
+                if current_bs == 1:
+                    raise
+                if self.device.type == "cuda":
+                    torch.cuda.empty_cache()
+                batch_size = max(1, current_bs // 2)
+                print(
+                    f"Eval generation OOM at batch_size={current_bs}; retrying with batch_size={batch_size}"
+                )
+                continue
+
+            for offset, response in enumerate(batch_responses):
+                expanded_idx = start + offset
+                prompt_idx = expanded_idx // num_samples
+                grouped[prompt_idx].append(response)
+            start += current_bs
 
         return grouped
 
