@@ -94,7 +94,7 @@ if __name__ == "__main__":
             "mpo",
             "nanochat_rl",
             "nanochat_vmpo",
-            "lm",
+            "ppo_lm",
         ],
     )
 
@@ -181,7 +181,7 @@ if __name__ == "__main__":
         )
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train(out_dir=args.out_dir)
-    elif algo == "lm":
+    elif algo == "ppo_lm":
         lm_field_names = {f.name for f in fields(LMGRPOConfig)}
         lm_kwargs = {
             name: getattr(args, name)

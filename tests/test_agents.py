@@ -4,7 +4,7 @@ import torch
 
 from pathlib import Path
 
-from hyperparameters.lm import get as get_lm_preset
+from hyperparameters.ppo_lm import get as get_lm_preset
 from hyperparameters.vmpo import get as get_vmpo_preset
 from hyperparameters.vmpo_sgd import get as get_vmpo_sgd_preset
 from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
@@ -254,9 +254,9 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     main_source = Path(__file__).resolve().parents[1] / "main.py"
     main_text = main_source.read_text()
     assert "choices=" in main_text
-    assert '"lm"' in main_text
+    assert '"ppo_lm"' in main_text
     assert '"vmpo_sgd"' in main_text
-    assert "elif algo == \"lm\":" in main_text
+    assert "elif algo == \"ppo_lm\":" in main_text
     assert "elif algo in {\"vmpo\", \"vmpo_sgd\"}:" in main_text
 
     trainer = PPOLMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
