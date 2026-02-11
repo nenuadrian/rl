@@ -36,6 +36,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kl_adaptation_factor": 1.5,
         "kl_coef_up_mult": 1.02,
         "kl_coef_down_div": 1.02,
+        "mle_warm_start_steps": 200,
+        "mle_warm_start_batch_size": 32,
+        "mle_warm_start_log_every": 50,
     },
     "smollm-360m": {
         "model_name": "HuggingFaceTB/SmolLM-360M",
@@ -69,6 +72,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kl_adaptation_factor": 1.5,
         "kl_coef_up_mult": 1.02,
         "kl_coef_down_div": 1.02,
+        "mle_warm_start_steps": 200,
+        "mle_warm_start_batch_size": 32,
+        "mle_warm_start_log_every": 50,
     },
 }
 

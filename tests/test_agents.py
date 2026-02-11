@@ -207,6 +207,8 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert preset_360m["target_ref_kl"] > 0.0
     assert preset_135m["advantage_mode"] == "ema_baseline"
     assert preset_360m["normalize_advantages"] is True
+    assert preset_135m["mle_warm_start_steps"] >= 100
+    assert preset_360m["mle_warm_start_batch_size"] > 0
 
     with pytest.raises(KeyError):
         get_lm_preset("any-env-id")

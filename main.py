@@ -156,6 +156,9 @@ if __name__ == "__main__":
             kl_adaptation_factor=float(args.kl_adaptation_factor),
             kl_coef_up_mult=float(args.kl_coef_up_mult),
             kl_coef_down_div=float(args.kl_coef_down_div),
+            mle_warm_start_steps=int(getattr(args, "mle_warm_start_steps", 0)),
+            mle_warm_start_batch_size=int(getattr(args, "mle_warm_start_batch_size", 32)),
+            mle_warm_start_log_every=int(getattr(args, "mle_warm_start_log_every", 50)),
             seed=int(args.seed),
         )
         _print_config("LMGRPOConfig", lm_config)

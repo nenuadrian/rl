@@ -52,6 +52,9 @@ class LMGRPOConfig:
     kl_adaptation_factor: float = 1.5
     kl_coef_up_mult: float = 1.02
     kl_coef_down_div: float = 1.02
+    mle_warm_start_steps: int = 0
+    mle_warm_start_batch_size: int = 32
+    mle_warm_start_log_every: int = 50
     seed: int = 0
 
 
@@ -176,6 +179,10 @@ class LMTrainer:
             reward += 0.5
         return reward
 
+    @staticmethod
+    def _build_target(problem: ArithmeticProblem) -> str:
+        return f"So {problem.a} + {problem.b} = {problem.answer}"
+
     def _sample_problem(self, min_operand: int, max_operand: int) -> ArithmeticProblem:
         a = self.train_rng.randint(min_operand, max_operand)
         b = self.train_rng.randint(min_operand, max_operand)
@@ -287,6 +294,7 @@ class LMTrainer:
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
+        generated = generated.detach()
 
         completion_ids = self._split_completions(generated, completion_start)
         completion_texts = self.tokenizer.batch_decode(
@@ -305,6 +313,13 @@ class LMTrainer:
             rewards=rewards,
             num_problems=len(problems),
         ).detach()
+        rewards_view = rewards.view(len(problems), self.config.group_size)
+        advantages_view = advantages.view(len(problems), self.config.group_size)
+        group_max = rewards_view.max(dim=1, keepdim=True).values
+        # A group has a unique winner when exactly one sample attains the group max reward.
+        unique_winner_frac = (rewards_view == group_max).sum(dim=1).eq(1).float().mean()
+        group_adv_abs_mean = advantages_view.abs().mean(dim=1).mean()
+        group_reward_var_mean = rewards_view.var(dim=1, unbiased=False).mean()
 
         generated_mask = torch.ones(
             generated.size(0),
@@ -337,6 +352,9 @@ class LMTrainer:
             "old_seq_log_probs": old_seq_log_probs,
             "advantages": advantages,
             "rewards": rewards.detach(),
+            "group_unique_winner_frac": unique_winner_frac.detach(),
+            "group_adv_abs_mean": group_adv_abs_mean.detach(),
+            "group_reward_var_mean": group_reward_var_mean.detach(),
         }
         return rollout, completion_texts
 
@@ -405,6 +423,9 @@ class LMTrainer:
         old_seq_log_probs = rollout["old_seq_log_probs"]
         advantages = rollout["advantages"]
         rewards = rollout["rewards"]
+        group_unique_winner_frac = rollout["group_unique_winner_frac"]
+        group_adv_abs_mean = rollout["group_adv_abs_mean"]
+        group_reward_var_mean = rollout["group_reward_var_mean"]
 
         total = int(input_ids.size(0))
         minibatch_size = min(self.config.minibatch_size, total)
@@ -495,6 +516,9 @@ class LMTrainer:
             "train/reward_max": reward_max,
             "train/reward_min": reward_min,
             "train/adv_std": advantage_std,
+            "train/group_unique_winner_frac": float(group_unique_winner_frac.item()),
+            "train/group_adv_abs_mean": float(group_adv_abs_mean.item()),
+            "train/group_reward_var_mean": float(group_reward_var_mean.item()),
             "train/reward_baseline": (
                 float(self.reward_baseline)
                 if self.reward_baseline is not None
@@ -548,6 +572,7 @@ class LMTrainer:
             "eval/accuracy": float(num_correct) / float(total),
             "eval/format_rate": float(num_format) / float(total),
             "eval/ten_plus_three_correct": ten_plus_three_correct,
+            "eval/return_max": float(num_correct) * 0.5 + float(num_format) * 0.5,
         }
 
     def _save_checkpoint(self, out_dir: Path, step: int) -> None:
@@ -558,12 +583,104 @@ class LMTrainer:
         self.model.save_pretrained(checkpoint_dir)
         self.tokenizer.save_pretrained(checkpoint_dir)
 
+    def mle_warm_start(self, num_steps: int, batch_size: int) -> None:
+        assert self.model is not None
+        assert self.reference_model is not None
+        assert self.tokenizer is not None
+        assert self.optimizer is not None
+        assert self.config is not None
+
+        if num_steps <= 0:
+            return
+
+        print(f"Starting MLE warm-start: steps={num_steps}, batch_size={batch_size}")
+        self.model.train()
+
+        for step in range(1, num_steps + 1):
+            problems = [
+                self._sample_problem(
+                    self.config.train_min_operand,
+                    self.config.train_max_operand,
+                )
+                for _ in range(batch_size)
+            ]
+            prompts = [self._build_prompt(problem) for problem in problems]
+            targets = [self._build_target(problem) for problem in problems]
+            full_texts = [prompt + target for prompt, target in zip(prompts, targets)]
+
+            encoded = self._tokenize_prompts(full_texts)
+            input_ids = encoded["input_ids"]
+            attention_mask = encoded["attention_mask"]
+            labels = input_ids.clone()
+            labels[attention_mask == 0] = -100
+
+            # Mask out prompt tokens per sample; only train on completion tokens.
+            full_seq_len = int(input_ids.size(1))
+            valid_lens = attention_mask.sum(dim=1).tolist()
+            prompt_lens = [
+                len(self.tokenizer(prompt, add_special_tokens=False)["input_ids"])
+                for prompt in prompts
+            ]
+            for i, prompt_len in enumerate(prompt_lens):
+                sample_start = full_seq_len - int(valid_lens[i])
+                completion_start = sample_start + int(prompt_len)
+                labels[i, :completion_start] = -100
+
+            outputs = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+            loss = outputs.loss
+
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(),
+                self.config.max_grad_norm,
+            )
+            self.optimizer.step()
+
+            if (
+                step == 1
+                or step == num_steps
+                or step % self.config.mle_warm_start_log_every == 0
+            ):
+                loss_val = float(loss.detach().item())
+                grad_val = float(torch.as_tensor(grad_norm).item())
+                print(
+                    f"[MLE warm-start] step={step}/{num_steps} "
+                    f"loss={loss_val:.4f} grad_norm={grad_val:.3f}"
+                )
+                log_wandb(
+                    {
+                        "warm_start/loss": loss_val,
+                        "warm_start/grad_norm": grad_val,
+                    },
+                    step=step,
+                    silent=True,
+                )
+
+        # Re-anchor KL reference to the warm-started model before RL updates.
+        self.reference_model.load_state_dict(self.model.state_dict())
+        self.reference_model.eval()
+        self.reference_model.requires_grad_(False)
+        self.kl_coef = self.config.kl_coef
+        self.reward_baseline = None
+        print("Completed MLE warm-start and refreshed RL reference model.")
+
     def train(self, out_dir: str) -> None:
         self._ensure_initialized()
         assert self.config is not None
 
         output_dir = Path(out_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.config.mle_warm_start_steps > 0:
+            self.mle_warm_start(
+                num_steps=self.config.mle_warm_start_steps,
+                batch_size=self.config.mle_warm_start_batch_size,
+            )
 
         for step in range(1, self.config.num_steps + 1):
             problems = self._sample_train_problems()
