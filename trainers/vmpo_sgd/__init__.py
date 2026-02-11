@@ -1,3 +1,3 @@
-from trainers.vmpo_sgd.trainer import Trainer
+from trainers.vmpo.trainer import VMPOTrainer as VMPOSGDTrainer
 
-__all__ = ["Trainer"]
+__all__ = ["VMPOSGDTrainer"]
