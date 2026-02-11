@@ -5,6 +5,13 @@ from typing import Any
 from hyperparameters._common import get_preset
 
 
+_VINE_GSM8K_PROMPT_TEMPLATE = (
+    "[MATH_TASK] Problem:\n"
+    "{query}\n\n"
+    "Solution:"
+)
+
+
 def _base_gsm8k_preset(model_name: str) -> dict[str, Any]:
     return {
         "model_name": model_name,
@@ -37,6 +44,13 @@ def _base_gsm8k_preset(model_name: str) -> dict[str, Any]:
         "eval_max_new_tokens": 192,
         "eval_every": 25,
         "eval_examples": 128,
+        "run_evaluation": False,
+        "eval_num_samples": 1,
+        "eval_do_sample": False,
+        "eval_temperature": 0.35,
+        "eval_top_p": 0.9,
+        "eval_top_k": 0,
+        "generation_stop_strings": ("\n\n\nProblem:",),
         "save_every": 250,
         "dataset_name": "openai/gsm8k",
         "dataset_config": "main",
@@ -44,12 +58,7 @@ def _base_gsm8k_preset(model_name: str) -> dict[str, Any]:
         "eval_split": "test",
         "train_subset_size": None,
         "eval_subset_size": 500,
-        "prompt_template": (
-            "Solve the following grade-school math problem. "
-            "Show your work, then end with `#### <number>`.\n\n"
-            "Question: {question}\n"
-            "Answer:"
-        ),
+        "prompt_template": _VINE_GSM8K_PROMPT_TEMPLATE,
         "reward_correct": 1.0,
         "reward_has_answer_tag": 0.1,
         "reward_parseable": 0.1,
@@ -82,13 +91,7 @@ _SMOLLM_GSM8K_STRONG_COMMON: dict[str, Any] = {
     "reward_correct": 2.0,
     "reward_has_answer_tag": 0.02,
     "reward_parseable": 0.02,
-    "prompt_template": (
-        "Solve the following grade-school math problem. "
-        "Keep reasoning concise (at most 4 short lines), and end with "
-        "`#### <number>` on the final line with no extra text.\n\n"
-        "Question: {question}\n"
-        "Answer:"
-    ),
+    "prompt_template": _VINE_GSM8K_PROMPT_TEMPLATE,
 }
 
 
@@ -102,6 +105,11 @@ _VINE_MATH_PPO_INSPIRED_OVERRIDES: dict[str, Any] = {
     "temperature": 0.6,
     "top_p": 0.9,
     "top_k": 0,
+    "eval_num_samples": 16,
+    "eval_do_sample": True,
+    "eval_temperature": 0.35,
+    "eval_top_p": 0.9,
+    "eval_top_k": 0,
     "reference_on_cpu": True,
 }
 
@@ -156,28 +164,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     ),
     "smollm-360m-gsm8k-baseline": _gsm8k_preset(
         "HuggingFaceTB/SmolLM-360M-Instruct"
-    ),
-    "smollm-135m-gsm8k-socratic": _gsm8k_preset(
-        "HuggingFaceTB/SmolLM-135M-Instruct",
-        **_SMOLLM_GSM8K_STRONG_COMMON,
-        dataset_config="socratic",
-        prompts_per_step=16,
-        minibatch_size=8,
-        max_new_tokens=112,
-        eval_max_new_tokens=128,
-        eval_examples=128,
-        save_every=200,
-    ),
-    "smollm-360m-gsm8k-socratic": _gsm8k_preset(
-        "HuggingFaceTB/SmolLM-360M-Instruct",
-        **_SMOLLM_GSM8K_STRONG_COMMON,
-        dataset_config="socratic",
-        prompts_per_step=24,
-        minibatch_size=8,
-        max_new_tokens=112,
-        eval_max_new_tokens=128,
-        eval_examples=128,
-        save_every=200,
     ),
     "deepseek-math-7b-base-gsm8k": _DEEPSEEK_MATH_7B_BASE_GSM8K,
     "deepseek-ai/deepseek-math-7b-base": _DEEPSEEK_MATH_7B_BASE_GSM8K,

@@ -116,9 +116,19 @@ if __name__ == "__main__":
         default=None,
         help="Device override: cpu, cuda, cuda:0, cuda:1, mps (or mp alias)",
     )
+    parser.add_argument(
+        "--run_evaluation",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Run evaluation-only mode where supported (currently PPO-LM). "
+            "Use --no-run_evaluation to force training mode."
+        ),
+    )
     args = parser.parse_args()
 
     cli_device_override = args.device
+    cli_run_evaluation_override = args.run_evaluation
 
     algo = args.command
     if algo is None:
@@ -129,6 +139,11 @@ if __name__ == "__main__":
 
     if cli_device_override is not None:
         args.device = cli_device_override
+
+    if cli_run_evaluation_override is not None:
+        args.run_evaluation = cli_run_evaluation_override
+    elif args.run_evaluation is None:
+        args.run_evaluation = False
 
     _print_resolved_args(args)
 
@@ -168,6 +183,7 @@ if __name__ == "__main__":
             init_lr_frac=args.init_lr_frac,
             eval_every=args.eval_every,
             eval_examples=args.eval_examples,
+            run_evaluation=bool(args.run_evaluation),
             save_every=args.save_every,
             model_step=args.model_step,
             dtype=args.dtype,

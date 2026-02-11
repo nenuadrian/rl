@@ -22,6 +22,7 @@ class ChatRLConfig:
     init_lr_frac: float = 0.05
     eval_every: int = 60
     eval_examples: int = 400
+    run_evaluation: bool = False
     save_every: int = 60
     model_step: int | None = None
     dtype: str = "bfloat16"

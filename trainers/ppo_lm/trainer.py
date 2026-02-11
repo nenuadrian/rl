@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 import random
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -14,14 +16,49 @@ from utils.wandb_utils import log_wandb
 
 
 ANSWER_RE = re.compile(r"#### (\-?[0-9\.,]+)")
+FIND_NUMBERS_REGEX = re.compile(
+    r"(?:[+-]?\d+\.\d*|[+-]?\.\d+|[+-]?\d+e[-+]?\d+|[+-]?\d+)"
+)
+
+
+def remove_text_between_symbols(text: str, start_symbol: str, end_symbol: str) -> str:
+    pattern = f"{re.escape(start_symbol)}.*?{re.escape(end_symbol)}"
+    return re.sub(pattern, "", text, flags=re.DOTALL)
+
+
+def _normalize_answer(answer: str) -> str:
+    return answer.strip().replace(",", "").lower()
 
 
 def extract_answer(completion: str) -> str | None:
-    match = ANSWER_RE.search(completion)
-    if not match:
+    if "####" in completion:
+        tail = completion.split("####")[-1].strip()
+        numbers = FIND_NUMBERS_REGEX.findall(tail.replace(",", ""))
+        if numbers:
+            return _normalize_answer(numbers[-1])
+        if tail:
+            return _normalize_answer(tail)
         return None
-    answer = match.group(1).strip().replace(",", "")
-    return answer
+
+    completion = completion.replace(",", "")
+    numbers = FIND_NUMBERS_REGEX.findall(completion)
+    if numbers:
+        return _normalize_answer(numbers[-1])
+
+    match = ANSWER_RE.search(completion)
+    return None if not match else _normalize_answer(match.group(1))
+
+
+def extract_gold_answer(answer: str) -> str | None:
+    cleaned_answer = remove_text_between_symbols(answer, "<<", ">>")
+    if "####" in cleaned_answer:
+        tail = cleaned_answer.split("####")[-1].strip()
+        numbers = FIND_NUMBERS_REGEX.findall(tail.replace(",", ""))
+        if numbers:
+            return _normalize_answer(numbers[-1])
+        if tail:
+            return _normalize_answer(tail)
+    return extract_answer(cleaned_answer)
 
 
 def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
@@ -115,6 +152,13 @@ class LMGRPOConfig:
     eval_every: int = 25
     eval_examples: int = 128
     save_every: int = 200
+    run_evaluation: bool = False
+    eval_num_samples: int = 1
+    eval_do_sample: bool = False
+    eval_temperature: float = 0.35
+    eval_top_p: float = 0.9
+    eval_top_k: int = 0
+    generation_stop_strings: tuple[str, ...] = ("\n\n\nProblem:",)
 
     dataset_name: str = "openai/gsm8k"
     dataset_config: str | None = "main"
@@ -124,10 +168,9 @@ class LMGRPOConfig:
     eval_subset_size: int | None = 512
 
     prompt_template: str = (
-        "Solve the following grade-school math problem. "
-        "Show your work, then end with `#### <number>`.\n\n"
-        "Question: {question}\n"
-        "Answer:"
+        "[MATH_TASK] Problem:\n"
+        "{query}\n\n"
+        "Solution:"
     )
 
     reward_correct: float = 1.0
@@ -151,6 +194,10 @@ class LMGRPOConfig:
             raise ValueError("max_new_tokens must be > 0")
         if self.eval_max_new_tokens <= 0:
             raise ValueError("eval_max_new_tokens must be > 0")
+        if self.eval_num_samples <= 0:
+            raise ValueError("eval_num_samples must be > 0")
+        if self.eval_do_sample and self.eval_temperature <= 0:
+            raise ValueError("eval_temperature must be > 0 when eval_do_sample is true")
 
 
 class AdaptiveKLController:
@@ -344,7 +391,7 @@ class PPOLMTrainer:
                 continue
             question = str(question_raw).strip()
             full_answer = str(answer_raw)
-            final_answer = extract_answer(full_answer)
+            final_answer = extract_gold_answer(full_answer)
             if not question or final_answer is None:
                 continue
             examples.append(
@@ -370,7 +417,10 @@ class PPOLMTrainer:
         return [examples[i] for i in indices[:subset_size]]
 
     def _build_prompt(self, example: GSM8KExample) -> str:
-        return self.config.prompt_template.format(question=example.question)
+        return self.config.prompt_template.format(
+            question=example.question,
+            query=example.question,
+        )
 
     def _sample_train_examples(self) -> list[GSM8KExample]:
         batch_size = self.config.prompts_per_step
@@ -408,12 +458,29 @@ class PPOLMTrainer:
             return []
         return [fallback]
 
+    def _truncate_text_at_stop_sequences(self, text: str) -> str:
+        earliest_idx: int | None = None
+        for stop_seq in self.config.generation_stop_strings:
+            if not stop_seq:
+                continue
+            idx = text.find(stop_seq)
+            if idx == -1:
+                continue
+            if earliest_idx is None or idx < earliest_idx:
+                earliest_idx = idx
+        if earliest_idx is None:
+            return text
+        return text[:earliest_idx]
+
     def _generate_responses(
         self,
         prompts: list[str],
         *,
         do_sample: bool,
         max_new_tokens: int,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ) -> tuple[list[list[int]], list[list[int]], list[str]]:
         assert self.model is not None
         assert self.tokenizer is not None
@@ -431,13 +498,18 @@ class PPOLMTrainer:
         generation_kwargs: dict[str, Any] = {
             "max_new_tokens": max_new_tokens,
             "do_sample": do_sample,
-            "temperature": self.config.temperature,
-            "top_p": self.config.top_p,
+            "temperature": (
+                float(self.config.temperature)
+                if temperature is None
+                else float(temperature)
+            ),
+            "top_p": float(self.config.top_p if top_p is None else top_p),
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
         }
-        if self.config.top_k > 0:
-            generation_kwargs["top_k"] = int(self.config.top_k)
+        top_k_value = self.config.top_k if top_k is None else top_k
+        if int(top_k_value) > 0:
+            generation_kwargs["top_k"] = int(top_k_value)
 
         with torch.no_grad():
             generated = self.model.generate(
@@ -455,12 +527,26 @@ class PPOLMTrainer:
             query_ids = input_ids[i][attention_mask[i].bool()].tolist()
             raw_response = generated[i, prompt_width:].tolist()
             trimmed_response = self._trim_response_tokens(raw_response)
+            decoded_response = self.tokenizer.decode(
+                trimmed_response,
+                skip_special_tokens=True,
+            )
+            truncated_response = self._truncate_text_at_stop_sequences(decoded_response)
+            truncated_response = truncated_response.strip()
+            truncated_ids = self.tokenizer.encode(
+                truncated_response,
+                add_special_tokens=False,
+            )
+
+            if not truncated_ids:
+                fallback_ids = trimmed_response[:1]
+                if not fallback_ids and self.tokenizer.eos_token_id is not None:
+                    fallback_ids = [int(self.tokenizer.eos_token_id)]
+                truncated_ids = fallback_ids
 
             query_token_ids.append(query_ids)
-            response_token_ids.append(trimmed_response)
-            response_texts.append(
-                self.tokenizer.decode(trimmed_response, skip_special_tokens=True)
-            )
+            response_token_ids.append(truncated_ids)
+            response_texts.append(truncated_response)
 
         return query_token_ids, response_token_ids, response_texts
 
@@ -482,6 +568,52 @@ class PPOLMTrainer:
             reward += self.config.reward_correct
 
         return float(reward), has_tag, is_correct, pred_answer
+
+    def _evaluate_candidate_group(
+        self,
+        example: GSM8KExample,
+        response_candidates: list[str],
+    ) -> dict[str, float]:
+        if not response_candidates:
+            return {
+                "once_hit": 0.0,
+                "correct_frac": 0.0,
+                "majority_vote_acc": 0.0,
+                "none_answer_extracted_frac": 1.0,
+                "unique_answer_count": 0.0,
+                "parseable_frac": 0.0,
+                "has_answer_tag_frac": 0.0,
+            }
+
+        answer_candidates = [extract_answer(resp) for resp in response_candidates]
+        grading_results = [
+            int(ans is not None and ans == example.final_answer) for ans in answer_candidates
+        ]
+        none_answer_extracted_frac = sum(ans is None for ans in answer_candidates) / len(
+            answer_candidates
+        )
+        parseable_frac = sum(ans is not None for ans in answer_candidates) / len(
+            answer_candidates
+        )
+        has_answer_tag_frac = sum("####" in resp for resp in response_candidates) / len(
+            response_candidates
+        )
+        once_hit = float(any(grading_results))
+        correct_frac = float(sum(grading_results) / len(grading_results))
+
+        majority_answer, _ = Counter(answer_candidates).most_common(n=1)[0]
+        majority_answer_index = answer_candidates.index(majority_answer)
+        majority_vote_acc = float(grading_results[majority_answer_index])
+
+        return {
+            "once_hit": once_hit,
+            "correct_frac": correct_frac,
+            "majority_vote_acc": majority_vote_acc,
+            "none_answer_extracted_frac": float(none_answer_extracted_frac),
+            "unique_answer_count": float(len(set(answer_candidates))),
+            "parseable_frac": float(parseable_frac),
+            "has_answer_tag_frac": float(has_answer_tag_frac),
+        }
 
     def _build_training_tensors(
         self,
@@ -761,6 +893,32 @@ class PPOLMTrainer:
             "prompts": prompts,
         }
 
+    def _generate_eval_candidates(
+        self,
+        prompts: list[str],
+    ) -> list[list[str]]:
+        if not prompts:
+            return []
+
+        num_samples = max(1, int(self.config.eval_num_samples))
+        expanded_prompts = [prompt for prompt in prompts for _ in range(num_samples)]
+        _, _, expanded_responses = self._generate_responses(
+            expanded_prompts,
+            do_sample=bool(self.config.eval_do_sample),
+            max_new_tokens=self.config.eval_max_new_tokens,
+            temperature=self.config.eval_temperature,
+            top_p=self.config.eval_top_p,
+            top_k=self.config.eval_top_k,
+        )
+
+        grouped: list[list[str]] = []
+        for idx in range(len(prompts)):
+            start = idx * num_samples
+            end = start + num_samples
+            grouped.append(expanded_responses[start:end])
+
+        return grouped
+
     def _optimize(self, rollout: dict[str, Any]) -> dict[str, float]:
         assert self.model is not None
         assert self.value_head is not None
@@ -943,33 +1101,38 @@ class PPOLMTrainer:
 
         examples = self._build_eval_examples(step)
         prompts = [self._build_prompt(ex) for ex in examples]
+        grouped_responses = self._generate_eval_candidates(prompts)
 
-        _, _, responses = self._generate_responses(
-            prompts,
-            do_sample=False,
-            max_new_tokens=self.config.eval_max_new_tokens,
+        eval_rows = [
+            self._evaluate_candidate_group(example, response_candidates)
+            for example, response_candidates in zip(examples, grouped_responses)
+        ]
+
+        n = max(len(eval_rows), 1)
+        once_hit = sum(row["once_hit"] for row in eval_rows) / n
+        correct_frac = sum(row["correct_frac"] for row in eval_rows) / n
+        majority_vote_acc = sum(row["majority_vote_acc"] for row in eval_rows) / n
+        none_answer_extracted_frac = (
+            sum(row["none_answer_extracted_frac"] for row in eval_rows) / n
         )
+        unique_answer_count = sum(row["unique_answer_count"] for row in eval_rows) / n
+        parseable_frac = sum(row["parseable_frac"] for row in eval_rows) / n
+        has_answer_tag_frac = sum(row["has_answer_tag_frac"] for row in eval_rows) / n
 
-        correct = 0
-        parseable = 0
-        has_tag = 0
-
-        for example, response in zip(examples, responses):
-            pred_answer = extract_answer(response)
-            parseable += int(pred_answer is not None)
-            has_tag += int("####" in response)
-            correct += int(
-                pred_answer is not None and pred_answer == example.final_answer
-            )
-
-        n = max(len(examples), 1)
         self.model.train()
 
         return {
-            "eval/accuracy": correct / n,
-            "eval/parseable_frac": parseable / n,
-            "eval/has_answer_tag_frac": has_tag / n,
-            "eval/return_max": correct / n,
+            "eval/accuracy": once_hit,
+            "eval/once_hit": once_hit,
+            "eval/correct_frac": correct_frac,
+            "eval/majority_vote_acc": majority_vote_acc,
+            "eval/none_answer_extracted_frac_per_problem": (
+                none_answer_extracted_frac
+            ),
+            "eval/unique_answer_count": unique_answer_count,
+            "eval/parseable_frac": parseable_frac,
+            "eval/has_answer_tag_frac": has_answer_tag_frac,
+            "eval/return_max": once_hit,
         }
 
     def _save_checkpoint(self, out_dir: Path, step: int) -> None:
@@ -995,7 +1158,44 @@ class PPOLMTrainer:
             checkpoint_dir / "ppo_state.pt",
         )
 
+    def run_evaluation(
+        self,
+        out_dir: str | None = None,
+        *,
+        step: int = 0,
+    ) -> dict[str, float]:
+        self._ensure_initialized()
+
+        metrics = self.evaluate(step=step)
+        log_wandb(metrics, step=step, silent=True)
+        metrics_display = ", ".join(
+            f"{name}={value:.4f}" for name, value in sorted(metrics.items())
+        )
+        print(f"evaluation step={step}: {metrics_display}")
+
+        if out_dir is not None:
+            output_dir = Path(out_dir)
+            eval_dir = output_dir / "evaluation"
+            eval_dir.mkdir(parents=True, exist_ok=True)
+            metrics_path = eval_dir / f"metrics_step_{step:06d}.json"
+            payload = {
+                "step": int(step),
+                "metrics": {k: float(v) for k, v in metrics.items()},
+                "config": asdict(self.config),
+            }
+            metrics_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            print(f"Saved evaluation metrics to {metrics_path}")
+
+        return metrics
+
     def train(self, out_dir: str) -> None:
+        if self.config.run_evaluation:
+            self.run_evaluation(out_dir=out_dir, step=0)
+            return
+
         self._ensure_initialized()
 
         output_dir = Path(out_dir)

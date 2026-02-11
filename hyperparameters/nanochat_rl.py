@@ -18,6 +18,7 @@ _NANOCHAT_DEFAULTS: dict[str, Any] = {
     "weight_decay": 0.0,
     "init_lr_frac": 0.05,
     "eval_examples": 400,
+    "run_evaluation": False,
     "save_every": 100,
     "model_step": None,
     "dtype": "bfloat16",

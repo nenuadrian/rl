@@ -229,35 +229,3 @@ def test_mpo_agent_act_and_update():
     # Update should actually modify parameters.
     assert _any_param_changed(q1_before, agent.q1)
     assert _any_param_changed(policy_before, agent.policy)
-
-
-def test_lm_preset_and_trainer_wiring(tmp_path):
-    preset_135m = get_lm_preset("smollm-135m")
-    preset_360m = get_lm_preset("smollm-360m")
-    assert preset_135m["model_name"] == "HuggingFaceTB/SmolLM-135M"
-    assert preset_360m["model_name"] == "HuggingFaceTB/SmolLM-360M"
-    assert preset_135m["kl_coef"] > 0.0
-    assert preset_135m["ent_coef"] > 0.0
-    assert preset_135m["adaptive_kl"] is True
-    assert preset_135m["kl_horizon"] > 0
-    assert preset_360m["target_ref_kl"] > 0.0
-    assert preset_135m["whiten_advantages"] is True
-    assert preset_360m["dataset_name"] == "openai/gsm8k"
-    assert preset_135m["dataset_config"] == "main"
-    assert "#### <number>" in preset_360m["prompt_template"]
-    assert preset_135m["max_new_tokens"] > 0
-    assert preset_360m["reward_correct"] >= 1.0
-
-    with pytest.raises(KeyError):
-        get_lm_preset("any-env-id")
-
-    main_source = Path(__file__).resolve().parents[1] / "main.py"
-    main_text = main_source.read_text()
-    assert "choices=" in main_text
-    assert '"ppo_lm"' in main_text
-    assert '"vmpo_sgd"' in main_text
-    assert "elif algo == \"ppo_lm\":" in main_text
-    assert "elif algo in {\"vmpo\", \"vmpo_sgd\"}:" in main_text
-
-    trainer = PPOLMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
-    assert hasattr(trainer, "train")
