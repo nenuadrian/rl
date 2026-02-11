@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import os
+import platform
 from pprint import pformat
 
 import torch
@@ -8,7 +9,21 @@ import torch
 from utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy_video
 
 
-def _load_preset(algo: str, domain: str, task: str) -> dict:
+def _default_mujoco_gl_backend() -> str:
+    """Choose a sane default backend by platform.
+
+    - macOS: `glfw` (EGL is typically unavailable)
+    - Linux: `egl` (common for headless rendering)
+    - Other: `glfw`
+    """
+    system = platform.system().lower()
+    if system == "darwin":
+        return "glfw"
+    if system == "linux":
+        return "egl"
+    return "glfw"
+
+
 def _load_preset(algo: str, env_id: str) -> dict:
     module = importlib.import_module(f"hyperparameters.{algo}")
     get_fn = getattr(module, "get", None)
@@ -33,14 +48,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "algo",
-        choices=["ppo", "vmpo", "mpo", "vmpo_parallel", "vmpo_light"],
+        choices=["ppo", "vmpo", "mpo"],
         help="Which algorithm's checkpoint to load.",
     )
     parser.add_argument(
         "--env",
         type=str,
         required=True,
-        help="Environment ID, e.g. dm_control/cheetah/run or HalfCheetah-v5",
     )
     parser.add_argument("--seed", type=int, default=42)
 
@@ -81,7 +95,7 @@ def main() -> None:
 
     _print_resolved_args(args)
 
-    os.environ.setdefault("MUJOCO_GL", "egl")
+    os.environ.setdefault("MUJOCO_GL", _default_mujoco_gl_backend())
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

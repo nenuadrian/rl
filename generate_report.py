@@ -178,7 +178,7 @@ def generate_report(
         ax.set_ylabel("eval/return_max")
         ax.set_title(f"{environment}")
         ax.legend()
-        fname = f"{environment}.png".replace("/", "_")
+        fname = f"{environment.lower()}.png".replace("/", "_")
         path = os.path.join(out_dir, fname)
         fig.tight_layout()
         fig.savefig(path)

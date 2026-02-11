@@ -10,7 +10,7 @@ import imageio
 import numpy as np
 import torch
 
-from utils.env import flatten_obs, infer_obs_dim, make_dm_control_env, set_seed
+from utils.env import flatten_obs, infer_obs_dim, make_env, set_seed
 
 
 @dataclass(frozen=True)
@@ -162,15 +162,18 @@ def render_policy_video(
             f"Checkpoint missing 'policy' key: {checkpoint_path}. Keys: {list(ckpt.keys())}"
         )
 
+    def _make_rgb_env(env_seed: int):
+        try:
+            return make_env(env_id, seed=env_seed, render_mode="rgb_array")
+        except ImportError as e:
+            # Common on macOS when MUJOCO_GL is set to egl.
+            if "Unable to load EGL library" in str(e):
+                os.environ["MUJOCO_GL"] = "glfw"
+                return make_env(env_id, seed=env_seed, render_mode="rgb_array")
+            raise
+
     # Build policy once
-    # Parse env_id for dm_control or gym style
-    if env_id.startswith("dm_control/"):
-        # e.g. dm_control/cheetah/run
-        _, domain, task = env_id.split("/")
-        dummy_env = make_dm_control_env(domain, task, seed=seed, render_mode="rgb_array")
-    else:
-        # e.g. HalfCheetah-v5
-        dummy_env = gym.make(env_id, render_mode="rgb_array")
+    dummy_env = _make_rgb_env(seed)
 
     if not isinstance(dummy_env.action_space, gym.spaces.Box):
         raise TypeError(
@@ -199,11 +202,7 @@ def render_policy_video(
     best_frames = []
 
     for attempt in range(num_attempts):
-        if env_id.startswith("dm_control/"):
-            _, domain, task = env_id.split("/")
-            env = make_dm_control_env(domain, task, seed=seed + attempt, render_mode="rgb_array")
-        else:
-            env = gym.make(env_id, render_mode="rgb_array")
+        env = _make_rgb_env(seed + attempt)
         frames: list[np.ndarray] = []
         total_reward = 0.0
         obs, _ = env.reset()
