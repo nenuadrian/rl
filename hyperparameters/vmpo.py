@@ -59,6 +59,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "rollout_steps": 8192,
         "updates_per_step": 6,
         "total_steps": 30_000_000,
+        "eval_interval": 20_000,
+        "save_interval": 200_000,
         "policy_layer_sizes": [512, 512],
         "value_layer_sizes": [1024, 512],
         "gamma": 0.995,
@@ -76,7 +78,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "popart_beta": 1e-4,
         "popart_eps": 1e-8,
         "popart_min_sigma": 1e-3,
-        "normalize_advantages": True,
+        "normalize_advantages": True
     },
     "dm_control/cartpole/swingup": {
         "num_envs": 1,
