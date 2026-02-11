@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hyperparameters._common import get_preset
 
 def _base_gsm8k_preset(model_name: str) -> dict[str, Any]:
     return {
@@ -56,36 +57,32 @@ def _base_gsm8k_preset(model_name: str) -> dict[str, Any]:
     }
 
 
+def _gsm8k_preset(model_name: str, **overrides: Any) -> dict[str, Any]:
+    return {
+        **_base_gsm8k_preset(model_name),
+        **overrides,
+    }
+
+
 PRESETS: dict[str, dict[str, Any]] = {
-    "smollm-135m": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
-    },
-    "smollm-360m": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
-    },
-    "smollm-135m-gsm8k": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
-    },
-    "smollm-360m-gsm8k": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
-    },
-    "smollm-135m-gsm8k-socratic": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
-        "dataset_config": "socratic",
-        "max_new_tokens": 192,
-        "eval_max_new_tokens": 224,
-    },
-    "smollm-360m-gsm8k-socratic": {
-        **_base_gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
-        "dataset_config": "socratic",
-        "max_new_tokens": 192,
-        "eval_max_new_tokens": 224,
-    },
+    "smollm-135m": _gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
+    "smollm-360m": _gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
+    "smollm-135m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-135M"),
+    "smollm-360m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-360M"),
+    "smollm-135m-gsm8k-socratic": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-135M",
+        dataset_config="socratic",
+        max_new_tokens=192,
+        eval_max_new_tokens=224,
+    ),
+    "smollm-360m-gsm8k-socratic": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-360M",
+        dataset_config="socratic",
+        max_new_tokens=192,
+        eval_max_new_tokens=224,
+    ),
 }
 
 
 def get(env_id: str) -> dict[str, Any]:
-    if env_id not in PRESETS:
-        available = ", ".join(sorted(PRESETS.keys()))
-        raise KeyError(f"No PPO-LM preset for {env_id}. Available: {available}")
-    return dict(PRESETS[env_id])
+    return get_preset(env_id=env_id, presets=PRESETS, algorithm_name="PPO-LM")
