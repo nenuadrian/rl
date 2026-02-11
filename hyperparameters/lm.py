@@ -7,7 +7,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "smollm-135m": {
         "model_name": "HuggingFaceTB/SmolLM-135M",
         "dtype": "bfloat16",
-        "learning_rate": 1e-6,
+        "learning_rate": 5e-6,
         "weight_decay": 0.0,
         "num_steps": 300,
         "prompts_per_step": 12,
