@@ -1,7 +1,7 @@
 import argparse
 import os
 import importlib
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from pprint import pformat
 
 import torch
@@ -182,60 +182,14 @@ if __name__ == "__main__":
         trainer = ChatRLTrainer(agent, chatrl_config, device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "lm":
-
-        lm_config = LMGRPOConfig(
-            model_name=str(args.model_name),
-            dtype=str(args.dtype),
-            learning_rate=float(args.learning_rate),
-            weight_decay=float(args.weight_decay),
-            num_steps=int(args.num_steps),
-            prompts_per_step=int(args.prompts_per_step),
-            ppo_epochs=int(args.ppo_epochs),
-            minibatch_size=int(args.minibatch_size),
-            clip_epsilon=float(args.clip_epsilon),
-            max_grad_norm=float(args.max_grad_norm),
-            ent_coef=float(args.ent_coef),
-            head_only_steps=int(getattr(args, "head_only_steps", 0)),
-            eval_every=int(args.eval_every),
-            eval_examples=int(args.eval_examples),
-            save_every=int(args.save_every),
-            reward_std_eps=float(args.reward_std_eps),
-            advantage_mode=str(args.advantage_mode),
-            normalize_advantages=bool(args.normalize_advantages),
-            baseline_momentum=float(args.baseline_momentum),
-            kl_coef=float(args.kl_coef),
-            kl_coef_min=float(args.kl_coef_min),
-            target_ref_kl=float(args.target_ref_kl),
-            kl_adaptation_factor=float(args.kl_adaptation_factor),
-            kl_coef_up_mult=float(args.kl_coef_up_mult),
-            kl_coef_down_div=float(args.kl_coef_down_div),
-            dataset_name=str(args.dataset_name),
-            dataset_config=(
-                None
-                if getattr(args, "dataset_config", None) is None
-                else str(args.dataset_config)
-            ),
-            train_split=str(args.train_split),
-            eval_split=str(args.eval_split),
-            text_key=str(args.text_key),
-            label_key=str(args.label_key),
-            negative_label_ids=tuple(int(v) for v in args.negative_label_ids),
-            positive_label_ids=tuple(int(v) for v in args.positive_label_ids),
-            prompt_template=str(args.prompt_template),
-            max_prompt_length=int(args.max_prompt_length),
-            train_subset_size=(
-                None
-                if getattr(args, "train_subset_size", None) is None
-                else int(args.train_subset_size)
-            ),
-            eval_subset_size=(
-                None
-                if getattr(args, "eval_subset_size", None) is None
-                else int(args.eval_subset_size)
-            ),
-            train_transformer=bool(args.train_transformer),
-            seed=int(args.seed),
-        )
+        lm_field_names = {f.name for f in fields(LMGRPOConfig)}
+        lm_kwargs = {
+            name: getattr(args, name)
+            for name in lm_field_names
+            if name != "seed" and hasattr(args, name)
+        }
+        lm_kwargs["seed"] = int(args.seed)
+        lm_config = LMGRPOConfig(**lm_kwargs)
         _print_config("LMGRPOConfig", lm_config)
 
         trainer = PPOLMTrainer(config=lm_config, device=device)

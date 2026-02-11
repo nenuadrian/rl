@@ -238,17 +238,15 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert preset_360m["model_name"] == "HuggingFaceTB/SmolLM-360M"
     assert preset_135m["kl_coef"] > 0.0
     assert preset_135m["ent_coef"] > 0.0
-    assert preset_135m["head_only_steps"] >= 0
-    assert preset_135m["kl_coef_min"] >= 1e-3
-    assert preset_135m["kl_coef_up_mult"] <= 1.05
+    assert preset_135m["adaptive_kl"] is True
+    assert preset_135m["kl_horizon"] > 0
     assert preset_360m["target_ref_kl"] > 0.0
-    assert preset_135m["advantage_mode"] == "ema_baseline"
-    assert preset_360m["normalize_advantages"] is True
-    assert preset_135m["dataset_name"] == "glue"
-    assert preset_135m["dataset_config"] == "sst2"
-    assert preset_360m["prompt_template"].startswith("Sentence:")
-    assert tuple(preset_135m["negative_label_ids"]) == (0,)
-    assert tuple(preset_360m["positive_label_ids"]) == (1,)
+    assert preset_135m["whiten_advantages"] is True
+    assert preset_360m["dataset_name"] == "openai/gsm8k"
+    assert preset_135m["dataset_config"] == "main"
+    assert "#### <number>" in preset_360m["prompt_template"]
+    assert preset_135m["max_new_tokens"] > 0
+    assert preset_360m["reward_correct"] >= 1.0
 
     with pytest.raises(KeyError):
         get_lm_preset("any-env-id")

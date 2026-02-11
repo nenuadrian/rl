@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import copy
+import re
 import random
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,53 +13,15 @@ import torch.nn.functional as F
 from utils.wandb_utils import log_wandb
 
 
-@dataclass(frozen=True)
-class BinaryExample:
-    text: str
-    label: int  # 0 -> negative, 1 -> positive
+ANSWER_RE = re.compile(r"#### (\-?[0-9\.,]+)")
 
 
-@dataclass
-class LMGRPOConfig:
-    model_name: str
-    dtype: str = "bfloat16"
-    learning_rate: float = 1e-6
-    weight_decay: float = 0.0
-    num_steps: int = 1000
-    prompts_per_step: int = 32
-    ppo_epochs: int = 4
-    minibatch_size: int = 32
-    clip_epsilon: float = 0.2
-    max_grad_norm: float = 1.0
-    ent_coef: float = 1e-3
-    head_only_steps: int = 0
-    eval_every: int = 25
-    eval_examples: int = 256
-    save_every: int = 200
-    reward_std_eps: float = 1e-6
-    advantage_mode: str = "ema_baseline"
-    normalize_advantages: bool = True
-    baseline_momentum: float = 0.9
-    kl_coef: float = 0.02
-    kl_coef_min: float = 1e-3
-    target_ref_kl: float = 0.08
-    kl_adaptation_factor: float = 1.5
-    kl_coef_up_mult: float = 1.02
-    kl_coef_down_div: float = 1.02
-    seed: int = 0
-    dataset_name: str = "glue"
-    dataset_config: str | None = "sst2"
-    train_split: str = "train"
-    eval_split: str = "validation"
-    text_key: str = "sentence"
-    label_key: str = "label"
-    negative_label_ids: tuple[int, ...] = (0,)
-    positive_label_ids: tuple[int, ...] = (1,)
-    prompt_template: str = "Sentence: {text}\nSentiment:"
-    max_prompt_length: int = 256
-    train_subset_size: int | None = None
-    eval_subset_size: int | None = 4096
-    train_transformer: bool = True
+def extract_answer(completion: str) -> str | None:
+    match = ANSWER_RE.search(completion)
+    if not match:
+        return None
+    answer = match.group(1).strip().replace(",", "")
+    return answer
 
 
 def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
@@ -74,10 +36,147 @@ def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
     raise ValueError(f"Unsupported LM dtype: {dtype_name}")
 
 
-class PPOLMTrainer:
-    """Single-GPU PPO trainer with an explicit 2-logit classification head."""
+def _disable_dropout(module: nn.Module) -> None:
+    for child in module.modules():
+        if isinstance(child, nn.Dropout):
+            child.p = 0.0
 
-    ACTION_TEXT = {0: "negative", 1: "positive"}
+
+def masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    denom = mask.sum().clamp(min=1.0)
+    return (values * mask).sum() / denom
+
+
+def masked_var(
+    values: torch.Tensor, mask: torch.Tensor, unbiased: bool = False
+) -> torch.Tensor:
+    mean = masked_mean(values, mask)
+    centered = (values - mean) * mask
+    denom = mask.sum().clamp(min=1.0)
+    variance = centered.pow(2).sum() / denom
+    if unbiased:
+        count = mask.sum()
+        if count > 1:
+            variance = variance * (count / (count - 1.0))
+    return variance
+
+
+def masked_whiten(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    mean = masked_mean(values, mask)
+    variance = masked_var(values, mask, unbiased=True)
+    return (values - mean) * torch.rsqrt(variance + 1e-8)
+
+
+@dataclass(frozen=True)
+class GSM8KExample:
+    question: str
+    full_answer: str
+    final_answer: str
+
+
+@dataclass
+class LMGRPOConfig:
+    model_name: str
+    tokenizer_name: str | None = None
+    dtype: str = "bfloat16"
+
+    learning_rate: float = 2e-6
+    weight_decay: float = 0.0
+    adam_eps: float = 1e-8
+
+    num_steps: int = 1000
+    prompts_per_step: int = 16
+    ppo_epochs: int = 4
+    minibatch_size: int = 8
+
+    clip_epsilon: float = 0.2
+    cliprange_value: float = 0.2
+    vf_coef: float = 0.1
+    ent_coef: float = 5e-4
+    max_grad_norm: float = 1.0
+
+    gamma: float = 1.0
+    lam: float = 0.95
+    whiten_advantages: bool = True
+    whiten_rewards: bool = False
+
+    kl_coef: float = 0.02
+    adaptive_kl: bool = True
+    target_ref_kl: float = 0.08
+    kl_horizon: int = 10_000
+
+    temperature: float = 1.0
+    top_p: float = 0.95
+    top_k: int = 50
+    max_prompt_length: int = 384
+    max_new_tokens: int = 160
+    eval_max_new_tokens: int = 192
+
+    eval_every: int = 25
+    eval_examples: int = 128
+    save_every: int = 200
+
+    dataset_name: str = "openai/gsm8k"
+    dataset_config: str | None = "main"
+    train_split: str = "train"
+    eval_split: str = "test"
+    train_subset_size: int | None = None
+    eval_subset_size: int | None = 512
+
+    prompt_template: str = (
+        "Solve the following grade-school math problem. "
+        "Show your work, then end with `#### <number>`.\n\n"
+        "Question: {question}\n"
+        "Answer:"
+    )
+
+    reward_correct: float = 1.0
+    reward_has_answer_tag: float = 0.1
+    reward_parseable: float = 0.1
+    reward_wrong: float = 0.0
+
+    reference_on_cpu: bool = False
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        if self.prompts_per_step <= 0:
+            raise ValueError("prompts_per_step must be > 0")
+        if self.minibatch_size <= 0:
+            raise ValueError("minibatch_size must be > 0")
+        if self.ppo_epochs <= 0:
+            raise ValueError("ppo_epochs must be > 0")
+        if self.temperature <= 0:
+            raise ValueError("temperature must be > 0")
+        if self.max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be > 0")
+        if self.eval_max_new_tokens <= 0:
+            raise ValueError("eval_max_new_tokens must be > 0")
+
+
+class AdaptiveKLController:
+    def __init__(self, init_kl_coef: float, target: float, horizon: int):
+        self.value = float(init_kl_coef)
+        self.target = float(target)
+        self.horizon = int(horizon)
+
+    def update(self, current: float, n_steps: int) -> None:
+        if self.target <= 0 or self.horizon <= 0:
+            return
+        proportional_error = float(max(min((current / self.target) - 1.0, 0.2), -0.2))
+        mult = 1.0 + (proportional_error * n_steps / self.horizon)
+        self.value *= mult
+
+
+class FixedKLController:
+    def __init__(self, kl_coef: float):
+        self.value = float(kl_coef)
+
+    def update(self, current: float, n_steps: int) -> None:
+        return
+
+
+class PPOLMTrainer:
+    """Single-process PPO trainer for causal LMs token-level PPO flow."""
 
     def __init__(
         self,
@@ -88,34 +187,39 @@ class PPOLMTrainer:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         self.config = config
-        seed = self.config.seed
-        self.train_rng = random.Random(seed)
+        self.train_rng = random.Random(self.config.seed)
+
         self.model: Any | None = None
         self.reference_model: Any | None = None
-        self.policy_head: nn.Linear | None = None
-        self.reference_policy_head: nn.Linear | None = None
-        self.tokenizer: Any | None = None
+        self.value_head: nn.Linear | None = None
         self.optimizer: torch.optim.Optimizer | None = None
-        self.trainable_params: list[nn.Parameter] = []
-        self.kl_coef: float = self.config.kl_coef
-        self.reward_baseline: float | None = None
-        self.train_examples: list[BinaryExample] = []
-        self.eval_examples_pool: list[BinaryExample] = []
-        self.transformer_trainable: bool = False
+        self.tokenizer: Any | None = None
 
-        if self.config.head_only_steps < 0:
-            raise ValueError(
-                f"head_only_steps must be non-negative, got {self.config.head_only_steps}."
+        self.train_examples: list[GSM8KExample] = []
+        self.eval_examples_pool: list[GSM8KExample] = []
+
+        if self.config.adaptive_kl:
+            self.kl_controller: AdaptiveKLController | FixedKLController = (
+                AdaptiveKLController(
+                    init_kl_coef=self.config.kl_coef,
+                    target=self.config.target_ref_kl,
+                    horizon=self.config.kl_horizon,
+                )
             )
+        else:
+            self.kl_controller = FixedKLController(self.config.kl_coef)
+
+    @property
+    def kl_coef(self) -> float:
+        return float(self.kl_controller.value)
 
     def _ensure_initialized(self) -> None:
         if (
             self.model is not None
             and self.reference_model is not None
-            and self.policy_head is not None
-            and self.reference_policy_head is not None
-            and self.tokenizer is not None
+            and self.value_head is not None
             and self.optimizer is not None
+            and self.tokenizer is not None
             and self.train_examples
             and self.eval_examples_pool
         ):
@@ -125,42 +229,50 @@ class PPOLMTrainer:
             from datasets import load_dataset
         except ImportError as exc:
             raise RuntimeError(
-                "datasets is required for LM classification training. Install with `pip install datasets`."
+                "datasets is required for PPO LM training. Install with `pip install datasets`."
             ) from exc
 
         try:
-            from transformers import AutoModel, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
-                "transformers is required for LM training. Install with `pip install transformers`."
+                "transformers is required for PPO LM training. Install with `pip install transformers`."
             ) from exc
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model_name,
-            use_fast=True,
-        )
-        tokenizer.padding_side = "right"
+        tokenizer_name = self.config.tokenizer_name or self.config.model_name
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
+        tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             if tokenizer.eos_token is None:
                 raise ValueError(
-                    "Tokenizer must define either a pad token or EOS token."
+                    "Tokenizer must define a pad token or EOS token for generation."
                 )
             tokenizer.pad_token = tokenizer.eos_token
 
-        model_dtype = _resolve_dtype(self.config.dtype, self.device)
-        model = AutoModel.from_pretrained(
-            self.config.model_name,
-            torch_dtype=model_dtype,
+        actor_dtype = _resolve_dtype(self.config.dtype, self.device)
+        ref_device = (
+            torch.device("cpu") if self.config.reference_on_cpu else self.device
         )
-        reference_model = AutoModel.from_pretrained(
+        ref_dtype = torch.float32 if ref_device.type == "cpu" else actor_dtype
+
+        model = AutoModelForCausalLM.from_pretrained(
             self.config.model_name,
-            torch_dtype=model_dtype,
+            torch_dtype=actor_dtype,
         )
+        reference_model = AutoModelForCausalLM.from_pretrained(
+            self.config.model_name,
+            torch_dtype=ref_dtype,
+        )
+
         model.to(self.device)
-        reference_model.to(self.device)
+        reference_model.to(ref_device)
         model.train()
         reference_model.eval()
         reference_model.requires_grad_(False)
+
+        _disable_dropout(model)
+        _disable_dropout(reference_model)
+
         if hasattr(model.config, "use_cache"):
             model.config.use_cache = False
         if hasattr(reference_model.config, "use_cache"):
@@ -171,121 +283,85 @@ class PPOLMTrainer:
             hidden_size = getattr(model.config, "n_embd", None)
         if hidden_size is None:
             raise ValueError(
-                f"Unable to infer hidden size from model config for {self.config.model_name}."
+                f"Could not infer hidden size from model config for {self.config.model_name}."
             )
 
-        policy_head = nn.Linear(int(hidden_size), 2, bias=True).to(self.device)
-        reference_policy_head = nn.Linear(int(hidden_size), 2, bias=True).to(self.device)
-        reference_policy_head.load_state_dict(policy_head.state_dict())
-        reference_policy_head.eval()
-        reference_policy_head.requires_grad_(False)
+        value_head = nn.Linear(int(hidden_size), 1, bias=True).to(self.device)
 
-        self.transformer_trainable = bool(
-            self.config.train_transformer and self.config.head_only_steps <= 0
+        params: list[nn.Parameter] = list(model.parameters()) + list(
+            value_head.parameters()
         )
-        model.requires_grad_(self.transformer_trainable)
+        optimizer = torch.optim.AdamW(
+            params,
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay,
+            eps=self.config.adam_eps,
+        )
 
         dataset = load_dataset(
             path=self.config.dataset_name,
             name=self.config.dataset_config,
         )
-        train_split = dataset[self.config.train_split]
-        eval_split = dataset[self.config.eval_split]
+        train_rows = list(dataset[self.config.train_split])
+        eval_rows = list(dataset[self.config.eval_split])
 
-        train_examples = self._build_examples_from_rows(list(train_split))
-        eval_examples_pool = self._build_examples_from_rows(list(eval_split))
+        train_examples = self._build_examples_from_rows(train_rows)
+        eval_examples = self._build_examples_from_rows(eval_rows)
+
         train_examples = self._maybe_subsample(
             train_examples,
-            self.config.train_subset_size,
+            subset_size=self.config.train_subset_size,
             seed=self.config.seed,
         )
-        eval_examples_pool = self._maybe_subsample(
-            eval_examples_pool,
-            self.config.eval_subset_size,
+        eval_examples = self._maybe_subsample(
+            eval_examples,
+            subset_size=self.config.eval_subset_size,
             seed=self.config.seed + 1,
         )
+
         if not train_examples:
-            raise ValueError("No valid binary training examples were found.")
-        if not eval_examples_pool:
-            raise ValueError("No valid binary evaluation examples were found.")
+            raise ValueError("No valid training examples were built from the dataset.")
+        if not eval_examples:
+            raise ValueError("No valid eval examples were built from the dataset.")
 
         self.model = model
         self.reference_model = reference_model
-        self.policy_head = policy_head
-        self.reference_policy_head = reference_policy_head
+        self.value_head = value_head
+        self.optimizer = optimizer
         self.tokenizer = tokenizer
-        self.optimizer, self.trainable_params = self._build_optimizer(
-            include_transformer=self.transformer_trainable
-        )
         self.train_examples = train_examples
-        self.eval_examples_pool = eval_examples_pool
+        self.eval_examples_pool = eval_examples
 
-    def _build_optimizer(
+    def _build_examples_from_rows(
         self,
-        include_transformer: bool,
-        previous_optimizer: torch.optim.Optimizer | None = None,
-        preserve_shared_state: bool = False,
-    ) -> tuple[torch.optim.Optimizer, list[nn.Parameter]]:
-        assert self.policy_head is not None
-        assert self.model is not None
-
-        trainable_params: list[nn.Parameter] = list(self.policy_head.parameters())
-        if include_transformer:
-            trainable_params.extend(self.model.parameters())
-
-        optimizer = torch.optim.AdamW(
-            trainable_params,
-            lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay,
-        )
-        if preserve_shared_state and previous_optimizer is not None:
-            old_state = previous_optimizer.state
-            for param in trainable_params:
-                if param in old_state:
-                    optimizer.state[param] = copy.deepcopy(old_state[param])
-        return optimizer, trainable_params
-
-    def _set_transformer_trainable(self, enabled: bool, step: int) -> None:
-        assert self.model is not None
-        assert self.optimizer is not None
-        if self.transformer_trainable == enabled:
-            return
-        old_optimizer = self.optimizer
-        self.model.requires_grad_(enabled)
-        self.optimizer, self.trainable_params = self._build_optimizer(
-            include_transformer=enabled,
-            previous_optimizer=old_optimizer,
-            preserve_shared_state=True,
-        )
-        self.transformer_trainable = enabled
-        phase = "head+transformer" if enabled else "head-only"
-        print(
-            f"step={step} switched LM PPO training phase to {phase} "
-            "(optimizer rebuilt; new params start with fresh state)"
-        )
-
-    def _build_examples_from_rows(self, rows: list[dict[str, Any]]) -> list[BinaryExample]:
-        examples: list[BinaryExample] = []
+        rows: list[dict[str, Any]],
+    ) -> list[GSM8KExample]:
+        examples: list[GSM8KExample] = []
         for row in rows:
-            text_raw = row.get(self.config.text_key)
-            label_raw = row.get(self.config.label_key)
-            if text_raw is None or label_raw is None:
+            question_raw = row.get("question")
+            answer_raw = row.get("answer")
+            if question_raw is None or answer_raw is None:
                 continue
-            text = str(text_raw).strip()
-            if not text:
+            question = str(question_raw).strip()
+            full_answer = str(answer_raw)
+            final_answer = extract_answer(full_answer)
+            if not question or final_answer is None:
                 continue
-            label = self._map_label_to_binary(int(label_raw))
-            if label is None:
-                continue
-            examples.append(BinaryExample(text=text, label=label))
+            examples.append(
+                GSM8KExample(
+                    question=question,
+                    full_answer=full_answer,
+                    final_answer=final_answer,
+                )
+            )
         return examples
 
     @staticmethod
     def _maybe_subsample(
-        examples: list[BinaryExample],
+        examples: list[GSM8KExample],
         subset_size: int | None,
         seed: int,
-    ) -> list[BinaryExample]:
+    ) -> list[GSM8KExample]:
         if subset_size is None or subset_size <= 0 or subset_size >= len(examples):
             return examples
         rng = random.Random(seed)
@@ -293,30 +369,17 @@ class PPOLMTrainer:
         rng.shuffle(indices)
         return [examples[i] for i in indices[:subset_size]]
 
-    def _map_label_to_binary(self, raw_label: int) -> int | None:
-        negative = set(int(v) for v in self.config.negative_label_ids)
-        positive = set(int(v) for v in self.config.positive_label_ids)
-        if not negative or not positive:
-            raise ValueError("Both negative_label_ids and positive_label_ids must be set.")
-        if negative & positive:
-            raise ValueError("negative_label_ids and positive_label_ids must be disjoint.")
-        if raw_label in negative:
-            return 0
-        if raw_label in positive:
-            return 1
-        return None
+    def _build_prompt(self, example: GSM8KExample) -> str:
+        return self.config.prompt_template.format(question=example.question)
 
-    def _build_prompt(self, example: BinaryExample) -> str:
-        return self.config.prompt_template.format(text=example.text)
-
-    def _sample_train_examples(self) -> list[BinaryExample]:
+    def _sample_train_examples(self) -> list[GSM8KExample]:
         batch_size = self.config.prompts_per_step
         if len(self.train_examples) >= batch_size:
             return self.train_rng.sample(self.train_examples, batch_size)
         return [self.train_rng.choice(self.train_examples) for _ in range(batch_size)]
 
-    def _build_eval_examples(self, step: int) -> list[BinaryExample]:
-        rng = random.Random(self.config.seed + (step * 104729))
+    def _build_eval_examples(self, step: int) -> list[GSM8KExample]:
+        rng = random.Random(self.config.seed + (step * 104_729))
         total = min(self.config.eval_examples, len(self.eval_examples_pool))
         if total <= 0:
             raise ValueError("eval_examples must be > 0")
@@ -324,8 +387,37 @@ class PPOLMTrainer:
         rng.shuffle(indices)
         return [self.eval_examples_pool[i] for i in indices[:total]]
 
-    def _tokenize_prompts(self, prompts: list[str]) -> dict[str, torch.Tensor]:
+    def _trim_response_tokens(self, generated: list[int]) -> list[int]:
         assert self.tokenizer is not None
+        pad_id = self.tokenizer.pad_token_id
+        eos_id = self.tokenizer.eos_token_id
+
+        trimmed: list[int] = []
+        for tok in generated:
+            if pad_id is not None and tok == pad_id:
+                break
+            trimmed.append(tok)
+            if eos_id is not None and tok == eos_id:
+                break
+
+        if trimmed:
+            return trimmed
+
+        fallback = eos_id if eos_id is not None else pad_id
+        if fallback is None:
+            return []
+        return [fallback]
+
+    def _generate_responses(
+        self,
+        prompts: list[str],
+        *,
+        do_sample: bool,
+        max_new_tokens: int,
+    ) -> tuple[list[list[int]], list[list[int]], list[str]]:
+        assert self.model is not None
+        assert self.tokenizer is not None
+
         encoded = self.tokenizer(
             prompts,
             return_tensors="pt",
@@ -333,301 +425,574 @@ class PPOLMTrainer:
             truncation=True,
             max_length=self.config.max_prompt_length,
         )
-        return {k: v.to(self.device) for k, v in encoded.items()}
+        input_ids = encoded["input_ids"].to(self.device)
+        attention_mask = encoded["attention_mask"].to(self.device)
 
-    @staticmethod
-    def _last_token_hidden(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        last_idx = attention_mask.sum(dim=1).clamp(min=1).to(dtype=torch.long) - 1
-        batch_idx = torch.arange(hidden.size(0), device=hidden.device, dtype=torch.long)
-        return hidden[batch_idx, last_idx]
+        generation_kwargs: dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+        if self.config.top_k > 0:
+            generation_kwargs["top_k"] = int(self.config.top_k)
 
-    def _policy_logits(
+        with torch.no_grad():
+            generated = self.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **generation_kwargs,
+            )
+
+        prompt_width = int(input_ids.size(1))
+        query_token_ids: list[list[int]] = []
+        response_token_ids: list[list[int]] = []
+        response_texts: list[str] = []
+
+        for i in range(len(prompts)):
+            query_ids = input_ids[i][attention_mask[i].bool()].tolist()
+            raw_response = generated[i, prompt_width:].tolist()
+            trimmed_response = self._trim_response_tokens(raw_response)
+
+            query_token_ids.append(query_ids)
+            response_token_ids.append(trimmed_response)
+            response_texts.append(
+                self.tokenizer.decode(trimmed_response, skip_special_tokens=True)
+            )
+
+        return query_token_ids, response_token_ids, response_texts
+
+    def _score_response(
         self,
-        model: Any,
-        head: nn.Linear,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        hidden = outputs.last_hidden_state
-        state = self._last_token_hidden(hidden=hidden, attention_mask=attention_mask)
-        return head(state.float())
+        example: GSM8KExample,
+        response_text: str,
+    ) -> tuple[float, bool, bool, str | None]:
+        pred_answer = extract_answer(response_text)
+        has_tag = "####" in response_text
+        is_correct = pred_answer is not None and pred_answer == example.final_answer
 
-    @staticmethod
-    def _categorical_kl(
-        policy_logits: torch.Tensor,
-        reference_logits: torch.Tensor,
-    ) -> torch.Tensor:
-        policy_log_probs = F.log_softmax(policy_logits.float(), dim=-1)
-        reference_log_probs = F.log_softmax(reference_logits.float(), dim=-1)
-        policy_probs = policy_log_probs.exp()
-        return (policy_probs * (policy_log_probs - reference_log_probs)).sum(dim=-1)
+        reward = self.config.reward_wrong
+        if has_tag:
+            reward += self.config.reward_has_answer_tag
+        if pred_answer is not None:
+            reward += self.config.reward_parseable
+        if is_correct:
+            reward += self.config.reward_correct
 
-    def _collect_rollout(
+        return float(reward), has_tag, is_correct, pred_answer
+
+    def _build_training_tensors(
         self,
-        examples: list[BinaryExample],
-    ) -> tuple[dict[str, torch.Tensor], list[str]]:
-        assert self.model is not None
-        assert self.reference_model is not None
-        assert self.policy_head is not None
-        assert self.reference_policy_head is not None
+        episodes: list[dict[str, Any]],
+    ) -> dict[str, torch.Tensor]:
+        assert self.tokenizer is not None
+        pad_id = int(self.tokenizer.pad_token_id)
 
-        prompts = [self._build_prompt(example) for example in examples]
-        encoded = self._tokenize_prompts(prompts)
-        labels = torch.tensor(
-            [example.label for example in examples],
+        max_seq_len = max(
+            len(ep["query_token_ids"]) + len(ep["response_token_ids"])
+            for ep in episodes
+        )
+
+        batch_size = len(episodes)
+        input_ids = torch.full(
+            (batch_size, max_seq_len),
+            fill_value=pad_id,
+            dtype=torch.long,
+            device=self.device,
+        )
+        labels = torch.full(
+            (batch_size, max_seq_len),
+            fill_value=-100,
+            dtype=torch.long,
+            device=self.device,
+        )
+        attention_mask = torch.zeros(
+            (batch_size, max_seq_len),
             dtype=torch.long,
             device=self.device,
         )
 
-        with torch.no_grad():
-            old_logits = self._policy_logits(
-                self.model,
-                self.policy_head,
-                input_ids=encoded["input_ids"],
-                attention_mask=encoded["attention_mask"],
-            )
-            dist = torch.distributions.Categorical(logits=old_logits)
-            actions = dist.sample()
-            old_log_probs = dist.log_prob(actions).detach()
-            reference_logits = self._policy_logits(
-                self.reference_model,
-                self.reference_policy_head,
-                input_ids=encoded["input_ids"],
-                attention_mask=encoded["attention_mask"],
-            ).detach()
-
-        rewards = (actions == labels).to(dtype=torch.float32)
-        advantages = self._compute_advantages(rewards=rewards).detach()
-        sampled_texts = [self.ACTION_TEXT[int(a.item())] for a in actions]
-
-        rollout = {
-            "input_ids": encoded["input_ids"].detach(),
-            "attention_mask": encoded["attention_mask"].detach(),
-            "labels": labels.detach(),
-            "actions": actions.detach(),
-            "old_log_probs": old_log_probs.detach(),
-            "reference_logits": reference_logits,
-            "advantages": advantages,
-            "rewards": rewards.detach(),
-        }
-        return rollout, sampled_texts
-
-    def _compute_advantages(self, rewards: torch.Tensor) -> torch.Tensor:
-        mode = self.config.advantage_mode
-        if mode == "batch_norm":
-            mean = rewards.mean()
-            std = rewards.std(unbiased=False)
-            return (rewards - mean) / (std + self.config.reward_std_eps)
-
-        if mode == "ema_baseline":
-            batch_mean = float(rewards.mean().item())
-            if self.reward_baseline is None:
-                self.reward_baseline = batch_mean
-            else:
-                m = self.config.baseline_momentum
-                self.reward_baseline = (m * self.reward_baseline) + (
-                    (1.0 - m) * batch_mean
-                )
-            advantages = rewards - float(self.reward_baseline)
-            if self.config.normalize_advantages:
-                std = advantages.std(unbiased=False)
-                advantages = advantages / (std + self.config.reward_std_eps)
-            return advantages
-
-        if mode == "raw":
-            return rewards
-
-        raise ValueError(
-            f"Unsupported advantage_mode: {mode}. "
-            "Use one of: raw, batch_norm, ema_baseline."
+        scores = torch.tensor(
+            [float(ep["score"]) for ep in episodes],
+            dtype=torch.float32,
+            device=self.device,
         )
 
-    def _optimize(self, rollout: dict[str, torch.Tensor]) -> dict[str, float]:
+        for i, ep in enumerate(episodes):
+            query_ids = ep["query_token_ids"]
+            response_ids = ep["response_token_ids"]
+            sequence = query_ids + response_ids
+            q_len = len(query_ids)
+            seq_len = len(sequence)
+
+            input_ids[i, :seq_len] = torch.tensor(
+                sequence, dtype=torch.long, device=self.device
+            )
+            labels[i, q_len:seq_len] = torch.tensor(
+                response_ids, dtype=torch.long, device=self.device
+            )
+            attention_mask[i, :seq_len] = 1
+
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": attention_mask,
+            "scores": scores,
+        }
+
+    @staticmethod
+    def _token_logprobs_from_logits(
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        shift_logits = logits[:, :-1, :]
+        shift_labels = labels[:, 1:]
+
+        action_mask = (shift_labels != -100).to(dtype=shift_logits.dtype)
+        safe_labels = shift_labels.masked_fill(shift_labels == -100, 0)
+
+        log_probs = F.log_softmax(shift_logits.float(), dim=-1)
+        token_log_probs = log_probs.gather(
+            dim=2, index=safe_labels.unsqueeze(2)
+        ).squeeze(2)
+        token_log_probs = token_log_probs * action_mask
+        return token_log_probs, action_mask
+
+    @staticmethod
+    def _token_entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
+        log_probs = F.log_softmax(logits.float(), dim=-1)
+        probs = log_probs.exp()
+        return -(probs * log_probs).sum(dim=-1)
+
+    def _compute_reference_logprobs(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        assert self.reference_model is not None
+
+        ref_device = next(self.reference_model.parameters()).device
+        input_ids_ref = input_ids.to(ref_device)
+        attention_ref = attention_mask.to(ref_device)
+        labels_ref = labels.to(ref_device)
+
+        with torch.no_grad():
+            ref_outputs = self.reference_model(
+                input_ids=input_ids_ref,
+                attention_mask=attention_ref,
+                return_dict=True,
+                use_cache=False,
+            )
+            ref_logprobs, _ = self._token_logprobs_from_logits(
+                ref_outputs.logits, labels_ref
+            )
+
+        return ref_logprobs.to(self.device)
+
+    def _compute_rewards(
+        self,
+        scores: torch.Tensor,
+        shifted_actor_logprobs: torch.Tensor,
+        shifted_ref_logprobs: torch.Tensor | None,
+        attention_mask: torch.Tensor,
+        action_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        if shifted_ref_logprobs is not None:
+            kls = shifted_actor_logprobs - shifted_ref_logprobs
+            non_score_rewards = -self.kl_coef * kls
+        else:
+            kls = None
+            non_score_rewards = torch.zeros_like(shifted_actor_logprobs)
+
+        rewards = non_score_rewards.clone()
+
+        last_non_pad = attention_mask.sum(dim=1).long() - 1
+        last_action_idx = (last_non_pad - 1).clamp(min=0, max=rewards.size(1) - 1)
+        row_idx = torch.arange(rewards.size(0), device=rewards.device)
+        rewards[row_idx, last_action_idx] += scores
+
+        rewards = rewards * action_mask
+        non_score_rewards = non_score_rewards * action_mask
+        if kls is not None:
+            kls = kls * action_mask
+
+        return (
+            rewards.detach(),
+            non_score_rewards.detach(),
+            (None if kls is None else kls.detach()),
+        )
+
+    def _compute_advantages(
+        self,
+        valid_values: torch.Tensor,
+        rewards: torch.Tensor,
+        action_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        rewards = rewards * action_mask
+        valid_values = valid_values * action_mask
+
+        if self.config.whiten_rewards:
+            rewards = masked_whiten(rewards, action_mask)
+
+        advantages = torch.zeros_like(rewards)
+        lastgaelam = torch.zeros(
+            rewards.size(0), dtype=rewards.dtype, device=rewards.device
+        )
+        actions_seq_len = rewards.size(1)
+
+        for t in reversed(range(actions_seq_len)):
+            next_values = valid_values[:, t + 1] if t < actions_seq_len - 1 else 0.0
+            delta = rewards[:, t] + self.config.gamma * next_values - valid_values[:, t]
+            lastgaelam = delta + self.config.gamma * self.config.lam * lastgaelam
+            lastgaelam = lastgaelam * action_mask[:, t]
+            advantages[:, t] = lastgaelam
+
+        returns = advantages + valid_values
+        if self.config.whiten_advantages:
+            advantages = masked_whiten(advantages, action_mask)
+
+        return advantages.detach(), returns.detach()
+
+    def _collect_rollout(self, examples: list[GSM8KExample]) -> dict[str, Any]:
         assert self.model is not None
-        assert self.policy_head is not None
+        assert self.value_head is not None
+
+        prompts = [self._build_prompt(ex) for ex in examples]
+
+        self.model.eval()
+        query_token_ids, response_token_ids, responses = self._generate_responses(
+            prompts,
+            do_sample=True,
+            max_new_tokens=self.config.max_new_tokens,
+        )
+
+        episodes: list[dict[str, Any]] = []
+        has_tag_flags: list[float] = []
+        correct_flags: list[float] = []
+        parseable_flags: list[float] = []
+
+        for i, example in enumerate(examples):
+            score, has_tag, is_correct, pred_answer = self._score_response(
+                example,
+                responses[i],
+            )
+            episodes.append(
+                {
+                    "query_token_ids": query_token_ids[i],
+                    "response_token_ids": response_token_ids[i],
+                    "score": score,
+                    "response": responses[i],
+                    "target": example.final_answer,
+                    "prediction": pred_answer,
+                }
+            )
+            has_tag_flags.append(float(has_tag))
+            correct_flags.append(float(is_correct))
+            parseable_flags.append(float(pred_answer is not None))
+
+        tensors = self._build_training_tensors(episodes)
+
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids=tensors["input_ids"],
+                attention_mask=tensors["attention_mask"],
+                return_dict=True,
+                output_hidden_states=True,
+                use_cache=False,
+            )
+            old_logprobs, action_mask = self._token_logprobs_from_logits(
+                outputs.logits,
+                tensors["labels"],
+            )
+            values = self.value_head(outputs.hidden_states[-1].float()).squeeze(-1)
+
+            if self.reference_model is not None:
+                ref_logprobs = self._compute_reference_logprobs(
+                    tensors["input_ids"],
+                    tensors["attention_mask"],
+                    tensors["labels"],
+                )
+            else:
+                ref_logprobs = None
+
+            rewards, non_score_rewards, kls = self._compute_rewards(
+                tensors["scores"],
+                old_logprobs,
+                ref_logprobs,
+                tensors["attention_mask"],
+                action_mask,
+            )
+            old_valid_values = values[:, :-1] * action_mask
+            advantages, returns = self._compute_advantages(
+                old_valid_values,
+                rewards,
+                action_mask,
+            )
+
+        self.model.train()
+
+        return {
+            "input_ids": tensors["input_ids"],
+            "attention_mask": tensors["attention_mask"],
+            "labels": tensors["labels"],
+            "scores": tensors["scores"],
+            "old_logprobs": old_logprobs.detach(),
+            "ref_logprobs": None if ref_logprobs is None else ref_logprobs.detach(),
+            "old_values": old_valid_values.detach(),
+            "returns": returns.detach(),
+            "advantages": advantages.detach(),
+            "action_mask": action_mask.detach(),
+            "rewards": rewards.detach(),
+            "non_score_rewards": non_score_rewards.detach(),
+            "kls": None if kls is None else kls.detach(),
+            "has_tag": torch.tensor(
+                has_tag_flags, dtype=torch.float32, device=self.device
+            ),
+            "is_correct": torch.tensor(
+                correct_flags, dtype=torch.float32, device=self.device
+            ),
+            "is_parseable": torch.tensor(
+                parseable_flags, dtype=torch.float32, device=self.device
+            ),
+            "responses": responses,
+            "prompts": prompts,
+        }
+
+    def _optimize(self, rollout: dict[str, Any]) -> dict[str, float]:
+        assert self.model is not None
+        assert self.value_head is not None
         assert self.optimizer is not None
 
         input_ids = rollout["input_ids"]
         attention_mask = rollout["attention_mask"]
         labels = rollout["labels"]
-        actions = rollout["actions"]
-        old_log_probs = rollout["old_log_probs"]
-        reference_logits = rollout["reference_logits"]
+        old_logprobs = rollout["old_logprobs"]
+        ref_logprobs = rollout["ref_logprobs"]
+        old_values = rollout["old_values"]
+        returns = rollout["returns"]
         advantages = rollout["advantages"]
-        rewards = rollout["rewards"]
+        action_mask = rollout["action_mask"]
 
         total = int(input_ids.size(0))
         minibatch_size = min(self.config.minibatch_size, total)
-        clip_eps = self.config.clip_epsilon
 
-        losses: list[torch.Tensor] = []
-        ratio_means: list[torch.Tensor] = []
+        total_losses: list[torch.Tensor] = []
+        pg_losses: list[torch.Tensor] = []
+        vf_losses: list[torch.Tensor] = []
         approx_kls: list[torch.Tensor] = []
         ref_kls: list[torch.Tensor] = []
+        ratio_means: list[torch.Tensor] = []
+        clip_fracs: list[torch.Tensor] = []
+        entropies: list[torch.Tensor] = []
         grad_norms: list[torch.Tensor] = []
-        entropy_terms: list[torch.Tensor] = []
-        train_acc_terms: list[torch.Tensor] = []
+
+        trainable_params = list(self.model.parameters()) + list(
+            self.value_head.parameters()
+        )
 
         self.model.train()
-        self.policy_head.train()
+        self.value_head.train()
 
         for _ in range(self.config.ppo_epochs):
             permutation = torch.randperm(total, device=self.device)
             for start in range(0, total, minibatch_size):
                 idx = permutation[start : start + minibatch_size]
-                logits = self._policy_logits(
-                    self.model,
-                    self.policy_head,
+
+                outputs = self.model(
                     input_ids=input_ids[idx],
                     attention_mask=attention_mask[idx],
+                    return_dict=True,
+                    output_hidden_states=True,
+                    use_cache=False,
                 )
-                log_probs = F.log_softmax(logits.float(), dim=-1)
-                action_log_probs = log_probs.gather(
-                    -1, actions[idx].unsqueeze(-1)
-                ).squeeze(-1)
-                log_ratio = action_log_probs - old_log_probs[idx]
-                ratios = torch.exp(log_ratio)
-                clipped = torch.clamp(ratios, 1.0 - clip_eps, 1.0 + clip_eps)
-                policy_objective = torch.min(
-                    ratios * advantages[idx],
-                    clipped * advantages[idx],
+                new_logprobs, _ = self._token_logprobs_from_logits(
+                    outputs.logits,
+                    labels[idx],
                 )
-                ref_kl = self._categorical_kl(
-                    policy_logits=logits,
-                    reference_logits=reference_logits[idx],
+
+                mb_action_mask = action_mask[idx]
+                new_logprobs = new_logprobs * mb_action_mask
+                mb_old_logprobs = old_logprobs[idx]
+                mb_advantages = advantages[idx]
+
+                log_ratio = (new_logprobs - mb_old_logprobs) * mb_action_mask
+                ratio = torch.exp(log_ratio)
+                clipped_ratio = torch.clamp(
+                    ratio,
+                    1.0 - self.config.clip_epsilon,
+                    1.0 + self.config.clip_epsilon,
                 )
-                entropy_per_sample = torch.distributions.Categorical(
-                    logits=logits
-                ).entropy()
-                objective = (
-                    policy_objective
-                    - (self.kl_coef * ref_kl)
-                    + (self.config.ent_coef * entropy_per_sample)
+
+                pg_losses1 = -mb_advantages * ratio
+                pg_losses2 = -mb_advantages * clipped_ratio
+                pg_loss = masked_mean(torch.max(pg_losses1, pg_losses2), mb_action_mask)
+
+                values = self.value_head(outputs.hidden_states[-1].float()).squeeze(-1)
+                new_values = values[:, :-1] * mb_action_mask
+                mb_old_values = old_values[idx]
+                mb_returns = returns[idx]
+
+                values_clipped = torch.clamp(
+                    new_values,
+                    mb_old_values - self.config.cliprange_value,
+                    mb_old_values + self.config.cliprange_value,
                 )
-                loss = -objective.mean()
+                vf_losses1 = (new_values - mb_returns).pow(2)
+                vf_losses2 = (values_clipped - mb_returns).pow(2)
+                vf_loss = 0.5 * masked_mean(
+                    torch.max(vf_losses1, vf_losses2), mb_action_mask
+                )
+
+                token_entropy = self._token_entropy_from_logits(
+                    outputs.logits[:, :-1, :]
+                )
+                entropy = masked_mean(token_entropy, mb_action_mask)
+
+                loss = (
+                    pg_loss
+                    + (self.config.vf_coef * vf_loss)
+                    - (self.config.ent_coef * entropy)
+                )
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.trainable_params,
+                    trainable_params,
                     self.config.max_grad_norm,
                 )
                 self.optimizer.step()
 
-                approx_kl = 0.5 * log_ratio.pow(2).mean()
-                entropy = entropy_per_sample.mean()
-                train_acc = logits.argmax(dim=-1).eq(labels[idx]).float().mean()
-
-                losses.append(loss.detach())
-                ratio_means.append(ratios.mean().detach())
-                approx_kls.append(approx_kl.detach())
-                ref_kls.append(ref_kl.mean().detach())
-                grad_norms.append(
-                    torch.as_tensor(grad_norm, dtype=torch.float32, device=self.device)
+                approx_kl = 0.5 * masked_mean(
+                    (new_logprobs - mb_old_logprobs).pow(2), mb_action_mask
                 )
-                entropy_terms.append(entropy.detach())
-                train_acc_terms.append(train_acc.detach())
+                clip_frac = masked_mean(
+                    (pg_losses2 > pg_losses1).float(), mb_action_mask
+                )
+                ratio_mean = masked_mean(ratio, mb_action_mask)
 
-        mean_loss = torch.stack(losses).mean().item()
-        mean_ratio = torch.stack(ratio_means).mean().item()
-        mean_kl = torch.stack(approx_kls).mean().item()
-        mean_ref_kl = torch.stack(ref_kls).mean().item()
-        mean_grad_norm = torch.stack(grad_norms).mean().item()
-        mean_entropy = torch.stack(entropy_terms).mean().item()
-        mean_train_acc = torch.stack(train_acc_terms).mean().item()
-        reward_mean = rewards.mean().item()
-        reward_max = rewards.max().item()
-        reward_min = rewards.min().item()
-        advantage_std = advantages.std(unbiased=False).item()
+                total_losses.append(loss.detach())
+                pg_losses.append(pg_loss.detach())
+                vf_losses.append(vf_loss.detach())
+                approx_kls.append(approx_kl.detach())
+                clip_fracs.append(clip_frac.detach())
+                ratio_means.append(ratio_mean.detach())
+                entropies.append(entropy.detach())
+                grad_norms.append(
+                    torch.as_tensor(
+                        float(grad_norm), dtype=torch.float32, device=self.device
+                    )
+                )
 
-        if mean_ref_kl > (self.config.target_ref_kl * self.config.kl_adaptation_factor):
-            self.kl_coef *= self.config.kl_coef_up_mult
-        elif mean_ref_kl < (
-            self.config.target_ref_kl / self.config.kl_adaptation_factor
-        ):
-            self.kl_coef /= self.config.kl_coef_down_div
-        self.kl_coef = float(max(self.kl_coef, self.config.kl_coef_min))
+                if ref_logprobs is not None:
+                    mb_ref_kl = masked_mean(
+                        (new_logprobs - ref_logprobs[idx]), mb_action_mask
+                    )
+                    ref_kls.append(mb_ref_kl.detach())
 
-        return {
-            "train/loss": mean_loss,
-            "train/ratio_mean": mean_ratio,
-            "train/approx_kl": mean_kl,
+        mean_ref_kl = torch.stack(ref_kls).mean().item() if ref_kls else 0.0
+        self.kl_controller.update(
+            current=mean_ref_kl, n_steps=self.config.prompts_per_step
+        )
+
+        reward_scores = rollout["scores"]
+        token_rewards = rollout["rewards"]
+        token_non_score = rollout["non_score_rewards"]
+        adv_std = torch.sqrt(masked_var(advantages, action_mask, unbiased=False)).item()
+
+        metrics = {
+            "train/loss": torch.stack(total_losses).mean().item(),
+            "train/policy_loss": torch.stack(pg_losses).mean().item(),
+            "train/value_loss": torch.stack(vf_losses).mean().item(),
+            "train/ratio_mean": torch.stack(ratio_means).mean().item(),
+            "train/clip_frac": torch.stack(clip_fracs).mean().item(),
+            "train/approx_kl": torch.stack(approx_kls).mean().item(),
             "train/ref_kl": mean_ref_kl,
             "train/kl_coef": self.kl_coef,
-            "train/ent_coef": self.config.ent_coef,
-            "train/transformer_trainable": (
-                1.0 if self.transformer_trainable else 0.0
-            ),
-            "train/grad_norm": mean_grad_norm,
-            "train/entropy": mean_entropy,
-            "train/accuracy": mean_train_acc,
-            "train/reward_mean": reward_mean,
-            "train/reward_max": reward_max,
-            "train/reward_min": reward_min,
-            "train/adv_std": advantage_std,
-            "train/reward_baseline": (
-                float(self.reward_baseline)
-                if self.reward_baseline is not None
-                else float("nan")
-            ),
+            "train/entropy": torch.stack(entropies).mean().item(),
+            "train/grad_norm": torch.stack(grad_norms).mean().item(),
+            "train/reward_mean": reward_scores.mean().item(),
+            "train/reward_max": reward_scores.max().item(),
+            "train/reward_min": reward_scores.min().item(),
+            "train/token_reward_mean": masked_mean(token_rewards, action_mask).item(),
+            "train/non_score_reward_mean": masked_mean(
+                token_non_score, action_mask
+            ).item(),
+            "train/adv_std": adv_std,
+            "train/correct_frac": rollout["is_correct"].mean().item(),
+            "train/parseable_frac": rollout["is_parseable"].mean().item(),
+            "train/has_answer_tag_frac": rollout["has_tag"].mean().item(),
+            "train/response_len_mean": (action_mask.sum(dim=1).float().mean().item()),
         }
+
+        if rollout["kls"] is not None:
+            metrics["train/old_policy_ref_kl"] = masked_mean(
+                rollout["kls"],
+                action_mask,
+            ).item()
+
+        return metrics
 
     @torch.no_grad()
     def evaluate(self, step: int) -> dict[str, float]:
         assert self.model is not None
-        assert self.policy_head is not None
 
         self.model.eval()
-        self.policy_head.eval()
 
         examples = self._build_eval_examples(step)
-        prompts = [self._build_prompt(example) for example in examples]
-        labels = torch.tensor(
-            [example.label for example in examples],
-            dtype=torch.long,
-            device=self.device,
-        )
-        encoded = self._tokenize_prompts(prompts)
-        logits = self._policy_logits(
-            self.model,
-            self.policy_head,
-            input_ids=encoded["input_ids"],
-            attention_mask=encoded["attention_mask"],
-        )
-        probs = F.softmax(logits.float(), dim=-1)
-        preds = probs.argmax(dim=-1)
+        prompts = [self._build_prompt(ex) for ex in examples]
 
-        accuracy = preds.eq(labels).float().mean().item()
-        positive_rate = preds.float().mean().item()
-        mean_confidence = probs.max(dim=-1).values.mean().item()
+        _, _, responses = self._generate_responses(
+            prompts,
+            do_sample=False,
+            max_new_tokens=self.config.eval_max_new_tokens,
+        )
 
+        correct = 0
+        parseable = 0
+        has_tag = 0
+
+        for example, response in zip(examples, responses):
+            pred_answer = extract_answer(response)
+            parseable += int(pred_answer is not None)
+            has_tag += int("####" in response)
+            correct += int(
+                pred_answer is not None and pred_answer == example.final_answer
+            )
+
+        n = max(len(examples), 1)
         self.model.train()
-        self.policy_head.train()
+
         return {
-            "eval/accuracy": accuracy,
-            "eval/positive_rate": positive_rate,
-            "eval/confidence_mean": mean_confidence,
-            "eval/return_max": accuracy,
+            "eval/accuracy": correct / n,
+            "eval/parseable_frac": parseable / n,
+            "eval/has_answer_tag_frac": has_tag / n,
+            "eval/return_max": correct / n,
         }
 
     def _save_checkpoint(self, out_dir: Path, step: int) -> None:
         assert self.model is not None
-        assert self.policy_head is not None
+        assert self.value_head is not None
         assert self.tokenizer is not None
+
         checkpoint_dir = out_dir / f"lm_step_{step:06d}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        encoder_dir = checkpoint_dir / "encoder"
+
+        model_dir = checkpoint_dir / "actor"
         tokenizer_dir = checkpoint_dir / "tokenizer"
-        self.model.save_pretrained(encoder_dir)
+
+        self.model.save_pretrained(model_dir)
         self.tokenizer.save_pretrained(tokenizer_dir)
+
         torch.save(
             {
-                "policy_head_state_dict": self.policy_head.state_dict(),
-                "action_text": dict(self.ACTION_TEXT),
-                "prompt_template": self.config.prompt_template,
+                "value_head_state_dict": self.value_head.state_dict(),
+                "kl_coef": self.kl_coef,
+                "config": asdict(self.config),
             },
-            checkpoint_dir / "policy_head.pt",
+            checkpoint_dir / "ppo_state.pt",
         )
 
     def train(self, out_dir: str) -> None:
@@ -637,15 +1002,8 @@ class PPOLMTrainer:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         for step in range(1, self.config.num_steps + 1):
-            should_train_transformer = bool(
-                self.config.train_transformer and step > self.config.head_only_steps
-            )
-            self._set_transformer_trainable(
-                enabled=should_train_transformer,
-                step=step,
-            )
             examples = self._sample_train_examples()
-            rollout, sampled_actions = self._collect_rollout(examples)
+            rollout = self._collect_rollout(examples)
             metrics = self._optimize(rollout)
 
             if step == 1 or step % self.config.eval_every == 0:
@@ -654,17 +1012,18 @@ class PPOLMTrainer:
             log_wandb(metrics, step=step, silent=True)
 
             if step == 1 or step % 10 == 0:
-                sample_text = examples[0].text.replace("\n", " ").strip()
+                sample_prompt = examples[0].question.replace("\n", " ").strip()
+                sample_response = rollout["responses"][0].replace("\n", " ").strip()
                 eval_acc = metrics.get("eval/accuracy")
                 acc_display = (
                     f"{float(eval_acc):.3f}" if eval_acc is not None else "n/a"
                 )
                 print(
                     f"step={step} reward={metrics['train/reward_mean']:.3f} "
-                    f"acc={acc_display} "
-                    f"sample='Sentence: {sample_text[:80]}...' "
-                    f"action='{sampled_actions[0]}'"
+                    f"acc={acc_display} kl={metrics['train/kl_coef']:.4f} "
+                    f"q='{sample_prompt[:80]}...' "
+                    f"resp='{sample_response[:120]}...'"
                 )
 
             if step % self.config.save_every == 0 or step == self.config.num_steps:
-                self._save_checkpoint(out_dir=output_dir, step=step)
+                self._save_checkpoint(output_dir, step=step)
