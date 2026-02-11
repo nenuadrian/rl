@@ -105,11 +105,15 @@ _VINE_MATH_PPO_INSPIRED_OVERRIDES: dict[str, Any] = {
     "temperature": 0.6,
     "top_p": 0.9,
     "top_k": 0,
+    "max_new_tokens": 1024,
+    "eval_max_new_tokens": 1024,
     "eval_num_samples": 16,
     "eval_do_sample": True,
     "eval_temperature": 0.35,
     "eval_top_p": 0.9,
     "eval_top_k": 0,
+    "eval_subset_size": None,
+    "eval_examples": None,
     "reference_on_cpu": True,
 }
 
@@ -120,10 +124,8 @@ _DEEPSEEK_MATH_7B_BASE_GSM8K = _gsm8k_preset(
     num_steps=2000,
     prompts_per_step=4,
     minibatch_size=1,
-    max_new_tokens=160,
-    eval_max_new_tokens=192,
+    max_prompt_length=3071,
     eval_every=50,
-    eval_examples=64,
     save_every=200,
 )
 
@@ -134,10 +136,8 @@ _RHO_MATH_1B_V0_1_GSM8K = _gsm8k_preset(
     num_steps=2500,
     prompts_per_step=8,
     minibatch_size=2,
-    max_new_tokens=192,
-    eval_max_new_tokens=224,
+    max_prompt_length=1023,
     eval_every=40,
-    eval_examples=96,
     save_every=200,
 )
 

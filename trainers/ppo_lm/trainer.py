@@ -150,7 +150,7 @@ class LMGRPOConfig:
     eval_max_new_tokens: int = 192
 
     eval_every: int = 25
-    eval_examples: int = 128
+    eval_examples: int | None = 128
     save_every: int = 200
     run_evaluation: bool = False
     eval_num_samples: int = 1
@@ -194,6 +194,8 @@ class LMGRPOConfig:
             raise ValueError("eval_num_samples must be > 0")
         if self.eval_do_sample and self.eval_temperature <= 0:
             raise ValueError("eval_temperature must be > 0 when eval_do_sample is true")
+        if self.eval_examples is not None and self.eval_examples <= 0:
+            raise ValueError("eval_examples must be > 0 when set")
 
 
 class AdaptiveKLController:
@@ -426,7 +428,11 @@ class PPOLMTrainer:
 
     def _build_eval_examples(self, step: int) -> list[GSM8KExample]:
         rng = random.Random(self.config.seed + (step * 104_729))
-        total = min(self.config.eval_examples, len(self.eval_examples_pool))
+        total = (
+            len(self.eval_examples_pool)
+            if self.config.eval_examples is None
+            else min(self.config.eval_examples, len(self.eval_examples_pool))
+        )
         if total <= 0:
             raise ValueError("eval_examples must be > 0")
         indices = list(range(len(self.eval_examples_pool)))
