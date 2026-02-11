@@ -214,7 +214,7 @@ def generate_report(
             img = images.get(environment)
             f.write(f"## {environment}\n\n")
             if img:
-                f.write(f"![{environment}]({img})\n\n")
+                f.write(f"![{environment}]({img.lower()})\n\n")
             else:
                 f.write("No data available for plot.\n\n")
 
