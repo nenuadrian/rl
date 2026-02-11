@@ -74,7 +74,7 @@ def _resolve_dtype(dtype_name: str, device: torch.device) -> torch.dtype:
     raise ValueError(f"Unsupported LM dtype: {dtype_name}")
 
 
-class LMTrainer:
+class PPOLMTrainer:
     """Single-GPU PPO trainer with an explicit 2-logit classification head."""
 
     ACTION_TEXT = {0: "negative", 1: "positive"}

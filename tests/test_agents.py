@@ -7,7 +7,7 @@ from pathlib import Path
 from hyperparameters.lm import get as get_lm_preset
 from hyperparameters.vmpo import get as get_vmpo_preset
 from hyperparameters.vmpo_sgd import get as get_vmpo_sgd_preset
-from trainers.lm.trainer import LMGRPOConfig, LMTrainer
+from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
 from trainers.ppo.agent import PPOAgent
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig
@@ -261,5 +261,5 @@ def test_lm_preset_and_trainer_wiring(tmp_path):
     assert "elif algo == \"lm\":" in main_text
     assert "elif algo in {\"vmpo\", \"vmpo_sgd\"}:" in main_text
 
-    trainer = LMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
+    trainer = PPOLMTrainer(config=LMGRPOConfig(model_name="HuggingFaceTB/SmolLM-135M"))
     assert hasattr(trainer, "train")

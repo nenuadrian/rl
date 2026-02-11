@@ -17,7 +17,7 @@ from trainers.nanochat_rl.agent import ChatRLAgent, ChatRLConfig
 from trainers.mpo.trainer import MPOTrainer
 from trainers.mpo.agent import MPOConfig
 from trainers.ppo.trainer import PPOTrainer
-from trainers.lm.trainer import LMGRPOConfig, LMTrainer
+from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
 
 
 def _load_preset(algo: str, env_id: str) -> dict:
@@ -238,7 +238,7 @@ if __name__ == "__main__":
         )
         _print_config("LMGRPOConfig", lm_config)
 
-        trainer = LMTrainer(config=lm_config, device=device)
+        trainer = PPOLMTrainer(config=lm_config, device=device)
         trainer.train(out_dir=args.out_dir)
     elif algo == "ppo":
 
