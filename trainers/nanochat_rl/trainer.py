@@ -35,6 +35,52 @@ class ChatRLTrainer:
         # current training step (exposed to get_batch for deterministic seeding)
         self._current_step = 0
 
+    def _compute_optim_stats(self):
+        """Collect optimizer-adjacent stats to track if gradients/weights are changing."""
+        grad_sq_sum = 0.0
+        grad_abs_max = 0.0
+        grad_nonzero_elems = 0
+        grad_total_elems = 0
+        grad_param_count = 0
+        param_sq_sum = 0.0
+        param_abs_max = 0.0
+        param_total_elems = 0
+
+        for param in self.agent.model.parameters():
+            param_data = param.detach().float()
+            param_sq_sum += param_data.square().sum().item()
+            param_abs_max = max(param_abs_max, param_data.abs().max().item())
+            param_total_elems += param.numel()
+
+            if param.grad is None:
+                continue
+
+            grad_param_count += 1
+            grad = param.grad.detach().float()
+            grad_sq_sum += grad.square().sum().item()
+            grad_abs_max = max(grad_abs_max, grad.abs().max().item())
+            grad_nonzero_elems += torch.count_nonzero(grad).item()
+            grad_total_elems += grad.numel()
+
+        grad_global_norm = grad_sq_sum**0.5
+        param_global_norm = param_sq_sum**0.5
+        grad_rms = (grad_sq_sum / max(grad_total_elems, 1)) ** 0.5
+        param_rms = (param_sq_sum / max(param_total_elems, 1)) ** 0.5
+        grad_nonzero_frac = grad_nonzero_elems / max(grad_total_elems, 1)
+
+        return {
+            "optim/grad_global_norm": grad_global_norm,
+            "optim/grad_rms": grad_rms,
+            "optim/grad_abs_max": grad_abs_max,
+            "optim/grad_nonzero_frac": grad_nonzero_frac,
+            "optim/grad_param_count": float(grad_param_count),
+            "optim/param_global_norm": param_global_norm,
+            "optim/param_rms": param_rms,
+            "optim/param_abs_max": param_abs_max,
+            "optim/grad_to_param_norm_ratio": grad_global_norm
+            / max(param_global_norm, 1e-12),
+        }
+
     def get_batch(self):
         train_task = self.train_task
         tokenizer = self.tokenizer
@@ -176,11 +222,19 @@ class ChatRLTrainer:
 
             rewards_list = []
             sequence_lengths = []
+            reward_tensors = []
+            advantage_tensors = []
+            loss_values = []
+            pg_obj_values = []
+            logp_values = []
+            valid_token_counts = []
             print(f"Training on {examples_per_rank} examples for step {step}...")
             for example_step in range(examples_per_rank):
                 sequences_all, inputs_all, targets_all, rewards_all, advantages_all = (
                     next(batch_iterator)
                 )
+                reward_tensors.append(rewards_all.detach().cpu())
+                advantage_tensors.append(advantages_all.detach().cpu())
                 agent.train_mode()
                 assert inputs_all.size(0) % self.config.device_batch_size == 0
                 num_passes = inputs_all.size(0) // self.config.device_batch_size
@@ -204,33 +258,69 @@ class ChatRLTrainer:
                     pg_obj = pg_obj / (num_valid * num_passes * examples_per_rank)
                     loss = -pg_obj
                     loss.backward()
+                    loss_values.append(loss.detach().item())
+                    pg_obj_values.append(pg_obj.detach().item())
+                    logp_values.append(logp.detach().mean().item())
+                    valid_token_counts.append(float(num_valid.item()))
                     print(
                         f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}"
                     )
                 rewards_list.append(rewards_all.mean().item())
                 sequence_lengths.extend(len(seq) for seq in sequences_all)
 
+            all_rewards = torch.cat(reward_tensors)
+            all_advantages = torch.cat(advantage_tensors)
             mean_reward = sum(rewards_list) / len(rewards_list)
             max_reward = max(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)
             print(
                 f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}"
             )
-            wandb.log(
-                {
-                    "step": step,
-                    "eval/mean_reward": mean_reward,
-                    "eval/return_max": max_reward,
-                    "eval/sequence_length": mean_sequence_length,
-                }
-            )
 
             lrm = 1.0 - step / num_steps
             for group in agent.optimizer.param_groups:
                 group["lr"] = group["initial_lr"] * lrm
+
+            lr_values = [group["lr"] for group in agent.optimizer.param_groups]
+            optim_stats = self._compute_optim_stats()
+
             agent.step_optimizer()
             agent.zero_grad()
-            wandb.log({"step": step, "lrm": lrm})
+            wandb.log(
+                {
+                    "step": step,
+                    "lrm": lrm,
+                    "eval/mean_reward": mean_reward,
+                    "eval/return_max": max_reward,
+                    "eval/sequence_length": mean_sequence_length,
+                    "train/reward_mean": all_rewards.mean().item(),
+                    "train/reward_std": all_rewards.std(unbiased=False).item(),
+                    "train/reward_min": all_rewards.min().item(),
+                    "train/reward_max": all_rewards.max().item(),
+                    "train/reward_nonzero_frac": (all_rewards != 0)
+                    .float()
+                    .mean()
+                    .item(),
+                    "train/adv_mean": all_advantages.mean().item(),
+                    "train/adv_std": all_advantages.std(unbiased=False).item(),
+                    "train/adv_abs_mean": all_advantages.abs().mean().item(),
+                    "train/adv_nonzero_frac": (all_advantages != 0)
+                    .float()
+                    .mean()
+                    .item(),
+                    "train/loss_mean": sum(loss_values) / len(loss_values),
+                    "train/loss_min": min(loss_values),
+                    "train/loss_max": max(loss_values),
+                    "train/pg_obj_mean": sum(pg_obj_values) / len(pg_obj_values),
+                    "train/logp_mean": sum(logp_values) / len(logp_values),
+                    "train/valid_tokens_mean": sum(valid_token_counts)
+                    / len(valid_token_counts),
+                    "optim/lr_min": min(lr_values),
+                    "optim/lr_max": max(lr_values),
+                    "optim/lr_mean": sum(lr_values) / len(lr_values),
+                    **optim_stats,
+                }
+            )
 
             if (step % self.config.save_every == 0 and step > 0) or (
                 step == num_steps - 1
