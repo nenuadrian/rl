@@ -487,8 +487,9 @@ class PPOLMTrainer:
         top_p: float | None = None,
         top_k: int | None = None,
     ) -> tuple[list[list[int]], list[list[int]], list[str]]:
-        assert self.model is not None
-        assert self.tokenizer is not None
+        print(
+            f"Generating responses with do_sample={do_sample}, temperature={temperature}, top_p={top_p}, top_k={top_k}..."
+        )
 
         encoded = self.tokenizer(
             prompts,
