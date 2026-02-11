@@ -2,14 +2,14 @@
 
 | Environment | ppo | vmpo | mpo |
 |---|---|---|---|
-| Ant | [2499](https://wandb.ai/adrian-research/env-ppo/runs/h5jodmfs) | [2661](https://wandb.ai/adrian-research/env-vmpo/runs/l6d7pqw9) | [-13](https://wandb.ai/adrian-research/env-mpo/runs/d9osexea) |
+| Ant | [2499](https://wandb.ai/adrian-research/env-ppo/runs/h5jodmfs) | [2624](https://wandb.ai/adrian-research/env-vmpo/runs/l6d7pqw9) | [-13](https://wandb.ai/adrian-research/env-mpo/runs/d9osexea) |
 | HalfCheetah | [1793](https://wandb.ai/adrian-research/env-ppo/runs/j80ylpf0) | [3398](https://wandb.ai/adrian-research/env-vmpo/runs/ncp0m5la) | [3656](https://wandb.ai/adrian-research/env-mpo/runs/jq2lsn63) |
 | Humanoid | [401](https://wandb.ai/adrian-research/env-ppo/runs/b7zd20e3) | [723](https://wandb.ai/adrian-research/env-vmpo/runs/zyrkxrho) | [5039](https://wandb.ai/adrian-research/env-mpo/runs/nw6adjcs) |
 | Walker2d | [251](https://wandb.ai/adrian-research/env-ppo/runs/41l0vz7h) | [727](https://wandb.ai/adrian-research/env-vmpo/runs/idby2zoo) | [2848](https://wandb.ai/adrian-research/env-mpo/runs/i9h5drt4) |
 | dm_control/cartpole/swingup | [296](https://wandb.ai/adrian-research/env-ppo/runs/19ggv8dc) | [335](https://wandb.ai/adrian-research/env-vmpo/runs/4awgz968) | - |
-| dm_control/cheetah/run | [449](https://wandb.ai/adrian-research/env-ppo/runs/ctoiskyk) | [312](https://wandb.ai/adrian-research/env-vmpo/runs/o1hqmyv2) | [323](https://wandb.ai/adrian-research/env-mpo/runs/p4rjr7m0) |
+| dm_control/cheetah/run | [449](https://wandb.ai/adrian-research/env-ppo/runs/ctoiskyk) | [244](https://wandb.ai/adrian-research/env-vmpo/runs/o1hqmyv2) | [323](https://wandb.ai/adrian-research/env-mpo/runs/p4rjr7m0) |
 | dm_control/humanoid/walk | - | [2](https://wandb.ai/adrian-research/env-vmpo/runs/ypmlm20p) | [8](https://wandb.ai/adrian-research/env-mpo/runs/wjdgdofc) |
-| dm_control/walker/run | [412](https://wandb.ai/adrian-research/env-ppo/runs/4bixud5g) | [87](https://wandb.ai/adrian-research/env-vmpo/runs/cgchiogk) | [597](https://wandb.ai/adrian-research/env-mpo/runs/0z7lafw7) |
+| dm_control/walker/run | [412](https://wandb.ai/adrian-research/env-ppo/runs/4bixud5g) | [84](https://wandb.ai/adrian-research/env-vmpo/runs/cgchiogk) | [597](https://wandb.ai/adrian-research/env-mpo/runs/0z7lafw7) |
 | dm_control/walker/walk | [666](https://wandb.ai/adrian-research/env-ppo/runs/75qmpv8z) | [281](https://wandb.ai/adrian-research/env-vmpo/runs/r28cfpn5) | [969](https://wandb.ai/adrian-research/env-mpo/runs/0hz2vxg1) |
 
 ## Ant
@@ -155,7 +155,7 @@
 | [mpo-Ant-v5](https://wandb.ai/adrian-research/env-mpo/runs/d9osexea) | mpo | 98718 | -13 |
 | [mpo-Ant-v5](https://wandb.ai/adrian-research/env-mpo/runs/it4qbu56) | mpo | 86448 | -22 |
 | [ppo-Ant-v5](https://wandb.ai/adrian-research/env-ppo/runs/h5jodmfs) | ppo | 30000000 | 2499 |
-| [vmpo-Ant-v5](https://wandb.ai/adrian-research/env-vmpo/runs/l6d7pqw9) | vmpo | 3282119 | 2661 |
+| [vmpo-Ant-v5](https://wandb.ai/adrian-research/env-vmpo/runs/l6d7pqw9) | vmpo | 3155044 | 2624 |
 | [vmpo-Ant-v5](https://wandb.ai/adrian-research/env-vmpo/runs/k7hqg1vx) | vmpo | 432719 | 659 |
 | [vmpo-Ant-v5](https://wandb.ai/adrian-research/env-vmpo/runs/1owofvwh) | vmpo | 233862 | 386 |
 
@@ -878,7 +878,7 @@
 | [ppo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-ppo/runs/ctoiskyk) | ppo | 1474560 | 449 |
 | [ppo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-ppo/runs/w43cikiv) | ppo | 1605632 | 313 |
 | [ppo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-ppo/runs/xy554gzt) | ppo | 120113 | 260 |
-| [vmpo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-vmpo/runs/o1hqmyv2) | vmpo | 1609607 | 312 |
+| [vmpo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-vmpo/runs/o1hqmyv2) | vmpo | 1038036 | 244 |
 | [vmpo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-vmpo/runs/hlw4xzaa) | vmpo | 790000 | 219 |
 | [vmpo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-vmpo/runs/73r3uikl) | vmpo | 1572000 | 191 |
 | [vmpo-dm_control/cheetah/run](https://wandb.ai/adrian-research/env-vmpo/runs/1d0c7i90) | vmpo | 452451 | 191 |
@@ -1134,9 +1134,9 @@
 |---|---|---:|---:|
 | [mpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-mpo/runs/0z7lafw7) | mpo | 643047 | 597 |
 | [ppo-dm_control/walker/run](https://wandb.ai/adrian-research/env-ppo/runs/4bixud5g) | ppo | 5581569 | 412 |
-| [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/cgchiogk) | vmpo | 1071069 | 87 |
-| [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/ssvps0f0) | vmpo | 520519 | 74 |
+| [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/cgchiogk) | vmpo | 691690 | 84 |
 | [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/xmgn2e8c) | vmpo | 586000 | 61 |
+| [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/ssvps0f0) | vmpo | 311310 | 55 |
 | [vmpo-dm_control/walker/run](https://wandb.ai/adrian-research/env-vmpo/runs/be8o5v5l) | vmpo | 5535000 | 49 |
 
 ## dm_control/walker/walk

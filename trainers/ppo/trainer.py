@@ -67,6 +67,7 @@ class RolloutBuffer:
         self.dones[t, env_i] = done
         self.values[t, env_i] = value
         self.log_probs[t, env_i] = log_prob
+        self.ptr = max(self.ptr, t + 1)
 
     def compute_returns_advantages(
         self,
@@ -74,7 +75,17 @@ class RolloutBuffer:
         gamma: float,
         gae_lambda: float,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        T, N = self.T, self.N
+        T, N = self.ptr, self.N
+        if T <= 0:
+            raise ValueError("RolloutBuffer is empty.")
+
+        obs = self.obs[:T]
+        actions = self.actions[:T]
+        rewards = self.rewards[:T]
+        dones = self.dones[:T]
+        values = self.values[:T]
+        log_probs = self.log_probs[:T]
+
         advantages = np.zeros((T, N), dtype=np.float32)
         last_gae = np.zeros(N, dtype=np.float32)
 
@@ -82,29 +93,27 @@ class RolloutBuffer:
             if t == T - 1:
                 next_values = last_values
             else:
-                next_values = self.values[t + 1]
+                next_values = values[t + 1]
 
-            non_terminal = 1.0 - self.dones[t]
-            delta = (
-                self.rewards[t] + gamma * next_values * non_terminal - self.values[t]
-            )
+            non_terminal = 1.0 - dones[t]
+            delta = rewards[t] + gamma * next_values * non_terminal - values[t]
             last_gae = delta + gamma * gae_lambda * non_terminal * last_gae
             advantages[t] = last_gae
 
-        returns = advantages + self.values
+        returns = advantages + values
 
         # flatten (T, N) -> (T*N)
         return (
-            self.obs.reshape(T * N, -1),
-            self.actions.reshape(T * N, -1),
-            self.log_probs.reshape(T * N),
-            self.values.reshape(T * N),
+            obs.reshape(T * N, -1),
+            actions.reshape(T * N, -1),
+            log_probs.reshape(T * N),
+            values.reshape(T * N),
             returns.reshape(T * N),
             advantages.reshape(T * N),
         )
 
     def minibatches(self, batch_size: int) -> Iterator[np.ndarray]:
-        idx = np.arange(self.T * self.N)
+        idx = np.arange(self.ptr * self.N)
         np.random.shuffle(idx)
         for start in range(0, len(idx), batch_size):
             yield idx[start : start + batch_size]
@@ -140,7 +149,10 @@ class Trainer:
                 (lambda i=i: make_env(env_id, seed=seed + i))
                 for i in range(self.num_envs)
             ]
-            self.env = gym.vector.AsyncVectorEnv(env_fns)
+            # Avoid NEXT_STEP synthetic transitions after done=True.
+            self.env = gym.vector.AsyncVectorEnv(
+                env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
+            )
             obs_space = self.env.single_observation_space
             act_space = self.env.single_action_space
         else:
@@ -195,8 +207,6 @@ class Trainer:
             obs, _ = self.env.reset()
             # obs is a dict mapping -> per-key arrays with leading dim N
             obs = flatten_obs(obs)
-            eval_interval *= self.num_envs
-            save_interval *= self.num_envs
         else:
             obs, _ = self.env.reset()
             obs = flatten_obs(obs)
@@ -223,7 +233,9 @@ class Trainer:
                     done = np.asarray(terminated) | np.asarray(truncated)
                     reward = np.asarray(reward)
                 else:
-                    next_obs, reward, terminated, truncated, _ = self.env.step(action[0])
+                    next_obs, reward, terminated, truncated, _ = self.env.step(
+                        action[0]
+                    )
                     next_obs = flatten_obs(next_obs)
                     reward = np.asarray([reward])
                     done = np.asarray([float(terminated or truncated)])
@@ -249,12 +261,15 @@ class Trainer:
                         float(value[i]),
                         float(logp[i]),
                     )
-                    self.episode_return[i] += float(reward[i]) if reward.shape[0] > 1 else float(reward[0])
+                    self.episode_return[i] += (
+                        float(reward[i]) if reward.shape[0] > 1 else float(reward[0])
+                    )
                     # Log episode return for each env when done
-                    if (done[i] if done.shape[0] > 1 else done[0]):
+                    if done[i] if done.shape[0] > 1 else done[0]:
                         log_wandb(
                             {"train/episode_return": float(self.episode_return[i])},
                             step=step + 1,
+                            silent=True,
                         )
                         self.episode_return[i] = 0.0
 
@@ -294,7 +309,7 @@ class Trainer:
                         "advantages": adv_f[idx].unsqueeze(-1),
                     }
                     metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step)
+                    log_wandb(metrics, step=step, silent=True)
                     approx_kl = metrics.get("approx_kl", None)
                     if approx_kl is not None:
                         if approx_kl > 1.5 * self.agent.config.target_kl:

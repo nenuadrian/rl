@@ -170,12 +170,21 @@ def generate_report(
             steps, vals = _get_series_from_run(run_obj)
             if not steps or not vals:
                 continue
-            ax.plot(steps, vals, label=a, color=colors.get(a))
+            # Normalize x so each algorithm spans the full chart width, regardless of step count.
+            n = len(vals)
+            if n == 1:
+                x = [0.0, 1.0]
+                y = [vals[0], vals[0]]
+            else:
+                x = [i / (n - 1) for i in range(n)]
+                y = vals
+            ax.plot(x, y, label=a, color=colors.get(a))
             any_plotted = True
         if not any_plotted:
             plt.close(fig)
             return None
-        ax.set_xlabel("_step")
+        ax.set_xlim(0.0, 1.0)
+        ax.set_xlabel("training progress")
         ax.set_ylabel("eval/return_max")
         ax.set_title(f"{environment}")
         ax.legend()
