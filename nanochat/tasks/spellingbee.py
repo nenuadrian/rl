@@ -224,10 +224,34 @@ Then count the occurrences of '{letter}':
         return is_correct
 
     def reward(self, conversation, assistant_response):
-        """ Use simple 0-1 reward just like gsm8k."""
-        is_correct = self.evaluate(conversation, assistant_response)
-        is_correct_float = float(is_correct)
-        return is_correct_float
+        """
+        Shaped reward for RL from base models.
+
+        Dense signal:
+        - +0.2 if answer marker '####' is present.
+        - +0.1 if there is at least one digit in the response.
+        - +0.2 if a numeric answer can be extracted.
+        - +0.5 if extracted answer is exactly correct.
+        """
+        assert isinstance(assistant_response, str), "Assuming simple string response for now"
+        assistant_message = conversation["messages"][-1]
+        assert assistant_message["role"] == "assistant", "Last message must be from the Assistant"
+        assert isinstance(assistant_message["content"], list), "Expected list content for assistant message"
+        last_text_part = assistant_message["content"][-1]["text"]
+
+        ref_num = extract_answer(last_text_part)
+        pred_num = extract_answer(assistant_response)
+
+        reward = 0.0
+        if "####" in assistant_response:
+            reward += 0.2
+        if any(ch.isdigit() for ch in assistant_response):
+            reward += 0.1
+        if pred_num is not None:
+            reward += 0.2
+        if pred_num == ref_num:
+            reward += 0.5
+        return min(reward, 1.0)
 
 
 class SimpleSpelling(Task):

@@ -2,7 +2,7 @@ import torch
 import itertools
 import wandb
 from contextlib import nullcontext
-from nanochat.tasks.spellingbee import SpellingBee
+from nanochat.tasks.spellingbee import SpellingBee, extract_answer
 from .agent import ChatRLAgent, ChatRLConfig
 
 from nanochat.checkpoint_manager import save_checkpoint
@@ -93,6 +93,7 @@ class ChatRLTrainer:
             tokens = tokenizer.render_for_completion(conversation)
             prefix_length = len(tokens)
             generated_token_sequences = []
+            generated_texts = []
             masks = []
             num_sampling_steps = (
                 self.config.num_samples // self.config.device_batch_size
@@ -120,6 +121,7 @@ class ChatRLTrainer:
             for sample_tokens in generated_token_sequences:
                 generated_tokens = sample_tokens[prefix_length:]
                 generated_text = tokenizer.decode(generated_tokens)
+                generated_texts.append(generated_text)
                 reward = train_task.reward(conversation, generated_text)
                 rewards.append(reward)
             max_length = max(len(seq) for seq in generated_token_sequences)
@@ -138,7 +140,7 @@ class ChatRLTrainer:
             rewards = torch.tensor(rewards, dtype=torch.float, device=device)
             mu = rewards.mean()
             advantages = rewards - mu
-            yield generated_token_sequences, inputs, targets, rewards, advantages
+            yield generated_token_sequences, generated_texts, inputs, targets, rewards, advantages
 
     def run_spellingbee_eval(
         self,
@@ -228,11 +230,19 @@ class ChatRLTrainer:
             pg_obj_values = []
             logp_values = []
             valid_token_counts = []
+            completion_texts = []
+            sample_text_logs = {}
             print(f"Training on {examples_per_rank} examples for step {step}...")
             for example_step in range(examples_per_rank):
-                sequences_all, inputs_all, targets_all, rewards_all, advantages_all = (
-                    next(batch_iterator)
-                )
+                (
+                    sequences_all,
+                    generated_texts_all,
+                    inputs_all,
+                    targets_all,
+                    rewards_all,
+                    advantages_all,
+                ) = next(batch_iterator)
+                completion_texts.extend(generated_texts_all)
                 reward_tensors.append(rewards_all.detach().cpu())
                 advantage_tensors.append(advantages_all.detach().cpu())
                 agent.train_mode()
@@ -265,11 +275,33 @@ class ChatRLTrainer:
                     print(
                         f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}"
                     )
+                if example_step == 0:
+                    preview_count = min(3, len(generated_texts_all))
+                    for i in range(preview_count):
+                        preview_text = generated_texts_all[i]
+                        if len(preview_text) > 512:
+                            preview_text = preview_text[:512] + "..."
+                        sample_text_logs[f"samples/reward_{i}"] = float(
+                            rewards_all[i].item()
+                        )
+                        sample_text_logs[f"samples/completion_{i}"] = preview_text
                 rewards_list.append(rewards_all.mean().item())
                 sequence_lengths.extend(len(seq) for seq in sequences_all)
 
             all_rewards = torch.cat(reward_tensors)
             all_advantages = torch.cat(advantage_tensors)
+            has_hash_frac = (
+                sum("####" in text for text in completion_texts)
+                / max(len(completion_texts), 1)
+            )
+            has_digit_frac = (
+                sum(any(ch.isdigit() for ch in text) for text in completion_texts)
+                / max(len(completion_texts), 1)
+            )
+            parsed_frac = (
+                sum(extract_answer(text) is not None for text in completion_texts)
+                / max(len(completion_texts), 1)
+            )
             mean_reward = sum(rewards_list) / len(rewards_list)
             max_reward = max(rewards_list)
             mean_sequence_length = sum(sequence_lengths) / len(sequence_lengths)
@@ -301,6 +333,9 @@ class ChatRLTrainer:
                     .float()
                     .mean()
                     .item(),
+                    "train/format_has_hash_frac": has_hash_frac,
+                    "train/format_has_digit_frac": has_digit_frac,
+                    "train/format_parsed_frac": parsed_frac,
                     "train/adv_mean": all_advantages.mean().item(),
                     "train/adv_std": all_advantages.std(unbiased=False).item(),
                     "train/adv_abs_mean": all_advantages.abs().mean().item(),
@@ -318,6 +353,7 @@ class ChatRLTrainer:
                     "optim/lr_min": min(lr_values),
                     "optim/lr_max": max(lr_values),
                     "optim/lr_mean": sum(lr_values) / len(lr_values),
+                    **sample_text_logs,
                     **optim_stats,
                 }
             )
