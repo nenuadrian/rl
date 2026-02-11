@@ -23,7 +23,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "save_every": 100,
         "model_step": None,
         "dtype": "bfloat16",
-        "checkpoint_dir": "/mnt/iusers01/fatpou01/compsci01/mbax2an2/scratch/nanochat-chatrl-speedrun", 
+        "checkpoint_dir": "/mnt/iusers01/fatpou01/compsci01/mbax2an2/.cache/nanochat/base_checkpoints/d26", 
     },
     "isambard": {
         "num_epochs": 1,
