@@ -5,7 +5,7 @@ Each line in the JSONL file should be a JSON array of messages.
 
 import os
 import json
-from tasks.common import Task
+from nanochat.tasks.common import Task
 
 class CustomJSON(Task):
     """

@@ -66,7 +66,7 @@ torchrun --standalone --nproc_per_node=4 -m nanochat.scripts.base_train -- --dep
 
 python -m nanochat.scripts.base_eval --device-batch-size=16
 
-python -m nanochat.scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN
+python -m nanochat.scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN -- --depth=26 
 python -m nanochat.scripts.chat_eval -i sft
 ```
 
