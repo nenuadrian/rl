@@ -65,6 +65,33 @@ def _gsm8k_preset(model_name: str, **overrides: Any) -> dict[str, Any]:
     }
 
 
+_SMOLLM_GSM8K_STRONG_COMMON: dict[str, Any] = {
+    "learning_rate": 1e-6,
+    "num_steps": 4000,
+    "ppo_epochs": 2,
+    "lam": 1.0,
+    "kl_coef": 0.005,
+    "adaptive_kl": True,
+    "target_ref_kl": 0.12,
+    "kl_horizon": 12_000,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 0,
+    "max_new_tokens": 96,
+    "eval_max_new_tokens": 112,
+    "reward_correct": 2.0,
+    "reward_has_answer_tag": 0.02,
+    "reward_parseable": 0.02,
+    "prompt_template": (
+        "Solve the following grade-school math problem. "
+        "Keep reasoning concise (at most 4 short lines), and end with "
+        "`#### <number>` on the final line with no extra text.\n\n"
+        "Question: {question}\n"
+        "Answer:"
+    ),
+}
+
+
 _VINE_MATH_PPO_INSPIRED_OVERRIDES: dict[str, Any] = {
     "learning_rate": 1e-6,
     "ppo_epochs": 2,
@@ -108,10 +135,54 @@ _RHO_MATH_1B_V0_1_GSM8K = _gsm8k_preset(
 
 
 PRESETS: dict[str, dict[str, Any]] = {
-    "smollm-135m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-135M-Instruct"),
-    "smollm-360m-gsm8k": _gsm8k_preset("HuggingFaceTB/SmolLM-360M-Instruct"),
+    "smollm-135m-gsm8k": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-135M-Instruct",
+        **_SMOLLM_GSM8K_STRONG_COMMON,
+        prompts_per_step=16,
+        minibatch_size=8,
+        eval_examples=128,
+        save_every=200,
+    ),
+    "smollm-360m-gsm8k": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-360M-Instruct",
+        **_SMOLLM_GSM8K_STRONG_COMMON,
+        prompts_per_step=24,
+        minibatch_size=8,
+        eval_examples=128,
+        save_every=200,
+    ),
+    "smollm-135m-gsm8k-baseline": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-135M-Instruct"
+    ),
+    "smollm-360m-gsm8k-baseline": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-360M-Instruct"
+    ),
+    "smollm-135m-gsm8k-socratic": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-135M-Instruct",
+        **_SMOLLM_GSM8K_STRONG_COMMON,
+        dataset_config="socratic",
+        prompts_per_step=16,
+        minibatch_size=8,
+        max_new_tokens=112,
+        eval_max_new_tokens=128,
+        eval_examples=128,
+        save_every=200,
+    ),
+    "smollm-360m-gsm8k-socratic": _gsm8k_preset(
+        "HuggingFaceTB/SmolLM-360M-Instruct",
+        **_SMOLLM_GSM8K_STRONG_COMMON,
+        dataset_config="socratic",
+        prompts_per_step=24,
+        minibatch_size=8,
+        max_new_tokens=112,
+        eval_max_new_tokens=128,
+        eval_examples=128,
+        save_every=200,
+    ),
     "deepseek-math-7b-base-gsm8k": _DEEPSEEK_MATH_7B_BASE_GSM8K,
+    "deepseek-ai/deepseek-math-7b-base": _DEEPSEEK_MATH_7B_BASE_GSM8K,
     "rho-math-1b-v0.1-gsm8k": _RHO_MATH_1B_V0_1_GSM8K,
+    "microsoft/rho-math-1b-v0.1": _RHO_MATH_1B_V0_1_GSM8K,
 }
 
 
