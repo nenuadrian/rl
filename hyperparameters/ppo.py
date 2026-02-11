@@ -49,8 +49,8 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/humanoid/walk": {
         "num_envs": 16,
         "total_steps": 5_000_000,
-        "eval_interval": 2_000,
-        "save_interval": 250_000,
+        "eval_interval": 50_000,
+        "save_interval": 1_000_000,
         "policy_layer_sizes": (256, 256),
         "critic_layer_sizes": (512, 256),
         "rollout_steps": 2048,

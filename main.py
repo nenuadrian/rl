@@ -41,6 +41,33 @@ def _print_config(name: str, config: object) -> None:
         print(repr(config))
 
 
+def _resolve_device(device_arg: str | None) -> torch.device:
+    if device_arg is None:
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    raw = device_arg.strip().lower()
+    if raw in {"mp", "metal"}:
+        raw = "mps"
+
+    try:
+        device = torch.device(raw)
+    except (RuntimeError, ValueError) as exc:
+        raise ValueError(f"Invalid --device value '{device_arg}'") from exc
+
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError(f"Requested --device '{device_arg}' but CUDA is not available")
+        if device.index is not None and device.index >= torch.cuda.device_count():
+            raise ValueError(
+                f"Requested --device '{device_arg}' but only {torch.cuda.device_count()} CUDA device(s) are visible"
+            )
+    elif device.type == "mps":
+        if not torch.backends.mps.is_available():
+            raise ValueError(f"Requested --device '{device_arg}' but MPS is not available")
+
+    return device
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -61,7 +88,15 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_entity", type=str, default=None)
     parser.add_argument("--wandb_group", type=str, default=None)
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device override: cpu, cuda, cuda:0, cuda:1, mps (or mp alias)",
+    )
     args = parser.parse_args()
+
+    cli_device_override = args.device
 
     algo = args.command
     if algo is None:
@@ -70,10 +105,14 @@ if __name__ == "__main__":
     preset = _load_preset(algo, args.env)
     _apply_preset(args, preset)
 
+    if cli_device_override is not None:
+        args.device = cli_device_override
+
     _print_resolved_args(args)
 
     set_seed(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = _resolve_device(args.device)
+    print(f"Using device: {device}")
 
     args.out_dir = os.path.join(args.out_dir, algo, args.env.replace("/", "-"))
 
