@@ -89,12 +89,15 @@ class ChatRLTrainer:
         assistant_end = tokenizer.encode_special("<|assistant_end|>")
         example_indices = range(0, len(train_task))
         for example_idx in itertools.cycle(example_indices):
+            agent = self.agent
             conversation = train_task[example_idx]
             tokens = tokenizer.render_for_completion(conversation)
             prefix_length = len(tokens)
             generated_token_sequences = []
             generated_texts = []
             masks = []
+            # Match scripts/chat_rl.py: always sample in eval mode.
+            agent.eval_mode()
             num_sampling_steps = (
                 self.config.num_samples // self.config.device_batch_size
             )
