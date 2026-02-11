@@ -676,13 +676,16 @@ class LMTrainer:
         output_dir = Path(out_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        step_offset = 0
         if self.config.mle_warm_start_steps > 0:
             self.mle_warm_start(
                 num_steps=self.config.mle_warm_start_steps,
                 batch_size=self.config.mle_warm_start_batch_size,
             )
+            step_offset = self.config.mle_warm_start_steps
 
         for step in range(1, self.config.num_steps + 1):
+            global_step = step + step_offset
             problems = self._sample_train_problems()
             rollout, sampled_texts = self._collect_rollout(problems)
             metrics = self._optimize(rollout)
@@ -690,7 +693,7 @@ class LMTrainer:
             if step == 1 or step % self.config.eval_every == 0:
                 metrics.update(self.evaluate(step=step))
 
-            log_wandb(metrics, step=step, silent=True)
+            log_wandb(metrics, step=global_step, silent=True)
 
             if step == 1 or step % 10 == 0:
                 sample_problem = problems[0]
