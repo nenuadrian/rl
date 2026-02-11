@@ -11,7 +11,6 @@ class ChatRLConfig:
     num_epochs: int = 1
     device_batch_size: int = 8
     examples_per_step: int = 16
-    train_examples: int = 20_000
     num_samples: int = 16
     max_new_tokens: int = 256
     temperature: float = 1.0

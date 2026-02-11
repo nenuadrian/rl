@@ -2,7 +2,7 @@ import torch
 import itertools
 import wandb
 from contextlib import nullcontext
-from nanochat.tasks.spellingbee import SpellingBee, extract_answer
+from nanochat.tasks.gsm8k import GSM8K, extract_answer
 from .agent import ChatRLAgent, ChatRLConfig
 
 from nanochat.checkpoint_manager import save_checkpoint
@@ -13,8 +13,8 @@ class ChatRLTrainer:
         self.agent = agent
         self.config = config
         self.device = device
-        self.train_task = SpellingBee(size=config.train_examples, split="train")
-        self.val_task = SpellingBee(size=config.eval_examples, split="test")
+        self.train_task = GSM8K(subset="main", split="train")
+        self.val_task = GSM8K(subset="main", split="test")
         self.tokenizer = agent.tokenizer
         self.engine = agent.engine
         self.num_steps = (
@@ -87,8 +87,8 @@ class ChatRLTrainer:
         device = self.device
         engine = self.engine
         assistant_end = tokenizer.encode_special("<|assistant_end|>")
-        rank_indices = range(0, len(train_task))
-        for example_idx in itertools.cycle(rank_indices):
+        example_indices = range(0, len(train_task))
+        for example_idx in itertools.cycle(example_indices):
             conversation = train_task[example_idx]
             tokens = tokenizer.render_for_completion(conversation)
             prefix_length = len(tokens)
@@ -142,7 +142,7 @@ class ChatRLTrainer:
             advantages = rewards - mu
             yield generated_token_sequences, generated_texts, inputs, targets, rewards, advantages
 
-    def run_spellingbee_eval(
+    def run_gsm8k_eval(
         self,
         max_examples=None,
         num_samples=1,
@@ -159,7 +159,7 @@ class ChatRLTrainer:
             else len(val_task)
         )
         print(
-            f"Running SpellingBee evaluation on {max_examples} examples with {num_samples} samples each..."
+            f"Running GSM8K evaluation on {max_examples} examples with {num_samples} samples each..."
         )
         for idx in range(0, max_examples):
             conversation = val_task[idx]
@@ -187,7 +187,7 @@ class ChatRLTrainer:
         agent = self.agent
         device = self.device
         num_steps = self.num_steps
-        examples_per_rank = self.config.examples_per_step
+        examples_per_step = self.config.examples_per_step
         batch_iterator = self.get_batch()
         for step in range(num_steps):
             # expose current step for deterministic sampling seeds inside get_batch
@@ -197,7 +197,7 @@ class ChatRLTrainer:
                 print("Running evaluation...")
                 agent.eval_mode()
                 passk = torch.zeros(self.config.device_batch_size, device=device)
-                records_iter = self.run_spellingbee_eval(
+                records_iter = self.run_gsm8k_eval(
                     max_examples=self.config.eval_examples,
                     num_samples=self.config.device_batch_size,
                     temperature=1.0,
@@ -232,8 +232,8 @@ class ChatRLTrainer:
             valid_token_counts = []
             completion_texts = []
             sample_text_logs = {}
-            print(f"Training on {examples_per_rank} examples for step {step}...")
-            for example_step in range(examples_per_rank):
+            print(f"Training on {examples_per_step} examples for step {step}...")
+            for example_step in range(examples_per_step):
                 (
                     sequences_all,
                     generated_texts_all,
@@ -265,7 +265,7 @@ class ChatRLTrainer:
                         logp = agent.compute_logp(inputs, targets)
                     pg_obj = (logp * advantages.unsqueeze(-1)).sum()
                     num_valid = (targets >= 0).sum().clamp(min=1)
-                    pg_obj = pg_obj / (num_valid * num_passes * examples_per_rank)
+                    pg_obj = pg_obj / (num_valid * num_passes * examples_per_step)
                     loss = -pg_obj
                     loss.backward()
                     loss_values.append(loss.detach().item())

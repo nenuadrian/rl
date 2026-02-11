@@ -157,7 +157,6 @@ if __name__ == "__main__":
             num_epochs=args.num_epochs,
             device_batch_size=args.device_batch_size,
             examples_per_step=args.examples_per_step,
-            train_examples=args.train_examples,
             num_samples=args.num_samples,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
