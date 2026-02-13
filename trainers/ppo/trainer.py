@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Tuple
+from typing import Dict, Mapping, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -11,6 +11,12 @@ from trainers.ppo.agent import PPOAgent, PPOConfig
 from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
+
+
+def _format_metrics(metrics: Mapping[str, float]) -> str:
+    return ", ".join(
+        f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
+    )
 
 
 class PPOTrainer:
@@ -118,13 +124,33 @@ class PPOTrainer:
         save_interval: int,
         out_dir: str,
     ):
+        console_log_interval = max(
+            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
+        )
+        batch_size = self.rollout_steps * self.num_envs
+        num_updates = max(1, total_steps // batch_size)
+        print(
+            "[PPO] training started: "
+            f"total_steps={total_steps}, "
+            f"rollout_steps={self.rollout_steps}, "
+            f"num_envs={self.num_envs}, "
+            f"batch_size={batch_size}, "
+            f"update_epochs={self.update_epochs}, "
+            f"minibatch_size={self.minibatch_size}, "
+            f"console_log_interval={console_log_interval}"
+        )
+        interval_metric_sums: Dict[str, float] = {}
+        interval_update_count = 0
+        interval_episode_count = 0
+        interval_episode_sum = 0.0
+        interval_episode_min = float("inf")
+        interval_episode_max = float("-inf")
+
         obs, _ = self.env.reset()
         # obs is a dict mapping -> per-key arrays with leading dim N
         obs = flatten_obs(obs)
 
         step = 0
-        batch_size = self.rollout_steps * self.num_envs
-        num_updates = max(1, total_steps // batch_size)
         update_idx = 0
         while step < total_steps:
             if self.agent.config.anneal_lr:
@@ -176,11 +202,20 @@ class PPOTrainer:
                     self.episode_return[i] += float(reward[i])
                     # Log episode return for each env when done
                     if done[i]:
+                        episode_return = float(self.episode_return[i])
                         log_wandb(
-                            {"train/episode_return": float(self.episode_return[i])},
+                            {"train/episode_return": episode_return},
                             step=step + 1,
                             silent=True,
                         )
+                        print(
+                            f"[PPO][episode] step={step + 1}/{total_steps}, "
+                            f"env={i}, return={episode_return:.3f}"
+                        )
+                        interval_episode_count += 1
+                        interval_episode_sum += episode_return
+                        interval_episode_min = min(interval_episode_min, episode_return)
+                        interval_episode_max = max(interval_episode_max, episode_return)
                         self.episode_return[i] = 0.0
 
                 obs = next_obs
@@ -220,6 +255,11 @@ class PPOTrainer:
                     }
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step, silent=True)
+                    for key, value in metrics.items():
+                        interval_metric_sums[key] = (
+                            interval_metric_sums.get(key, 0.0) + float(value)
+                        )
+                    interval_update_count += 1
                     approx_kl = metrics.get("approx_kl", None)
                     if (
                         approx_kl is not None
@@ -245,18 +285,60 @@ class PPOTrainer:
                     normalize_observation=self.normalize_obs,
                 )
                 log_wandb(metrics, step=step)
+                print(
+                    f"[PPO][eval] step={min(step, total_steps)}/{total_steps}: "
+                    f"{_format_metrics(metrics)}"
+                )
 
             if save_interval > 0 and self.last_checkpoint < step // save_interval:
                 self.last_checkpoint = step // save_interval
-                print(f"Saving checkpoint at step {step} to {out_dir}")
                 os.makedirs(out_dir, exist_ok=True)
+                ckpt_path = os.path.join(out_dir, "ppo.pt")
                 torch.save(
                     {
                         "policy": self.agent.policy.state_dict(),
                         "value": self.agent.value.state_dict(),
                     },
-                    os.path.join(out_dir, "ppo.pt"),
+                    ckpt_path,
                 )
+                print(
+                    f"[PPO][checkpoint] step={min(step, total_steps)}: saved {ckpt_path}"
+                )
+
+            step_display = min(step, total_steps)
+            should_print_progress = (
+                step >= total_steps or step_display % console_log_interval == 0
+            )
+            if should_print_progress:
+                progress = 100.0 * float(step_display) / float(total_steps)
+                print(
+                    "[PPO][progress] "
+                    f"step={step_display}/{total_steps} ({progress:.2f}%), "
+                    f"update={update_idx}/{num_updates}"
+                )
+                if interval_episode_count > 0:
+                    print(
+                        "[PPO][episode-stats] "
+                        f"count={interval_episode_count}, "
+                        f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
+                        f"return_min={interval_episode_min:.3f}, "
+                        f"return_max={interval_episode_max:.3f}"
+                    )
+                    interval_episode_count = 0
+                    interval_episode_sum = 0.0
+                    interval_episode_min = float("inf")
+                    interval_episode_max = float("-inf")
+                if interval_update_count > 0:
+                    mean_metrics = {
+                        key: value / float(interval_update_count)
+                        for key, value in interval_metric_sums.items()
+                    }
+                    print(
+                        "[PPO][train-metrics] "
+                        f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
+                    )
+                    interval_metric_sums.clear()
+                    interval_update_count = 0
 
         self.env.close()
 

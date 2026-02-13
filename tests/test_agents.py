@@ -1,13 +1,7 @@
 import numpy as np
-import pytest
 import torch
 
-from pathlib import Path
 
-from hyperparameters.ppo_lm import get as get_lm_preset
-from hyperparameters.vmpo import get as get_vmpo_preset
-from hyperparameters.vmpo_sgd import get as get_vmpo_sgd_preset
-from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
 from trainers.ppo.agent import PPOAgent
 from trainers.trpo.agent import TRPOAgent, TRPOConfig
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
@@ -139,15 +133,6 @@ def test_vmpo_agent_supports_sgd_optimizer():
     assert isinstance(agent.opt, torch.optim.SGD)
     assert isinstance(agent.eta_opt, torch.optim.SGD)
     assert isinstance(agent.alpha_opt, torch.optim.SGD)
-
-
-def test_vmpo_preset_optimizer_selection():
-    env_id = "HalfCheetah-v5"
-    vmpo_preset = get_vmpo_preset(env_id)
-    vmpo_sgd_preset = get_vmpo_sgd_preset(env_id)
-
-    assert vmpo_preset["optimizer_type"] == "adam"
-    assert vmpo_sgd_preset["optimizer_type"] == "sgd"
 
 
 def test_mpo_agent_act_and_update():

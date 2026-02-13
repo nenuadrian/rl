@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Tuple
+from typing import Dict, Mapping, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -11,6 +11,12 @@ from trainers.ppo.rollout_buffer import RolloutBuffer
 from trainers.trpo.agent import TRPOAgent, TRPOConfig
 from utils.env import flatten_obs, infer_obs_dim, make_env
 from utils.wandb_utils import log_wandb
+
+
+def _format_metrics(metrics: Mapping[str, float]) -> str:
+    return ", ".join(
+        f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
+    )
 
 
 class TRPOTrainer:
@@ -104,10 +110,28 @@ class TRPOTrainer:
         save_interval: int,
         out_dir: str,
     ):
+        console_log_interval = max(
+            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
+        )
+        print(
+            "[TRPO] training started: "
+            f"total_steps={total_steps}, "
+            f"rollout_steps={self.rollout_steps}, "
+            f"num_envs={self.num_envs}, "
+            f"console_log_interval={console_log_interval}"
+        )
+        interval_metric_sums: Dict[str, float] = {}
+        interval_update_count = 0
+        interval_episode_count = 0
+        interval_episode_sum = 0.0
+        interval_episode_min = float("inf")
+        interval_episode_max = float("-inf")
+
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)
 
         step = 0
+        update_idx = 0
         while step < total_steps:
             for t in range(self.rollout_steps):
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
@@ -140,11 +164,20 @@ class TRPOTrainer:
                     )
                     self.episode_return[i] += float(reward[i])
                     if done[i]:
+                        episode_return = float(self.episode_return[i])
                         log_wandb(
-                            {"train/episode_return": float(self.episode_return[i])},
+                            {"train/episode_return": episode_return},
                             step=step + 1,
                             silent=True,
                         )
+                        print(
+                            f"[TRPO][episode] step={step + 1}/{total_steps}, "
+                            f"env={i}, return={episode_return:.3f}"
+                        )
+                        interval_episode_count += 1
+                        interval_episode_sum += episode_return
+                        interval_episode_min = min(interval_episode_min, episode_return)
+                        interval_episode_max = max(interval_episode_max, episode_return)
                         self.episode_return[i] = 0.0
 
                 obs = next_obs
@@ -191,6 +224,12 @@ class TRPOTrainer:
 
             metrics = self.agent.update(batch)
             log_wandb(metrics, step=step, silent=True)
+            for key, value in metrics.items():
+                interval_metric_sums[key] = (
+                    interval_metric_sums.get(key, 0.0) + float(value)
+                )
+            interval_update_count += 1
+            update_idx += 1
 
             self.buffer.reset()
 
@@ -204,18 +243,60 @@ class TRPOTrainer:
                     normalize_observation=self.normalize_obs,
                 )
                 log_wandb(metrics, step=step)
+                print(
+                    f"[TRPO][eval] step={min(step, total_steps)}/{total_steps}: "
+                    f"{_format_metrics(metrics)}"
+                )
 
             if save_interval > 0 and self.last_checkpoint < step // save_interval:
                 self.last_checkpoint = step // save_interval
-                print(f"Saving checkpoint at step {step} to {out_dir}")
                 os.makedirs(out_dir, exist_ok=True)
+                ckpt_path = os.path.join(out_dir, "trpo.pt")
                 torch.save(
                     {
                         "policy": self.agent.policy.state_dict(),
                         "value": self.agent.value.state_dict(),
                     },
-                    os.path.join(out_dir, "trpo.pt"),
+                    ckpt_path,
                 )
+                print(
+                    f"[TRPO][checkpoint] step={min(step, total_steps)}: saved {ckpt_path}"
+                )
+
+            step_display = min(step, total_steps)
+            should_print_progress = (
+                step >= total_steps or step_display % console_log_interval == 0
+            )
+            if should_print_progress:
+                progress = 100.0 * float(step_display) / float(total_steps)
+                print(
+                    "[TRPO][progress] "
+                    f"step={step_display}/{total_steps} ({progress:.2f}%), "
+                    f"updates={update_idx}"
+                )
+                if interval_episode_count > 0:
+                    print(
+                        "[TRPO][episode-stats] "
+                        f"count={interval_episode_count}, "
+                        f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
+                        f"return_min={interval_episode_min:.3f}, "
+                        f"return_max={interval_episode_max:.3f}"
+                    )
+                    interval_episode_count = 0
+                    interval_episode_sum = 0.0
+                    interval_episode_min = float("inf")
+                    interval_episode_max = float("-inf")
+                if interval_update_count > 0:
+                    mean_metrics = {
+                        key: value / float(interval_update_count)
+                        for key, value in interval_metric_sums.items()
+                    }
+                    print(
+                        "[TRPO][train-metrics] "
+                        f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
+                    )
+                    interval_metric_sums.clear()
+                    interval_update_count = 0
 
         self.env.close()
 

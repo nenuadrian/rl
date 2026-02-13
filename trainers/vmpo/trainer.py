@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Tuple, Dict
+from typing import Dict, Mapping, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -10,6 +10,12 @@ import torch
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
+
+
+def _format_metrics(metrics: Mapping[str, float]) -> str:
+    return ", ".join(
+        f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
+    )
 
 
 class VMPOTrainer:
@@ -95,6 +101,25 @@ class VMPOTrainer:
         out_dir: str,
         updates_per_step: int = 1,
     ):
+        console_log_interval = max(
+            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
+        )
+        print(
+            "[VMPO] training started: "
+            f"total_steps={total_steps}, "
+            f"rollout_steps={self.rollout_steps}, "
+            f"num_envs={self.num_envs}, "
+            f"updates_per_step={int(updates_per_step)}, "
+            f"console_log_interval={console_log_interval}"
+        )
+        interval_metric_sums: Dict[str, float] = {}
+        interval_update_count = 0
+        interval_episode_count = 0
+        interval_episode_sum = 0.0
+        interval_episode_min = float("inf")
+        interval_episode_max = float("-inf")
+        total_update_count = 0
+
         obs, _ = self.env.reset()
         obs = flatten_obs(obs)
 
@@ -121,14 +146,24 @@ class VMPOTrainer:
 
             finished_mask = done.astype(bool)
             if np.any(finished_mask):
+                finished_indices = np.flatnonzero(finished_mask)
                 finished_returns = self.episode_return[finished_mask]
                 self.episode_return[finished_mask] = 0.0
-                for i, episode_return in enumerate(finished_returns):
+                for env_i, episode_return in zip(finished_indices, finished_returns):
+                    episode_return_f = float(episode_return)
                     log_wandb(
-                        {"train/episode_return": float(episode_return)},
-                        step=step + i,
+                        {"train/episode_return": episode_return_f},
+                        step=step,
                         silent=True,
                     )
+                    print(
+                        f"[VMPO][episode] step={step}/{total_steps}, "
+                        f"env={int(env_i)}, return={episode_return_f:.3f}"
+                    )
+                    interval_episode_count += 1
+                    interval_episode_sum += episode_return_f
+                    interval_episode_min = min(interval_episode_min, episode_return_f)
+                    interval_episode_max = max(interval_episode_max, episode_return_f)
 
             if self._rollout_full():
                 # Stack collected arrays and reshape for batch processing
@@ -188,6 +223,12 @@ class VMPOTrainer:
                 for _ in range(updates_per_step):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
+                    for key, value in metrics.items():
+                        interval_metric_sums[key] = (
+                            interval_metric_sums.get(key, 0.0) + float(value)
+                        )
+                    interval_update_count += 1
+                    total_update_count += 1
 
                 self._reset_rollout()
 
@@ -196,12 +237,49 @@ class VMPOTrainer:
                     agent=self.agent, env_id=self.env_id, seed=self.seed + 1000
                 )
                 log_wandb(metrics, step=step)
+                print(
+                    f"[VMPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
+                )
 
             if save_interval > 0 and step % save_interval == 0:
                 ckpt_path = os.path.join(out_dir, f"vmpo.pt")
                 os.makedirs(out_dir, exist_ok=True)
                 torch.save({"policy": self.agent.policy.state_dict()}, ckpt_path)
-                print(f"saved checkpoint: {ckpt_path}")
+                print(f"[VMPO][checkpoint] step={step}: saved {ckpt_path}")
+
+            should_print_progress = (
+                step == total_steps or step % console_log_interval == 0
+            )
+            if should_print_progress:
+                progress = 100.0 * float(step) / float(total_steps)
+                print(
+                    "[VMPO][progress] "
+                    f"step={step}/{total_steps} ({progress:.2f}%), "
+                    f"updates={total_update_count}"
+                )
+                if interval_episode_count > 0:
+                    print(
+                        "[VMPO][episode-stats] "
+                        f"count={interval_episode_count}, "
+                        f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
+                        f"return_min={interval_episode_min:.3f}, "
+                        f"return_max={interval_episode_max:.3f}"
+                    )
+                    interval_episode_count = 0
+                    interval_episode_sum = 0.0
+                    interval_episode_min = float("inf")
+                    interval_episode_max = float("-inf")
+                if interval_update_count > 0:
+                    mean_metrics = {
+                        key: value / float(interval_update_count)
+                        for key, value in interval_metric_sums.items()
+                    }
+                    print(
+                        "[VMPO][train-metrics] "
+                        f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
+                    )
+                    interval_metric_sums.clear()
+                    interval_update_count = 0
 
         self.env.close()
 
