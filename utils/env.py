@@ -165,7 +165,6 @@ def make_env(
         # CleanRL-style wrapper stack for continuous-control PPO.
         if isinstance(env.observation_space, gym.spaces.Dict):
             env = gym.wrappers.FlattenObservation(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
         if isinstance(env.action_space, gym.spaces.Box):
             env = gym.wrappers.ClipAction(env)
         if normalize_observation:
