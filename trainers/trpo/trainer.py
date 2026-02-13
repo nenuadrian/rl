@@ -9,7 +9,7 @@ import torch
 
 from trainers.ppo.rollout_buffer import RolloutBuffer
 from trainers.trpo.agent import TRPOAgent, TRPOConfig
-from utils.env import flatten_obs, infer_obs_dim, make_env, wrap_record_video
+from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 
 
@@ -17,6 +17,65 @@ def _format_metrics(metrics: Mapping[str, float]) -> str:
     return ", ".join(
         f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
     )
+
+
+def _transform_observation(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        return gym.wrappers.TransformObservation(env, fn)
+    except TypeError:
+        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
+
+
+def _transform_reward(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        return gym.wrappers.TransformReward(env, fn)
+    except TypeError:
+        return gym.wrappers.TransformReward(env, fn, env.reward_range)
+
+
+def _make_env(
+    env_id: str,
+    *,
+    seed: int | None = None,
+    render_mode: str | None = None,
+    gamma: float = 0.99,
+    normalize_observation: bool = True,
+    clip_observation: float | None = 10.0,
+    normalize_reward: bool = True,
+    clip_reward: float | None = 10.0,
+) -> gym.Env:
+    if env_id.startswith("dm_control/"):
+        _, domain, task = env_id.split("/")
+        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+    else:
+        env = gym.make(env_id, render_mode=render_mode)
+
+    if seed is not None:
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+
+    if isinstance(env.observation_space, gym.spaces.Dict):
+        env = gym.wrappers.FlattenObservation(env)
+    if normalize_observation:
+        env = gym.wrappers.NormalizeObservation(env)
+        if clip_observation is not None:
+            env = _transform_observation(
+                env,
+                lambda obs: np.clip(obs, -clip_observation, clip_observation),
+            )
+    if normalize_reward:
+        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
+        if clip_reward is not None:
+            env = _transform_reward(
+                env,
+                lambda reward: np.clip(reward, -clip_reward, clip_reward),
+            )
+
+    return env
 
 
 class TRPOTrainer:
@@ -65,26 +124,13 @@ class TRPOTrainer:
         act_space = self.env.single_action_space
 
         obs_dim = infer_obs_dim(obs_space)
+        if not isinstance(act_space, gym.spaces.Box):
+            raise ValueError("TRPO only supports continuous action spaces.")
         if act_space.shape is None:
             raise ValueError("Action space has no shape.")
         act_dim = int(np.prod(np.array(act_space.shape)))
-        action_low = getattr(act_space, "low", None)
-        action_high = getattr(act_space, "high", None)
-
-        # ClipAction exposes an unbounded action space on the wrapper.
-        # TRPO's Gaussian policy needs finite env bounds for scaling.
-        if action_low is None or action_high is None or not (
-            np.all(np.isfinite(action_low)) and np.all(np.isfinite(action_high))
-        ):
-            probe_env = make_env(env_id, seed=seed, ppo_wrappers=False)
-            try:
-                base_action_space = probe_env.action_space
-                if not isinstance(base_action_space, gym.spaces.Box):
-                    raise ValueError("TRPO only supports continuous action spaces.")
-                action_low = np.asarray(base_action_space.low, dtype=np.float32)
-                action_high = np.asarray(base_action_space.high, dtype=np.float32)
-            finally:
-                probe_env.close()
+        action_low = np.asarray(act_space.low, dtype=np.float32)
+        action_high = np.asarray(act_space.high, dtype=np.float32)
 
         self.agent = TRPOAgent(
             obs_dim=obs_dim,
@@ -118,11 +164,10 @@ class TRPOTrainer:
         gamma: float,
     ):
         should_record = self.capture_video and env_index == 0
-        env = make_env(
+        env = _make_env(
             env_id,
             seed=seed,
             render_mode="rgb_array" if should_record else None,
-            ppo_wrappers=True,
             gamma=gamma,
             normalize_observation=self.normalize_obs,
         )
@@ -167,6 +212,11 @@ class TRPOTrainer:
                 action = action_t.cpu().numpy()
                 logp = logp_t.cpu().numpy().squeeze(-1)
                 value = value_t.cpu().numpy().squeeze(-1)
+                action = np.clip(
+                    action,
+                    self.env.single_action_space.low,
+                    self.env.single_action_space.high,
+                )
 
                 next_obs, reward, terminated, truncated, _ = self.env.step(action)
                 next_obs = flatten_obs(next_obs)
@@ -340,10 +390,9 @@ def _evaluate_vectorized(
     eval_envs = gym.vector.SyncVectorEnv(
         [
             (
-                lambda i=i: make_env(
+                lambda i=i: _make_env(
                     env_id,
                     seed=seed + i,
-                    ppo_wrappers=True,
                     gamma=gamma,
                     normalize_observation=normalize_observation,
                 )

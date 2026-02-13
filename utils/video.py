@@ -10,7 +10,7 @@ import imageio
 import numpy as np
 import torch
 
-from utils.env import flatten_obs, infer_obs_dim, make_env, set_seed
+from utils.env import flatten_obs, infer_obs_dim, set_seed
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,26 @@ def find_latest_checkpoint(out_dir: str, algo: str) -> str:
 
 def _as_tuple_ints(values: Iterable[int]) -> tuple[int, ...]:
     return tuple(int(v) for v in values)
+
+
+def _make_env(
+    env_id: str,
+    *,
+    seed: int | None = None,
+    render_mode: str | None = None,
+) -> gym.Env:
+    if env_id.startswith("dm_control/"):
+        _, domain, task = env_id.split("/")
+        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+    else:
+        env = gym.make(env_id, render_mode=render_mode)
+
+    if seed is not None:
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    return env
 
 
 def build_policy_for_algo(
@@ -187,12 +207,12 @@ def render_policy_video(
 
     def _make_rgb_env(env_seed: int):
         try:
-            return make_env(env_id, seed=env_seed, render_mode="rgb_array")
+            return _make_env(env_id, seed=env_seed, render_mode="rgb_array")
         except ImportError as e:
             # Common on macOS when MUJOCO_GL is set to egl.
             if "Unable to load EGL library" in str(e):
                 os.environ["MUJOCO_GL"] = "glfw"
-                return make_env(env_id, seed=env_seed, render_mode="rgb_array")
+                return _make_env(env_id, seed=env_seed, render_mode="rgb_array")
             raise
 
     # Build policy once

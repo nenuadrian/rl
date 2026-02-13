@@ -9,7 +9,7 @@ import torch
 
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.vmpo.targets import compute_rollout_targets
-from utils.env import flatten_obs, make_env, infer_obs_dim
+from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 
 
@@ -17,6 +17,71 @@ def _format_metrics(metrics: Mapping[str, float]) -> str:
     return ", ".join(
         f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
     )
+
+
+def _transform_observation(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        return gym.wrappers.TransformObservation(env, fn)
+    except TypeError:
+        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
+
+
+def _transform_reward(env: gym.Env, fn):
+    """Gymnasium compatibility shim across wrapper signatures."""
+    try:
+        return gym.wrappers.TransformReward(env, fn)
+    except TypeError:
+        return gym.wrappers.TransformReward(env, fn, env.reward_range)
+
+
+def _make_env(
+    env_id: str,
+    *,
+    seed: int | None = None,
+    render_mode: str | None = None,
+    gamma: float = 0.99,
+    normalize_observation: bool = True,
+    clip_observation: float | None = 10.0,
+    normalize_reward: bool = True,
+    clip_reward: float | None = 10.0,
+    capture_video: bool = False,
+    run_name: str | None = None,
+    idx: int = 0,
+) -> gym.Env:
+    if env_id.startswith("dm_control/"):
+        _, domain, task = env_id.split("/")
+        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+    else:
+        env = gym.make(env_id, render_mode=render_mode)
+
+    if seed is not None:
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+
+    if capture_video and run_name is not None and idx == 0:
+        env = wrap_record_video(env, f"videos/{run_name}")
+
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+
+    if isinstance(env.observation_space, gym.spaces.Dict):
+        env = gym.wrappers.FlattenObservation(env)
+    if normalize_observation:
+        env = gym.wrappers.NormalizeObservation(env)
+        if clip_observation is not None:
+            env = _transform_observation(
+                env,
+                lambda obs: np.clip(obs, -clip_observation, clip_observation),
+            )
+    if normalize_reward:
+        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
+        if clip_reward is not None:
+            env = _transform_reward(
+                env,
+                lambda reward: np.clip(reward, -clip_reward, clip_reward),
+            )
+
+    return env
 
 
 class VMPOTrainer:
@@ -46,6 +111,7 @@ class VMPOTrainer:
                     env_id=env_id,
                     seed=seed + i,
                     env_index=i,
+                    gamma=config.gamma,
                 )
             )
             for i in range(self.num_envs)
@@ -99,10 +165,12 @@ class VMPOTrainer:
         env_id: str,
         seed: int,
         env_index: int,
+        gamma: float,
     ):
-        env = make_env(
+        env = _make_env(
             env_id,
             seed=seed,
+            gamma=gamma,
         )
         return env
 
@@ -264,6 +332,7 @@ class VMPOTrainer:
                     agent=self.agent,
                     env_id=self.env_id,
                     seed=self.seed + 1000,
+                    gamma=self.agent.config.gamma,
                     capture_video=self.capture_video,
                     run_name=self.run_name,
                 )
@@ -321,6 +390,7 @@ def _evaluate_vectorized(
     env_id: str,
     n_episodes: int = 10,
     seed: int = 42,
+    gamma: float = 0.99,
     obs_normalizer=None,
     capture_video: bool = False,
     run_name: str | None = None,
@@ -331,9 +401,10 @@ def _evaluate_vectorized(
     """
     eval_envs = gym.vector.SyncVectorEnv(
         [
-            lambda i=i: make_env(
+            lambda i=i: _make_env(
                 env_id,
                 seed=seed + i,
+                gamma=gamma,
                 capture_video=capture_video,
                 render_mode="rgb_array" if capture_video else None,
                 run_name=run_name,

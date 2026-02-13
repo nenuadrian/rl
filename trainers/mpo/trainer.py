@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent, MPOConfig
-from utils.env import flatten_obs, make_env, infer_obs_dim, wrap_record_video
+from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.mpo.replay_buffer import MPOReplayBuffer
 
@@ -17,6 +17,26 @@ def _format_metrics(metrics: Mapping[str, float]) -> str:
     return ", ".join(
         f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
     )
+
+
+def _make_env(
+    env_id: str,
+    *,
+    seed: int | None = None,
+    render_mode: str | None = None,
+) -> gym.Env:
+    if env_id.startswith("dm_control/"):
+        _, domain, task = env_id.split("/")
+        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+    else:
+        env = gym.make(env_id, render_mode=render_mode)
+
+    if seed is not None:
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    return env
 
 
 class MPOTrainer:
@@ -38,7 +58,7 @@ class MPOTrainer:
             run_name if run_name is not None else f"mpo-{env_id}-seed{seed}"
         ).replace("/", "-")
         self.video_dir = os.path.join("videos", safe_run_name)
-        self.env = make_env(
+        self.env = _make_env(
             env_id,
             seed=seed,
             render_mode="rgb_array" if self.capture_video else None,
@@ -244,7 +264,7 @@ def _evaluate_vectorized(
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
     eval_envs = gym.vector.SyncVectorEnv(
-        [lambda i=i: make_env(env_id, seed=seed + i) for i in range(n_episodes)]
+        [lambda i=i: _make_env(env_id, seed=seed + i) for i in range(n_episodes)]
     )
 
     agent.policy.eval()

@@ -6,25 +6,6 @@ import shimmy
 import torch
 
 
-def _transform_observation(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        # Newer Gymnasium versions.
-        return gym.wrappers.TransformObservation(env, fn)
-    except TypeError:
-        # Older versions require the transformed observation space explicitly.
-        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
-
-
-def _transform_reward(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformReward(env, fn)
-    except TypeError:
-        # Some versions may require reward_range to be passed explicitly.
-        return gym.wrappers.TransformReward(env, fn, env.reward_range)
-
-
 def infer_obs_dim(obs_space: gym.Space) -> int:
     if isinstance(obs_space, gym.spaces.Dict):
         dims = []
@@ -128,58 +109,3 @@ def wrap_record_video(env: gym.Env, video_dir: str) -> gym.Env:
         setattr(wrapped_env, "enabled", False)
 
     return wrapped_env
-
-
-def make_env(
-    env_id: str,
-    seed=None,
-    render_mode=None,
-    *,
-    ppo_wrappers: bool = False,
-    gamma: float = 0.99,
-    normalize_observation: bool = True,
-    clip_observation: float | None = 10.0,
-    normalize_reward: bool = True,
-    clip_reward: float | None = 10.0,
-    capture_video: bool = False,
-    run_name: str | None = None,
-    idx: int = 0,
-):
-    if env_id.startswith("dm_control/"):
-        # Parse dm_control/domain/task
-        _, domain, task = env_id.split("/")
-        env = gym.make(
-            f"dm_control/{domain}-{task}-v0",
-            render_mode=render_mode,
-        )
-    else:
-        env = gym.make(env_id, render_mode=render_mode)
-    if seed is not None:
-        env.reset(seed=seed)
-        env.action_space.seed(seed)
-    if capture_video and run_name is not None and idx == 0:
-        env = wrap_record_video(env, f"videos/{run_name}")
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-
-    if ppo_wrappers:
-        # CleanRL-style wrapper stack for continuous-control PPO.
-        if isinstance(env.observation_space, gym.spaces.Dict):
-            env = gym.wrappers.FlattenObservation(env)
-        if isinstance(env.action_space, gym.spaces.Box):
-            env = gym.wrappers.ClipAction(env)
-        if normalize_observation:
-            env = gym.wrappers.NormalizeObservation(env)
-            if clip_observation is not None:
-                env = _transform_observation(
-                    env,
-                    lambda obs: np.clip(obs, -clip_observation, clip_observation),
-                )
-        if normalize_reward:
-            env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-            if clip_reward is not None:
-                env = _transform_reward(
-                    env,
-                    lambda reward: np.clip(reward, -clip_reward, clip_reward),
-                )
-
-    return env
