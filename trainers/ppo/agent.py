@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Tuple
 
@@ -10,39 +11,36 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 
 
-class LayerNormMLP(nn.Module):
+def _layer_init(
+    layer: nn.Module, std: float = math.sqrt(2.0), bias_const: float = 0.0
+) -> nn.Module:
+    if isinstance(layer, nn.Linear):
+        nn.init.orthogonal_(layer.weight, std)
+        nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class MLP(nn.Module):
     def __init__(
         self,
         in_dim: int,
         layer_sizes: Tuple[int, ...],
-        activate_final: bool = False,
     ):
         super().__init__()
         if len(layer_sizes) < 1:
             raise ValueError("layer_sizes must have at least one layer.")
 
         layers: list[nn.Module] = []
-
-        layers.append(nn.Linear(in_dim, layer_sizes[0]))
-        layers.append(nn.LayerNorm(layer_sizes[0]))
-        layers.append(nn.Tanh())
-
-        for i in range(1, len(layer_sizes)):
-            layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))
-            if activate_final or i < len(layer_sizes) - 1:
-                layers.append(nn.ELU())
+        prev_dim = in_dim
+        for hidden_dim in layer_sizes:
+            layers.append(_layer_init(nn.Linear(prev_dim, hidden_dim)))
+            layers.append(nn.Tanh())
+            prev_dim = hidden_dim
 
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
-
-
-class SmallInitLinear(nn.Linear):
-    def __init__(self, in_features: int, out_features: int, std: float = 0.01):
-        super().__init__(in_features, out_features)
-        nn.init.trunc_normal_(self.weight, std=std)
-        nn.init.zeros_(self.bias)
 
 
 class GaussianPolicy(nn.Module):
@@ -57,41 +55,26 @@ class GaussianPolicy(nn.Module):
     ):
         super().__init__()
 
-        self.net = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
-        self.mean_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        self.net = MLP(obs_dim, hidden_sizes)
+        self.mean_layer = _layer_init(nn.Linear(hidden_sizes[-1], act_dim), std=0.01)
+        self.log_std = nn.Parameter(torch.zeros(1, act_dim))
         self.log_std_min, self.log_std_max = log_std_bounds
 
         if action_low is None or action_high is None:
             action_low = -np.ones(act_dim, dtype=np.float32)
             action_high = np.ones(act_dim, dtype=np.float32)
-        if not (
-            np.all(np.isfinite(action_low)) and np.all(np.isfinite(action_high))
-        ):
-            raise ValueError(
-                "GaussianPolicy requires finite action bounds. "
-                "Received non-finite action_low/action_high."
-            )
-
-        action_low_t = torch.tensor(action_low, dtype=torch.float32)
-        action_high_t = torch.tensor(action_high, dtype=torch.float32)
-        self.register_buffer("action_scale", (action_high_t - action_low_t) / 2.0)
-        self.register_buffer("action_bias", (action_high_t + action_low_t) / 2.0)
-
-        nn.init.kaiming_normal_(self.mean_layer.weight, a=0.0, mode="fan_in")
-        nn.init.zeros_(self.mean_layer.bias)
-        nn.init.zeros_(self.log_std_layer.weight)
-        nn.init.zeros_(self.log_std_layer.bias)
+        self.register_buffer("action_low", torch.tensor(action_low, dtype=torch.float32))
+        self.register_buffer(
+            "action_high", torch.tensor(action_high, dtype=torch.float32)
+        )
 
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         h = self.net(obs)
         mean = self.mean_layer(h)
-        log_std = self.log_std_layer(h)
-
+        log_std = self.log_std.expand_as(mean)
         mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-
         return mean, log_std
 
     def _distribution(self, obs: torch.Tensor) -> Normal:
@@ -100,30 +83,13 @@ class GaussianPolicy(nn.Module):
 
     def sample(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         normal = self._distribution(obs)
-        x = normal.rsample()
-        y = torch.tanh(x)
-
-        action = y * self.action_scale + self.action_bias
-
-        log_prob = normal.log_prob(x)
-        log_prob = log_prob - torch.log(1.0 - y.pow(2) + 1e-6)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
-        log_prob = log_prob - torch.log(self.action_scale).sum()
-
+        action = normal.sample()
+        log_prob = normal.log_prob(action).sum(dim=-1, keepdim=True)
         return action, log_prob
 
     def log_prob(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         normal = self._distribution(obs)
-        y = (actions - self.action_bias) / self.action_scale
-        y = torch.clamp(y, -0.999999, 0.999999)
-        x = torch.atanh(y)
-
-        log_prob = normal.log_prob(x)
-        log_prob = log_prob - torch.log(1.0 - y.pow(2) + 1e-6)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
-        log_prob = log_prob - torch.log(self.action_scale).sum()
-
-        return log_prob
+        return normal.log_prob(actions).sum(dim=-1, keepdim=True)
 
     def entropy(self, obs: torch.Tensor) -> torch.Tensor:
         normal = self._distribution(obs)
@@ -134,17 +100,16 @@ class GaussianPolicy(nn.Module):
     ) -> torch.Tensor:
         mean, log_std = self.forward(obs)
         if deterministic:
-            y = torch.tanh(mean)
+            return mean
         else:
-            y = torch.tanh(Normal(mean, log_std.exp()).rsample())
-        return y * self.action_scale + self.action_bias
+            return Normal(mean, log_std.exp()).sample()
 
 
 class ValueNetwork(nn.Module):
     def __init__(self, obs_dim: int, hidden_sizes: Tuple[int, ...]):
         super().__init__()
-        self.encoder = LayerNormMLP(obs_dim, hidden_sizes, activate_final=True)
-        self.value_head = SmallInitLinear(hidden_sizes[-1], 1, std=0.01)
+        self.encoder = MLP(obs_dim, hidden_sizes)
+        self.value_head = _layer_init(nn.Linear(hidden_sizes[-1], 1), std=1.0)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.value_head(self.encoder(obs))
@@ -161,6 +126,11 @@ class PPOConfig:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     target_kl: float = 0.02
+    norm_adv: bool = True
+    clip_vloss: bool = True
+    anneal_lr: bool = True
+    optimizer_type: str = "adam"
+    sgd_momentum: float = 0.9
 
 
 class PPOAgent:
@@ -188,11 +158,28 @@ class PPOAgent:
 
         self.value = ValueNetwork(obs_dim, critic_layer_sizes).to(device)
 
-        self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=self.config.policy_lr, eps=1e-5
+        self.policy_opt = self._build_optimizer(
+            self.policy.parameters(), lr=self.config.policy_lr
         )
-        self.value_opt = torch.optim.Adam(
-            self.value.parameters(), lr=self.config.value_lr, eps=1e-5
+        self.value_opt = self._build_optimizer(
+            self.value.parameters(), lr=self.config.value_lr
+        )
+
+    def _build_optimizer(
+        self, params, *, lr: float
+    ) -> torch.optim.Optimizer:
+        optimizer_type = self.config.optimizer_type.strip().lower()
+        if optimizer_type == "adam":
+            return torch.optim.Adam(params, lr=float(lr), eps=1e-5)
+        if optimizer_type == "sgd":
+            return torch.optim.SGD(
+                params,
+                lr=float(lr),
+                momentum=float(self.config.sgd_momentum),
+            )
+        raise ValueError(
+            f"Unsupported PPO optimizer_type '{self.config.optimizer_type}'. "
+            "Expected one of: adam, sgd."
         )
 
     def set_hparams(
@@ -205,6 +192,9 @@ class PPOAgent:
         vf_coef: float | None = None,
         max_grad_norm: float | None = None,
         target_kl: float | None = None,
+        norm_adv: bool | None = None,
+        clip_vloss: bool | None = None,
+        anneal_lr: bool | None = None,
     ) -> None:
         if clip_ratio is not None:
             self.config.clip_ratio = float(clip_ratio)
@@ -216,6 +206,12 @@ class PPOAgent:
             self.config.max_grad_norm = float(max_grad_norm)
         if target_kl is not None:
             self.config.target_kl = float(target_kl)
+        if norm_adv is not None:
+            self.config.norm_adv = bool(norm_adv)
+        if clip_vloss is not None:
+            self.config.clip_vloss = bool(clip_vloss)
+        if anneal_lr is not None:
+            self.config.anneal_lr = bool(anneal_lr)
 
         if policy_lr is not None:
             self.config.policy_lr = float(policy_lr)
@@ -247,33 +243,41 @@ class PPOAgent:
         advantages = batch["advantages"]
         values_old = batch.get("values_old", None)
 
+        if self.config.norm_adv:
+            advantages = (advantages - advantages.mean()) / (
+                advantages.std(unbiased=False) + 1e-8
+            )
+
         log_probs = self.policy.log_prob(obs, actions)
         log_ratio = log_probs - old_log_probs
         ratio = torch.exp(log_ratio)
 
-        clipped_ratio = torch.clamp(
+        pg_loss1 = -advantages * ratio
+        pg_loss2 = -advantages * torch.clamp(
             ratio, 1.0 - self.config.clip_ratio, 1.0 + self.config.clip_ratio
         )
-        policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
+        policy_loss = torch.max(pg_loss1, pg_loss2).mean()
 
         entropy = self.policy.entropy(obs).mean()
-        policy_loss = policy_loss - self.config.ent_coef * entropy
 
-        values = self.value(obs)
-        if values_old is None:
-            value_loss = F.mse_loss(values, returns)
-        else:
+        new_values = self.value(obs)
+        if self.config.clip_vloss and values_old is not None:
+            value_loss_unclipped = (new_values - returns).pow(2)
             values_clipped = values_old + torch.clamp(
-                values - values_old,
+                new_values - values_old,
                 -self.config.clip_ratio,
                 self.config.clip_ratio,
             )
-            value_loss = torch.max(
-                (values - returns).pow(2),
-                (values_clipped - returns).pow(2),
-            ).mean()
+            value_loss_clipped = (values_clipped - returns).pow(2)
+            value_loss = 0.5 * torch.max(value_loss_unclipped, value_loss_clipped).mean()
+        else:
+            value_loss = 0.5 * F.mse_loss(new_values, returns)
 
-        value_loss = value_loss * self.config.vf_coef
+        total_loss = (
+            policy_loss
+            - self.config.ent_coef * entropy
+            + self.config.vf_coef * value_loss
+        )
 
         with torch.no_grad():
             _, log_std = self.policy.forward(obs)
@@ -281,27 +285,31 @@ class PPOAgent:
             log_std_std = log_std.std(unbiased=False)
             ratio_mean = ratio.mean()
             ratio_std = ratio.std(unbiased=False)
-            value_mae = (values - returns).abs().mean()
+            value_mae = (new_values - returns).abs().mean()
             old_approx_kl = (-log_ratio).mean()
             # k3 estimator from http://joschu.net/blog/kl-approx.html
             approx_kl = ((ratio - 1.0) - log_ratio).mean()
+            clipfrac = ((ratio - 1.0).abs() > self.config.clip_ratio).float().mean()
 
         self.policy_opt.zero_grad()
-        policy_loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
-        self.policy_opt.step()
-
         self.value_opt.zero_grad()
-        value_loss.backward()
-        nn.utils.clip_grad_norm_(self.value.parameters(), self.config.max_grad_norm)
+        total_loss.backward()
+        grad_norm = nn.utils.clip_grad_norm_(
+            list(self.policy.parameters()) + list(self.value.parameters()),
+            self.config.max_grad_norm,
+        )
+        self.policy_opt.step()
         self.value_opt.step()
 
         return {
             "loss/policy": float(policy_loss.item()),
             "loss/value": float(value_loss.item()),
+            "loss/total": float(total_loss.item()),
             "entropy": float(entropy.item()),
             "old_approx_kl": float(old_approx_kl.item()),
             "approx_kl": float(approx_kl.item()),
+            "clipfrac": float(clipfrac.item()),
+            "grad_norm": float(grad_norm.item()),
             "policy/log_std_mean": float(log_std_mean.item()),
             "policy/log_std_std": float(log_std_std.item()),
             "policy/ratio_mean": float(ratio_mean.item()),

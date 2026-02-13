@@ -33,7 +33,7 @@ class VMPOTrainer:
             for i in range(self.num_envs)
         ]
         # Always use vectorized env, even when num_envs == 1.
-        self.env = gym.vector.AsyncVectorEnv(
+        self.env = gym.vector.SyncVectorEnv(
             env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
         )
         obs_space = self.env.single_observation_space
@@ -123,15 +123,12 @@ class VMPOTrainer:
             if np.any(finished_mask):
                 finished_returns = self.episode_return[finished_mask]
                 self.episode_return[finished_mask] = 0.0
-                log_wandb(
-                    {
-                        "train/episode_return_mean": float(np.mean(finished_returns)),
-                        "train/episode_return_min": float(np.min(finished_returns)),
-                        "train/episode_return_max": float(np.max(finished_returns)),
-                    },
-                    step=step,
-                    silent=True,
-                )
+                for i, episode_return in enumerate(finished_returns):
+                    log_wandb(
+                        {"train/episode_return": float(episode_return)},
+                        step=step + i,
+                        silent=True,
+                    )
 
             if self._rollout_full():
                 # Stack collected arrays and reshape for batch processing
@@ -317,5 +314,3 @@ def _evaluate_vectorized(
         "eval/return_min": float(np.min(final_returns)),
         "eval/return_max": float(np.max(final_returns)),
     }
-
-

@@ -9,6 +9,7 @@ from hyperparameters.vmpo import get as get_vmpo_preset
 from hyperparameters.vmpo_sgd import get as get_vmpo_sgd_preset
 from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
 from trainers.ppo.agent import PPOAgent
+from trainers.trpo.agent import TRPOAgent, TRPOConfig
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
 from trainers.mpo.agent import MPOAgent, MPOConfig
 
@@ -198,14 +199,13 @@ def test_mpo_agent_act_and_update():
                 return True
         return False
 
-    q1_before = _clone_params(agent.q1)
+    q_before = _clone_params(agent.q)
     policy_before = _clone_params(agent.policy)
 
     metrics = agent.update(batch)
 
     expected_keys = {
-        "loss/q1",
-        "loss/q2",
+        "loss/q",
         "loss/policy",
         "loss/dual_eta",
         "loss/dual",
@@ -227,5 +227,57 @@ def test_mpo_agent_act_and_update():
     assert metrics["lambda"] > 0.0
 
     # Update should actually modify parameters.
-    assert _any_param_changed(q1_before, agent.q1)
+    assert _any_param_changed(q_before, agent.q)
     assert _any_param_changed(policy_before, agent.policy)
+
+
+def test_trpo_agent_act_and_update():
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    obs_dim = 5
+    act_dim = 2
+    action_low = -np.ones(act_dim, dtype=np.float32)
+    action_high = np.ones(act_dim, dtype=np.float32)
+
+    agent = TRPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        action_low=action_low,
+        action_high=action_high,
+        device=torch.device("cpu"),
+        policy_layer_sizes=(32, 32),
+        critic_layer_sizes=(32, 32),
+        config=TRPOConfig(
+            target_kl=0.02,
+            cg_iters=5,
+            backtrack_iters=5,
+            value_epochs=2,
+            value_minibatch_size=16,
+        ),
+    )
+
+    obs = torch.randn(12, obs_dim)
+    actions, log_probs, values = agent.act(obs, deterministic=False)
+
+    returns = values + torch.randn_like(values) * 0.1
+    advantages = torch.randn_like(values)
+
+    batch = {
+        "obs": obs,
+        "actions": actions.detach(),
+        "log_probs": log_probs.detach(),
+        "returns": returns.detach(),
+        "advantages": advantages.detach(),
+    }
+
+    metrics = agent.update(batch)
+    expected_keys = {
+        "policy/surrogate_before",
+        "policy/surrogate_after",
+        "policy/kl",
+        "policy/line_search_accepted",
+        "loss/value",
+        "value/mae",
+    }
+    assert expected_keys.issubset(metrics.keys())

@@ -7,13 +7,13 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.ppo.agent import PPOAgent, PPOConfig
-from utils.env import flatten_obs, make_env, infer_obs_dim
-from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
+from trainers.trpo.agent import TRPOAgent, TRPOConfig
+from utils.env import flatten_obs, infer_obs_dim, make_env
+from utils.wandb_utils import log_wandb
 
 
-class PPOTrainer:
+class TRPOTrainer:
     def __init__(
         self,
         env_id: str,
@@ -22,58 +22,59 @@ class PPOTrainer:
         policy_layer_sizes: Tuple[int, ...],
         critic_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
-        gamma: float = 0.99,
-        gae_lambda: float = 0.95,
-        update_epochs: int = 10,
-        minibatch_size: int = 64,
-        policy_lr: float = 3e-4,
-        value_lr: float = 1e-4,
-        clip_ratio: float = 0.2,
-        ent_coef: float = 1e-3,
-        vf_coef: float = 0.5,
-        max_grad_norm: float = 0.5,
-        target_kl: float = 0.02,
-        norm_adv: bool = True,
-        clip_vloss: bool = True,
-        anneal_lr: bool = True,
+        config: TRPOConfig,
         normalize_obs: bool = False,
         num_envs: int = 1,
-        optimizer_type: str = "adam",
-        sgd_momentum: float = 0.9,
     ):
         self.seed = seed
         self.num_envs = int(num_envs)
         self.env_id = env_id
+        self.normalize_obs = bool(normalize_obs)
+
         env_fns = [
             (
                 lambda i=i: make_env(
                     env_id,
                     seed=seed + i,
                     ppo_wrappers=True,
-                    gamma=gamma,
-                    normalize_observation=normalize_obs,
+                    gamma=config.gamma,
+                    normalize_observation=self.normalize_obs,
                 )
             )
             for i in range(self.num_envs)
         ]
+
         # Avoid NEXT_STEP synthetic transitions after done=True.
         self.env = gym.vector.SyncVectorEnv(
             env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
         )
+
         obs_space = self.env.single_observation_space
         act_space = self.env.single_action_space
+
         obs_dim = infer_obs_dim(obs_space)
-        if not isinstance(act_space, gym.spaces.Box):
-            raise ValueError("PPO only supports continuous action spaces.")
         if act_space.shape is None:
             raise ValueError("Action space has no shape.")
         act_dim = int(np.prod(np.array(act_space.shape)))
         action_low = getattr(act_space, "low", None)
         action_high = getattr(act_space, "high", None)
-        if action_low is None or action_high is None:
-            action_low = -np.ones(act_dim, dtype=np.float32)
-            action_high = np.ones(act_dim, dtype=np.float32)
-        self.agent = PPOAgent(
+
+        # ClipAction exposes an unbounded action space on the wrapper.
+        # TRPO's Gaussian policy needs finite env bounds for scaling.
+        if action_low is None or action_high is None or not (
+            np.all(np.isfinite(action_low)) and np.all(np.isfinite(action_high))
+        ):
+            probe_env = make_env(env_id, seed=seed, ppo_wrappers=False)
+            try:
+                base_action_space = probe_env.action_space
+                if not isinstance(base_action_space, gym.spaces.Box):
+                    raise ValueError("TRPO only supports continuous action spaces.")
+                action_low = np.asarray(base_action_space.low, dtype=np.float32)
+                action_high = np.asarray(base_action_space.high, dtype=np.float32)
+            finally:
+                probe_env.close()
+
+        self.agent = TRPOAgent(
             obs_dim=obs_dim,
             act_dim=act_dim,
             action_low=action_low,
@@ -81,32 +82,17 @@ class PPOTrainer:
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             critic_layer_sizes=critic_layer_sizes,
-            config=PPOConfig(
-                gamma=gamma,
-                gae_lambda=gae_lambda,
-                clip_ratio=clip_ratio,
-                policy_lr=policy_lr,
-                value_lr=value_lr,
-                ent_coef=ent_coef,
-                vf_coef=vf_coef,
-                max_grad_norm=max_grad_norm,
-                target_kl=target_kl,
-                norm_adv=norm_adv,
-                clip_vloss=clip_vloss,
-                anneal_lr=anneal_lr,
-                optimizer_type=optimizer_type,
-                sgd_momentum=sgd_momentum,
-            ),
+            config=config,
         )
-        self.rollout_steps = rollout_steps
-        self.update_epochs = update_epochs
-        self.minibatch_size = minibatch_size
-        self.normalize_obs = bool(normalize_obs)
+
+        self.rollout_steps = int(rollout_steps)
         self.buffer = RolloutBuffer.create(
-            obs_dim, act_dim, rollout_steps, self.num_envs
+            obs_dim=obs_dim,
+            act_dim=act_dim,
+            rollout_steps=self.rollout_steps,
+            num_envs=self.num_envs,
         )
-        self._base_policy_lr = float(policy_lr)
-        self._base_value_lr = float(value_lr)
+
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
         self.last_eval = 0
         self.last_checkpoint = 0
@@ -119,30 +105,10 @@ class PPOTrainer:
         out_dir: str,
     ):
         obs, _ = self.env.reset()
-        # obs is a dict mapping -> per-key arrays with leading dim N
         obs = flatten_obs(obs)
 
         step = 0
-        batch_size = self.rollout_steps * self.num_envs
-        num_updates = max(1, total_steps // batch_size)
-        update_idx = 0
         while step < total_steps:
-            if self.agent.config.anneal_lr:
-                frac = 1.0 - (update_idx / float(num_updates))
-                frac = max(frac, 0.0)
-                for group in self.agent.policy_opt.param_groups:
-                    group["lr"] = self._base_policy_lr * frac
-                for group in self.agent.value_opt.param_groups:
-                    group["lr"] = self._base_value_lr * frac
-                log_wandb(
-                    {
-                        "train/lr_policy": self.agent.policy_opt.param_groups[0]["lr"],
-                        "train/lr_value": self.agent.value_opt.param_groups[0]["lr"],
-                    },
-                    step=step,
-                    silent=True,
-                )
-
             for t in range(self.rollout_steps):
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
 
@@ -156,25 +122,23 @@ class PPOTrainer:
                 done = np.asarray(terminated) | np.asarray(truncated)
                 reward = np.asarray(reward)
 
-                # Defensive check
                 if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
                     raise ValueError(
-                        f"flatten_obs returned unexpected array at step: shape={getattr(next_obs,'shape',None)}"
+                        f"flatten_obs returned unexpected array at step: shape={getattr(next_obs, 'shape', None)}"
                     )
 
                 for i in range(self.num_envs):
                     self.buffer.add(
-                        t,
-                        i,
-                        obs[i],
-                        action[i],
-                        float(reward[i]),
-                        float(done[i]),
-                        float(value[i]),
-                        float(logp[i]),
+                        t=t,
+                        env_i=i,
+                        obs=obs[i],
+                        action=action[i],
+                        reward=float(reward[i]),
+                        done=float(done[i]),
+                        value=float(value[i]),
+                        log_prob=float(logp[i]),
                     )
                     self.episode_return[i] += float(reward[i])
-                    # Log episode return for each env when done
                     if done[i]:
                         log_wandb(
                             {"train/episode_return": float(self.episode_return[i])},
@@ -192,48 +156,43 @@ class PPOTrainer:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
                 last_values = self.agent.value(obs_t).cpu().numpy().squeeze(-1)
 
-            data = self.buffer.compute_returns_advantages(
-                last_values, self.agent.config.gamma, self.agent.config.gae_lambda
+            obs_f, act_f, logp_f, _, ret_f, adv_f = self.buffer.compute_returns_advantages(
+                last_values,
+                self.agent.config.gamma,
+                self.agent.config.gae_lambda,
             )
-            obs_f, act_f, logp_f, val_f, ret_f, adv_f = data
-            var_y = np.var(ret_f)
-            explained_var = np.nan if var_y == 0 else 1.0 - np.var(ret_f - val_f) / var_y
-            log_wandb({"train/explained_variance": float(explained_var)}, step=step, silent=True)
 
-            obs_f = torch.tensor(obs_f, dtype=torch.float32, device=self.agent.device)
-            act_f = torch.tensor(act_f, dtype=torch.float32, device=self.agent.device)
-            logp_f = torch.tensor(logp_f, dtype=torch.float32, device=self.agent.device)
-            val_f = torch.tensor(val_f, dtype=torch.float32, device=self.agent.device)
-            ret_f = torch.tensor(ret_f, dtype=torch.float32, device=self.agent.device)
-            adv_f = torch.tensor(adv_f, dtype=torch.float32, device=self.agent.device)
+            if self.agent.config.normalize_advantages:
+                adv_f = (adv_f - adv_f.mean()) / (adv_f.std() + 1e-8)
 
-            early_stop = False
-            for _ in range(self.update_epochs):
-                for idx in self.buffer.minibatches(self.minibatch_size):
-                    batch = {
-                        "obs": obs_f[idx],
-                        "actions": act_f[idx],
-                        "log_probs": logp_f[idx].unsqueeze(-1),
-                        "values_old": val_f[idx].unsqueeze(-1),
-                        "returns": ret_f[idx].unsqueeze(-1),
-                        "advantages": adv_f[idx].unsqueeze(-1),
-                    }
-                    metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step, silent=True)
-                    approx_kl = metrics.get("approx_kl", None)
-                    if (
-                        approx_kl is not None
-                        and self.agent.config.target_kl > 0.0
-                        and approx_kl > self.agent.config.target_kl
-                    ):
-                        # Stop PPO updates early to preserve trust region.
-                        early_stop = True
-                        break
-                if early_stop:
-                    break
+            batch = {
+                "obs": torch.tensor(obs_f, dtype=torch.float32, device=self.agent.device),
+                "actions": torch.tensor(
+                    act_f,
+                    dtype=torch.float32,
+                    device=self.agent.device,
+                ),
+                "log_probs": torch.tensor(
+                    logp_f,
+                    dtype=torch.float32,
+                    device=self.agent.device,
+                ).unsqueeze(-1),
+                "returns": torch.tensor(
+                    ret_f,
+                    dtype=torch.float32,
+                    device=self.agent.device,
+                ).unsqueeze(-1),
+                "advantages": torch.tensor(
+                    adv_f,
+                    dtype=torch.float32,
+                    device=self.agent.device,
+                ).unsqueeze(-1),
+            }
+
+            metrics = self.agent.update(batch)
+            log_wandb(metrics, step=step, silent=True)
 
             self.buffer.reset()
-            update_idx += 1
 
             if eval_interval > 0 and self.last_eval < step // eval_interval:
                 self.last_eval = step // eval_interval
@@ -255,7 +214,7 @@ class PPOTrainer:
                         "policy": self.agent.policy.state_dict(),
                         "value": self.agent.value.state_dict(),
                     },
-                    os.path.join(out_dir, "ppo.pt"),
+                    os.path.join(out_dir, "trpo.pt"),
                 )
 
         self.env.close()
@@ -263,17 +222,13 @@ class PPOTrainer:
 
 @torch.no_grad()
 def _evaluate_vectorized(
-    agent: PPOAgent,
+    agent: TRPOAgent,
     env_id: str,
     n_episodes: int = 10,
     seed: int = 42,
     gamma: float = 0.99,
     normalize_observation: bool = True,
 ) -> Dict[str, float]:
-    """
-    High-performance vectorized evaluation.
-    Runs all n_episodes in parallel using a SyncVectorEnv.
-    """
     eval_envs = gym.vector.SyncVectorEnv(
         [
             (

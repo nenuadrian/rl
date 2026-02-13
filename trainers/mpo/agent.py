@@ -197,7 +197,9 @@ class DiagonalGaussianPolicy(nn.Module):
 @dataclass
 class MPOConfig:
     gamma: float = 0.99
-    tau: float = 0.005
+    # Acme-style hard target sync periods (in learner updates).
+    target_policy_update_period: int = 100
+    target_critic_update_period: int = 100
     policy_lr: float = 3e-4
     q_lr: float = 3e-4
     # MPO loss hyperparameters (aligned with Acme JAX MPO loss).
@@ -223,6 +225,8 @@ class MPOConfig:
     retrace_steps: int = 2
     retrace_mc_actions: int = 8
     retrace_lambda: float = 0.95
+    optimizer_type: str = "adam"
+    sgd_momentum: float = 0.9
 
 
 class MPOAgent:
@@ -239,6 +243,13 @@ class MPOAgent:
     ):
         self.device = device
         self.config = config
+        if self.config.target_policy_update_period <= 0:
+            raise ValueError("target_policy_update_period must be >= 1")
+        if self.config.target_critic_update_period <= 0:
+            raise ValueError("target_critic_update_period must be >= 1")
+
+        # Learner step counter for periodic target synchronization.
+        self._num_steps = 0
 
         self.policy = DiagonalGaussianPolicy(
             obs_dim,
@@ -250,15 +261,8 @@ class MPOAgent:
 
         self.policy_target = copy.deepcopy(self.policy).to(device)
         self.policy_target.eval()
-        # Twin critics (SAC-style) but using the Acme control-network critic torso.
-        self.q1 = Critic(
-            obs_dim,
-            act_dim,
-            layer_sizes=critic_layer_sizes,
-            action_low=action_low,
-            action_high=action_high,
-        ).to(device)
-        self.q2 = Critic(
+        # Single critic using the Acme control-network critic torso.
+        self.q = Critic(
             obs_dim,
             act_dim,
             layer_sizes=critic_layer_sizes,
@@ -267,23 +271,18 @@ class MPOAgent:
         ).to(device)
 
         print(self.policy)
-        print(self.q1)
-        print(self.q2)
+        print(self.q)
 
-        self.q1_target = copy.deepcopy(self.q1).to(device)
-        self.q2_target = copy.deepcopy(self.q2).to(device)
-        self.q1_target.eval()
-        self.q2_target.eval()
+        self.q_target = copy.deepcopy(self.q).to(device)
+        self.q_target.eval()
 
         # Train policy encoder + head together; critics share a separate encoder.
-        self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=self.config.policy_lr, eps=1e-5
+        self.policy_opt = self._build_optimizer(
+            self.policy.parameters(), lr=self.config.policy_lr
         )
 
         # Critic optimizer.
-        self.q_opt = torch.optim.Adam(
-            list(self.q1.parameters()) + list(self.q2.parameters()), lr=self.config.q_lr, eps=1e-5
-        )
+        self.q_opt = self._build_optimizer(self.q.parameters(), lr=self.config.q_lr)
 
         # Dual variables (temperature + KL multipliers) in log-space.
         temperature_init_t = torch.tensor(self.config.temperature_init, device=device)
@@ -306,7 +305,10 @@ class MPOAgent:
 
         if self.config.action_penalization:
             self.log_penalty_temperature = nn.Parameter(
-                torch.log(torch.expm1(temperature_init_t)).clone().detach().requires_grad_(True)
+                torch.log(torch.expm1(temperature_init_t))
+                .clone()
+                .detach()
+                .requires_grad_(True)
             )
         else:
             self.log_penalty_temperature = None
@@ -316,12 +318,33 @@ class MPOAgent:
         if self.log_penalty_temperature is not None:
             temperature_params.append(self.log_penalty_temperature)
         alpha_params = [self.log_alpha_mean, self.log_alpha_stddev]
-        self.dual_opt = torch.optim.Adam(
+        self.dual_opt = self._build_optimizer(
             [
                 {"params": temperature_params, "lr": self.config.temperature_lr},
                 {"params": alpha_params, "lr": self.config.lambda_lr},
             ],
-            eps=1e-5
+        )
+
+    def _build_optimizer(
+        self,
+        params,
+        lr: float | None = None,
+    ) -> torch.optim.Optimizer:
+        optimizer_type = self.config.optimizer_type.strip().lower()
+        kwargs: dict[str, float] = {}
+        if lr is not None:
+            kwargs["lr"] = float(lr)
+
+        if optimizer_type == "adam":
+            kwargs["eps"] = 1e-5
+            return torch.optim.Adam(params, **kwargs)
+        if optimizer_type == "sgd":
+            kwargs["momentum"] = float(self.config.sgd_momentum)
+            return torch.optim.SGD(params, **kwargs)
+
+        raise ValueError(
+            f"Unsupported MPO optimizer_type '{self.config.optimizer_type}'. "
+            "Expected one of: adam, sgd."
         )
 
     def _forward_kl_diag_gaussians(
@@ -421,9 +444,7 @@ class MPOAgent:
             )
             obs_flat = obs_rep.reshape(-1, obs.shape[-1])
             act_flat = actions.reshape(-1, actions.shape[-1])
-            q1 = self.q1_target(obs_flat, act_flat)
-            q2 = self.q2_target(obs_flat, act_flat)
-            q = torch.min(q1, q2)
+            q = self.q_target(obs_flat, act_flat)
             return q.reshape(batch_size, self.config.retrace_mc_actions).mean(
                 dim=1, keepdim=True
             )
@@ -455,9 +476,7 @@ class MPOAgent:
         with torch.no_grad():
             obs_flat = obs_seq.reshape(batch_size * seq_len, obs_dim)
             act_exec_flat = actions_exec_seq.reshape(batch_size * seq_len, act_dim)
-            q1_t = self.q1_target(obs_flat, act_exec_flat)
-            q2_t = self.q2_target(obs_flat, act_exec_flat)
-            q_t = torch.min(q1_t, q2_t).reshape(batch_size, seq_len, 1)
+            q_t = self.q_target(obs_flat, act_exec_flat).reshape(batch_size, seq_len, 1)
 
             next_obs_flat = next_obs_seq.reshape(batch_size * seq_len, obs_dim)
             v_next = self._expected_q_current(next_obs_flat).reshape(
@@ -498,6 +517,14 @@ class MPOAgent:
         return q_ret
 
     def update(self, batch: dict) -> dict:
+        # Acme-style periodic hard sync of online -> target networks.
+        if self._num_steps % self.config.target_policy_update_period == 0:
+            print("[MPOAgent] Syncing policy_target networks...")
+            self._sync_module(self.policy, self.policy_target)
+        if self._num_steps % self.config.target_critic_update_period == 0:
+            print("[MPOAgent] Syncing target networks...")
+            self._sync_module(self.q, self.q_target)
+
         is_sequence_batch = (
             isinstance(batch.get("obs"), np.ndarray) and batch["obs"].ndim == 3
         )
@@ -536,26 +563,20 @@ class MPOAgent:
                 )
                 next_obs_flat = next_obs_rep.reshape(-1, next_obs.shape[-1])
                 next_act_flat = next_actions.reshape(-1, next_actions.shape[-1])
-                q1_target = self.q1_target(next_obs_flat, next_act_flat)
-                q2_target = self.q2_target(next_obs_flat, next_act_flat)
-                q_target = torch.min(q1_target, q2_target)
+                q_target = self.q_target(next_obs_flat, next_act_flat)
                 q_target = q_target.reshape(
                     batch_size, self.config.action_samples
                 ).mean(dim=1, keepdim=True)
                 target = rewards + (1.0 - dones) * self.config.gamma * q_target
 
-        q1 = self.q1(obs, actions)
-        q2 = self.q2(obs, actions)
-
-        q1_loss = F.mse_loss(q1, target)
-        q2_loss = F.mse_loss(q2, target)
+        q = self.q(obs, actions)
+        q_loss = F.mse_loss(q, target)
 
         # Phase A: critic update
-        q_loss = q1_loss + q2_loss
         self.q_opt.zero_grad()
         q_loss.backward()
         nn.utils.clip_grad_norm_(
-            list(self.q1.parameters()) + list(self.q2.parameters()),
+            self.q.parameters(),
             self.config.max_grad_norm,
         )
         self.q_opt.step()
@@ -580,9 +601,9 @@ class MPOAgent:
                 -1, sampled_actions_exec.shape[-1]
             )
 
-            q1_vals = self.q1_target(obs_flat, act_exec_flat)
-            q2_vals = self.q2_target(obs_flat, act_exec_flat)
-            q_vals = torch.min(q1_vals, q2_vals).reshape(batch_size, num_samples)
+            q_vals = self.q_target(obs_flat, act_exec_flat).reshape(
+                batch_size, num_samples
+            )
 
         temperature = F.softplus(self.log_temperature) + 1e-8
         weights, loss_temperature = self._compute_weights_and_temperature_loss(
@@ -675,8 +696,12 @@ class MPOAgent:
         loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
         loss_kl_penalty = loss_kl_mean + loss_kl_std
 
-        loss_alpha_mean = (alpha_mean * (self.config.mstep_kl_epsilon - mean_kl_mean.detach())).sum()
-        loss_alpha_std = (alpha_std * (self.config.mstep_kl_epsilon - mean_kl_std.detach())).sum()
+        loss_alpha_mean = (
+            alpha_mean * (self.config.mstep_kl_epsilon - mean_kl_mean.detach())
+        ).sum()
+        loss_alpha_std = (
+            alpha_std * (self.config.mstep_kl_epsilon - mean_kl_std.detach())
+        ).sum()
 
         # Update dual variables (temperature + alphas).
         dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
@@ -704,12 +729,10 @@ class MPOAgent:
         nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
         self.policy_opt.step()
 
-        # Target updates.
-        self._soft_update_module(self.q1, self.q1_target)
-        self._soft_update_module(self.q2, self.q2_target)
-        self._soft_update_module(self.policy, self.policy_target)
+        # Increment step counter for target-sync cadence bookkeeping.
+        self._num_steps += 1
 
-        # Logging keys kept stable for existing scripts/tests.
+        # Diagnostics for training monitoring.
         temperature_val = float(
             (F.softplus(self.log_temperature) + 1e-8).detach().item()
         )
@@ -718,8 +741,7 @@ class MPOAgent:
         )
 
         return {
-            "loss/q1": float(q1_loss.item()),
-            "loss/q2": float(q2_loss.item()),
+            "loss/q": float(q_loss.item()),
             "loss/policy": float(loss_policy.item()),
             "loss/dual_eta": float(loss_temperature.detach().item()),
             "loss/dual": float(dual_loss.detach().item()),
@@ -741,9 +763,5 @@ class MPOAgent:
             "penalty_kl/q_pi": float(penalty_kl_rel.detach().item()),
         }
 
-    def _soft_update_module(self, net: nn.Module, target: nn.Module) -> None:
-        tau = self.config.tau
-        with torch.no_grad():
-            for param, target_param in zip(net.parameters(), target.parameters()):
-                target_param.data.mul_(1.0 - tau)
-                target_param.data.add_(tau * param.data)
+    def _sync_module(self, net: nn.Module, target: nn.Module) -> None:
+        target.load_state_dict(net.state_dict())

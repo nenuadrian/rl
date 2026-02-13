@@ -1,7 +1,7 @@
 import argparse
 import os
 import importlib
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, is_dataclass
 from pprint import pformat
 
 import torch
@@ -10,14 +10,12 @@ from utils.env import set_seed
 from utils.wandb_utils import finish_wandb, init_wandb
 
 from trainers.vmpo.trainer import VMPOTrainer
-from trainers.vmpo_sgd.trainer import VMPOSGDTrainer
 from trainers.vmpo.agent import VMPOConfig
-from trainers.nanochat_rl.trainer import ChatRLTrainer
-from trainers.nanochat_rl.agent import ChatRLAgent, ChatRLConfig
 from trainers.mpo.trainer import MPOTrainer
 from trainers.mpo.agent import MPOConfig
 from trainers.ppo.trainer import PPOTrainer
-from trainers.ppo_lm.trainer import LMGRPOConfig, PPOLMTrainer
+from trainers.trpo.trainer import TRPOTrainer
+from trainers.trpo.agent import TRPOConfig
 
 
 def _load_preset(algo: str, env_id: str) -> dict:
@@ -89,12 +87,9 @@ if __name__ == "__main__":
         nargs="?",
         choices=[
             "ppo",
+            "trpo",
             "vmpo",
-            "vmpo_sgd",
             "mpo",
-            "nanochat_rl",
-            "nanochat_vmpo",
-            "ppo_lm",
         ],
     )
 
@@ -107,8 +102,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--out_dir", type=str, default="checkpoints")
-    parser.add_argument("--wandb_project", type=str, default=None)
-    parser.add_argument("--wandb_entity", type=str, default=None)
+    parser.add_argument("--wandb_project", type=str, default="minerva-rl")
+    parser.add_argument("--wandb_entity", type=str, default="adrian-research")
     parser.add_argument("--wandb_group", type=str, default=None)
     parser.add_argument(
         "--device",
@@ -117,18 +112,25 @@ if __name__ == "__main__":
         help="Device override: cpu, cuda, cuda:0, cuda:1, mps (or mp alias)",
     )
     parser.add_argument(
-        "--run_evaluation",
-        action=argparse.BooleanOptionalAction,
+        "--optimizer_type",
+        "--optimizer",
+        dest="optimizer_type",
+        type=str.lower,
+        choices=["adam", "sgd"],
         default=None,
-        help=(
-            "Run evaluation-only mode where supported (PPO-LM and nanochat_rl). "
-            "Use --no-run_evaluation to force training mode."
-        ),
+        help="Optimizer override for PPO/TRPO/VMPO/MPO (adam or sgd)",
+    )
+    parser.add_argument(
+        "--sgd_momentum",
+        type=float,
+        default=None,
+        help="SGD momentum override when --optimizer_type=sgd",
     )
     args = parser.parse_args()
 
     cli_device_override = args.device
-    cli_run_evaluation_override = args.run_evaluation
+    cli_optimizer_override = args.optimizer_type
+    cli_sgd_momentum_override = args.sgd_momentum
 
     algo = args.command
     if algo is None:
@@ -139,11 +141,10 @@ if __name__ == "__main__":
 
     if cli_device_override is not None:
         args.device = cli_device_override
-
-    if cli_run_evaluation_override is not None:
-        args.run_evaluation = cli_run_evaluation_override
-    elif args.run_evaluation is None:
-        args.run_evaluation = False
+    if cli_optimizer_override is not None:
+        args.optimizer_type = cli_optimizer_override
+    if cli_sgd_momentum_override is not None:
+        args.sgd_momentum = cli_sgd_momentum_override
 
     _print_resolved_args(args)
 
@@ -157,59 +158,15 @@ if __name__ == "__main__":
 
     group = args.wandb_group or f"{algo}-{args.env}"
     run_name = f"{algo}-{args.env}"
-    project = args.wandb_project or f"env-{algo}"
     init_wandb(
-        project=project,
+        project=args.wandb_project,
         entity=args.wandb_entity,
         group=group,
         name=run_name,
         config=vars(args),
     )
 
-    if algo == "nanochat_rl":
-
-        chatrl_config = ChatRLConfig(
-            num_epochs=args.num_epochs,
-            device_batch_size=args.device_batch_size,
-            examples_per_step=args.examples_per_step,
-            num_samples=args.num_samples,
-            max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
-            top_k=args.top_k,
-            embedding_lr=args.embedding_lr,
-            unembedding_lr=args.unembedding_lr,
-            matrix_lr=args.matrix_lr,
-            weight_decay=args.weight_decay,
-            init_lr_frac=args.init_lr_frac,
-            eval_every=args.eval_every,
-            eval_examples=args.eval_examples,
-            run_evaluation=bool(args.run_evaluation),
-            save_every=args.save_every,
-            model_step=args.model_step,
-            dtype=args.dtype,
-        )
-        _print_config("ChatRLConfig", chatrl_config)
-        agent = ChatRLAgent(
-            device=device,
-            checkpoint_dir=args.checkpoint_dir,
-            config=chatrl_config,
-        )
-        trainer = ChatRLTrainer(agent, chatrl_config, device)
-        trainer.train(out_dir=args.out_dir)
-    elif algo == "ppo_lm":
-        lm_field_names = {f.name for f in fields(LMGRPOConfig)}
-        lm_kwargs = {
-            name: getattr(args, name)
-            for name in lm_field_names
-            if name != "seed" and hasattr(args, name)
-        }
-        lm_kwargs["seed"] = int(args.seed)
-        lm_config = LMGRPOConfig(**lm_kwargs)
-        _print_config("LMGRPOConfig", lm_config)
-
-        trainer = PPOLMTrainer(config=lm_config, device=device)
-        trainer.train(out_dir=args.out_dir)
-    elif algo == "ppo":
+    if algo == "ppo":
 
         _print_config(
             "PPO config",
@@ -226,7 +183,12 @@ if __name__ == "__main__":
                 "vf_coef": float(args.vf_coef),
                 "max_grad_norm": float(args.max_grad_norm),
                 "target_kl": float(args.target_kl),
+                "norm_adv": bool(args.norm_adv),
+                "clip_vloss": bool(args.clip_vloss),
+                "anneal_lr": bool(args.anneal_lr),
                 "normalize_obs": bool(args.normalize_obs),
+                "optimizer_type": str(args.optimizer_type),
+                "sgd_momentum": float(args.sgd_momentum),
             },
         )
 
@@ -248,8 +210,13 @@ if __name__ == "__main__":
             vf_coef=float(args.vf_coef),
             max_grad_norm=float(args.max_grad_norm),
             target_kl=float(args.target_kl),
+            norm_adv=bool(args.norm_adv),
+            clip_vloss=bool(args.clip_vloss),
+            anneal_lr=bool(args.anneal_lr),
             normalize_obs=bool(args.normalize_obs),
             num_envs=int(args.num_envs),
+            optimizer_type=str(args.optimizer_type),
+            sgd_momentum=float(args.sgd_momentum),
         )
         trainer.train(
             total_steps=args.total_steps,
@@ -257,7 +224,43 @@ if __name__ == "__main__":
             save_interval=args.save_interval,
             out_dir=args.out_dir,
         )
-    elif algo in {"vmpo", "vmpo_sgd"}:
+    elif algo == "trpo":
+        trpo_config = TRPOConfig(
+            gamma=float(args.gamma),
+            gae_lambda=float(args.gae_lambda),
+            target_kl=float(args.target_kl),
+            cg_iters=int(args.cg_iters),
+            cg_damping=float(args.cg_damping),
+            backtrack_coeff=float(args.backtrack_coeff),
+            backtrack_iters=int(args.backtrack_iters),
+            value_lr=float(args.value_lr),
+            value_epochs=int(args.value_epochs),
+            value_minibatch_size=int(args.value_minibatch_size),
+            max_grad_norm=float(args.max_grad_norm),
+            normalize_advantages=bool(args.normalize_advantages),
+            optimizer_type=str(args.optimizer_type),
+            sgd_momentum=float(args.sgd_momentum),
+        )
+        _print_config("TRPOConfig", trpo_config)
+
+        trainer = TRPOTrainer(
+            env_id=args.env,
+            seed=args.seed,
+            device=device,
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
+            rollout_steps=int(args.rollout_steps),
+            config=trpo_config,
+            normalize_obs=bool(args.normalize_obs),
+            num_envs=int(args.num_envs),
+        )
+        trainer.train(
+            total_steps=int(args.total_steps),
+            eval_interval=int(args.eval_interval),
+            save_interval=int(args.save_interval),
+            out_dir=args.out_dir,
+        )
+    elif algo == "vmpo":
 
         vmpo_config = VMPOConfig(
             gamma=float(args.gamma),
@@ -276,15 +279,11 @@ if __name__ == "__main__":
             popart_min_sigma=float(args.popart_min_sigma),
             normalize_advantages=bool(args.normalize_advantages),
             optimizer_type=str(args.optimizer_type),
+            sgd_momentum=float(args.sgd_momentum),
         )
         _print_config("VMPOConfig", vmpo_config)
 
-        if algo == "vmpo_sgd":
-            trainer_cls = VMPOSGDTrainer
-        else:
-            trainer_cls = VMPOTrainer
-
-        trainer = trainer_cls(
+        trainer = VMPOTrainer(
             env_id=args.env,
             seed=args.seed,
             device=device,
@@ -305,7 +304,8 @@ if __name__ == "__main__":
 
         mpo_config = MPOConfig(
             gamma=float(args.gamma),
-            tau=float(args.tau),
+            target_policy_update_period=int(args.target_policy_update_period),
+            target_critic_update_period=int(args.target_critic_update_period),
             policy_lr=float(args.policy_lr),
             q_lr=float(args.q_lr),
             temperature_init=float(args.temperature_init),
@@ -323,6 +323,8 @@ if __name__ == "__main__":
             retrace_mc_actions=int(args.retrace_mc_actions),
             retrace_lambda=float(args.retrace_lambda),
             use_retrace=bool(args.use_retrace),
+            optimizer_type=str(args.optimizer_type),
+            sgd_momentum=float(args.sgd_momentum),
         )
         _print_config("MPOConfig", mpo_config)
 
