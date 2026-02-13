@@ -9,7 +9,7 @@ import torch
 
 from trainers.vmpo.agent import VMPOAgent
 from trainers.vmpo.targets import compute_rollout_targets
-from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
+from utils.env import infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 
 
@@ -62,10 +62,9 @@ def _make_env(
     if capture_video and run_name is not None and idx == 0:
         env = wrap_record_video(env, f"videos/{run_name}")
 
+    env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
 
-    if isinstance(env.observation_space, gym.spaces.Dict):
-        env = gym.wrappers.FlattenObservation(env)
     if normalize_observation:
         env = gym.wrappers.NormalizeObservation(env)
         if clip_observation is not None:
@@ -247,13 +246,13 @@ class VMPOTrainer:
         total_update_count = 0
 
         obs, _ = self.env.reset()
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
 
         for step in range(1, total_steps + 1):
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action)
-            next_obs = flatten_obs(next_obs)
+            next_obs = np.asarray(next_obs, dtype=np.float32)
             done = np.asarray(terminated) | np.asarray(truncated)
             reward = np.asarray(reward, dtype=np.float32)
 
@@ -458,7 +457,7 @@ def _evaluate_vectorized(
 
     while len(final_returns) < n_episodes:
         # Pre-process observations
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
         if obs_normalizer is not None:
             obs = obs_normalizer.normalize(obs)
 

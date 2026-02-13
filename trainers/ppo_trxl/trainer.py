@@ -26,8 +26,6 @@ def _format_metrics(metrics: Mapping[str, float]) -> str:
 def layer_init(layer: nn.Module, std: float = np.sqrt(2), bias_const: float = 0.0):
     if isinstance(layer, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d)):
         torch.nn.init.orthogonal_(layer.weight, std)
-        if layer.bias is not None:
-            torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
 
@@ -397,13 +395,7 @@ class PPOTRxLTrainer:
             for i in range(self.num_envs)
         ]
 
-        try:
-            self.env = gym.vector.SyncVectorEnv(
-                env_fns,
-                autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
-            )
-        except TypeError:
-            self.env = gym.vector.SyncVectorEnv(env_fns)
+        self.env = gym.vector.SyncVectorEnv(env_fns)
 
         obs_space = self.env.single_observation_space
         action_space = self.env.single_action_space
@@ -709,16 +701,22 @@ class PPOTRxLTrainer:
                         )
 
             with torch.no_grad():
-                bootstrap_indices = self.memory_indices[env_current_episode_step]
-                bootstrap_mask = self.memory_mask[
-                    torch.clamp(env_current_episode_step, 0, self.trxl_memory_length - 1)
-                ]
+                start = torch.clip(env_current_episode_step - self.trxl_memory_length, 0)
+                end = torch.clip(env_current_episode_step, self.trxl_memory_length)
+                bootstrap_indices = torch.stack(
+                    [
+                        torch.arange(start[b], end[b], device=self.device)
+                        for b in range(self.num_envs)
+                    ]
+                ).long()
                 bootstrap_window = batched_index_select(next_memory, 1, bootstrap_indices)
                 next_value = self.agent.get_value(
                     next_obs,
                     bootstrap_window,
-                    bootstrap_mask,
-                    bootstrap_indices,
+                    self.memory_mask[
+                        torch.clip(env_current_episode_step, 0, self.trxl_memory_length - 1)
+                    ],
+                    stored_memory_indices[-1],
                 )
 
                 advantages = torch.zeros_like(rewards, device=self.device)

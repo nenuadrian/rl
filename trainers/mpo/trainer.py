@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent
-from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
+from utils.env import infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.mpo.replay_buffer import MPOReplayBuffer
 
@@ -35,6 +35,7 @@ def _make_env(
         env.reset(seed=seed)
         env.action_space.seed(seed)
 
+    env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     return env
 
@@ -165,14 +166,14 @@ class MPOTrainer:
         interval_episode_max = float("-inf")
 
         obs, _ = self.env.reset()
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
         for step in range(1, total_steps + 1):
             action_exec, action_raw, behaviour_logp = self.agent.act_with_logp(
                 obs, deterministic=False
             )
 
             next_obs, reward, terminated, truncated, _ = self.env.step(action_exec)
-            next_obs = flatten_obs(next_obs)
+            next_obs = np.asarray(next_obs, dtype=np.float32)
             reward_f = float(reward)
             done = float(terminated or truncated)
 
@@ -205,7 +206,7 @@ class MPOTrainer:
                 interval_episode_min = min(interval_episode_min, episode_return)
                 interval_episode_max = max(interval_episode_max, episode_return)
                 obs, _ = self.env.reset()
-                obs = flatten_obs(obs)
+                obs = np.asarray(obs, dtype=np.float32)
                 self.episode_return = 0.0
 
             if step >= update_after and self.replay.size >= batch_size:
@@ -319,7 +320,7 @@ def _evaluate_vectorized(
     dones = np.zeros(n_episodes, dtype=bool)
 
     while len(final_returns) < n_episodes:
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
         obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
 
         mean, log_std = agent.policy(obs_t)

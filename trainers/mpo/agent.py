@@ -525,10 +525,8 @@ class MPOAgent:
     def update(self, batch: dict) -> dict:
         # Acme-style periodic hard sync of online -> target networks.
         if self._num_steps % self.target_policy_update_period == 0:
-            print("[MPOAgent] Syncing policy_target networks...")
             self._sync_module(self.policy, self.policy_target)
         if self._num_steps % self.target_critic_update_period == 0:
-            print("[MPOAgent] Syncing target networks...")
             self._sync_module(self.q, self.q_target)
 
         is_sequence_batch = (

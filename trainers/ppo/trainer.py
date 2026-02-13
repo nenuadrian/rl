@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.ppo.agent import PPOAgent
-from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
+from utils.env import infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
 
@@ -56,10 +56,9 @@ def _make_env(
         env.reset(seed=seed)
         env.action_space.seed(seed)
 
+    env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
 
-    if isinstance(env.observation_space, gym.spaces.Dict):
-        env = gym.wrappers.FlattenObservation(env)
     if normalize_observation:
         env = gym.wrappers.NormalizeObservation(env)
         if clip_observation is not None:
@@ -242,8 +241,7 @@ class PPOTrainer:
         interval_episode_max = float("-inf")
 
         obs, _ = self.env.reset()
-        # obs is a dict mapping -> per-key arrays with leading dim N
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
 
         step = 0
         for update_idx in range(num_updates):
@@ -277,14 +275,14 @@ class PPOTrainer:
                 )
 
                 next_obs, reward, terminated, truncated, _ = self.env.step(action)
-                next_obs = flatten_obs(next_obs)
+                next_obs = np.asarray(next_obs, dtype=np.float32)
                 done = np.asarray(terminated) | np.asarray(truncated)
                 reward = np.asarray(reward)
 
                 # Defensive check
                 if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
                     raise ValueError(
-                        f"flatten_obs returned unexpected array at step: shape={getattr(next_obs,'shape',None)}"
+                        f"unexpected observation array at step: shape={getattr(next_obs,'shape',None)}"
                     )
 
                 for i in range(self.num_envs):
@@ -474,7 +472,7 @@ def _evaluate_vectorized(
     dones = np.zeros(n_episodes, dtype=bool)
 
     while len(final_returns) < n_episodes:
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
 
         obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
         action = agent.policy.sample_action(obs_t, deterministic=True).cpu().numpy()

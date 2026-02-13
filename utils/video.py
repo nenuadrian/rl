@@ -10,7 +10,7 @@ import imageio
 import numpy as np
 import torch
 
-from utils.env import flatten_obs, infer_obs_dim, set_seed
+from utils.env import infer_obs_dim, set_seed
 
 
 @dataclass(frozen=True)
@@ -78,6 +78,7 @@ def _make_env(
         env.reset(seed=seed)
         env.action_space.seed(seed)
 
+    env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     return env
 
@@ -250,7 +251,7 @@ def render_policy_video(
         frames: list[np.ndarray] = []
         total_reward = 0.0
         obs, _ = env.reset()
-        obs = flatten_obs(obs)
+        obs = np.asarray(obs, dtype=np.float32)
         for _ in range(int(config.max_steps)):
             frame = env.render()
             if frame is None:
@@ -264,7 +265,7 @@ def render_policy_video(
             action = action_t.detach().cpu().numpy().squeeze(0)
             action = np.clip(action, env.action_space.low, env.action_space.high)
             obs, reward, terminated, truncated, _ = env.step(action)
-            obs = flatten_obs(obs)
+            obs = np.asarray(obs, dtype=np.float32)
             total_reward += reward
             if terminated or truncated:
                 break
