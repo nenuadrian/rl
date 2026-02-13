@@ -8,67 +8,6 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 
-class PopArt(nn.Module):
-    """
-    PopArt-normalised scalar value head.
-    Preserves outputs precisely while adaptively rescaling targets.
-    """
-
-    def __init__(
-        self,
-        in_dim: int,
-        beta: float,
-        eps: float,
-        min_sigma: float,
-    ):
-        super().__init__()
-        self.linear = nn.Linear(in_dim, 1)
-
-        # Initialize linear layer to be close to 0 to prevent initial shock
-        nn.init.xavier_uniform_(self.linear.weight)
-        nn.init.zeros_(self.linear.bias)
-
-        self.register_buffer("mu", torch.zeros(1))
-        self.register_buffer("nu", torch.ones(1))
-        self.register_buffer("sigma", torch.ones(1))
-
-        self.beta = beta
-        self.eps = eps
-        self.min_sigma = min_sigma
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        """Returns the Normalized value (v_hat)."""
-        return self.linear(h)
-
-    def denormalize(self, v_hat: torch.Tensor) -> torch.Tensor:
-        """Converts v_hat -> v."""
-        return self.sigma * v_hat + self.mu
-
-    @torch.no_grad()
-    def update_stats(self, returns: torch.Tensor) -> None:
-        batch_mu = returns.mean()
-        batch_nu = (returns**2).mean()
-
-        mu_old = self.mu.clone()
-        sigma_old = self.sigma.clone()
-
-        # Update EMA moments
-        self.mu.mul_(1.0 - self.beta).add_(self.beta * batch_mu)
-        self.nu.mul_(1.0 - self.beta).add_(self.beta * batch_nu)
-
-        # Variance = E[x^2] - (E[x])^2
-        var = torch.clamp(self.nu - self.mu**2, min=self.min_sigma**2)
-        self.sigma.copy_(torch.sqrt(var))
-
-        # Update weights to preserve output: v_old(x) == v_new(x)
-        # w_new = (sigma_old / sigma_new) * w_old
-        self.linear.weight.mul_(sigma_old / self.sigma)
-        # b_new = (sigma_old * b_old + mu_old - mu_new) / sigma_new
-        self.linear.bias.copy_(
-            (sigma_old * self.linear.bias + mu_old - self.mu) / self.sigma
-        )
-
-
 class MPOEncoder(nn.Module):
     """
     Standard encoder for MPO/V-MPO:
@@ -106,9 +45,6 @@ class SquashedGaussianPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        popart_beta: float = 1e-4,  # Standard VMPO beta
-        popart_eps: float = 1e-4,
-        popart_min_sigma: float = 1e-4,
         policy_layer_sizes: Tuple[int, ...] = (256, 256),
         value_layer_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
@@ -128,12 +64,7 @@ class SquashedGaussianPolicy(nn.Module):
         self.policy_mean = nn.Linear(policy_layer_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(policy_layer_sizes[-1], act_dim)
 
-        self.value_head = PopArt(
-            value_layer_sizes[-1],
-            beta=popart_beta,
-            eps=popart_eps,
-            min_sigma=popart_min_sigma,
-        )
+        self.value_head = nn.Linear(value_layer_sizes[-1], 1)
 
         # 3. Action Scaling
         if action_low is None or action_high is None:
@@ -153,6 +84,8 @@ class SquashedGaussianPolicy(nn.Module):
         nn.init.xavier_uniform_(self.policy_logstd.weight)
         # Initialize log_std to match roughly std=0.5 to 1.0 initially
         nn.init.constant_(self.policy_logstd.bias, -0.5)
+        nn.init.xavier_uniform_(self.value_head.weight)
+        nn.init.zeros_(self.value_head.bias)
 
     def get_policy_dist_params(
         self, obs: torch.Tensor
@@ -167,13 +100,9 @@ class SquashedGaussianPolicy(nn.Module):
     def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.get_policy_dist_params(obs)
 
-    def get_value(self, obs: torch.Tensor, normalized: bool = False) -> torch.Tensor:
-        """Flexible value getter."""
+    def get_value(self, obs: torch.Tensor) -> torch.Tensor:
         h = self.value_encoder(obs)
-        v_hat = self.value_head(h)
-        if normalized:
-            return v_hat
-        return self.value_head.denormalize(v_hat)
+        return self.value_head(h)
 
     def forward_all(
         self, obs: torch.Tensor
@@ -200,8 +129,7 @@ class SquashedGaussianPolicy(nn.Module):
         else:
             h_val = self.value_encoder(obs)
 
-        v_hat = self.value_head(h_val)
-        v = self.value_head.denormalize(v_hat)
+        v = self.value_head(h_val)
 
         return mean, log_std, v
 

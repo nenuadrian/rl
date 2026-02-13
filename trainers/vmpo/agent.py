@@ -20,14 +20,11 @@ class VMPOConfig:
     topk_fraction: float = 0.5
     temperature_init: float = 1.0
     temperature_lr: float = 1e-4
-    epsilon_eta: float = 0.1 
-    epsilon_mu: float = 0.01 
-    epsilon_sigma: float = 0.01  
+    epsilon_eta: float = 0.1
+    epsilon_mu: float = 0.01
+    epsilon_sigma: float = 0.01
     alpha_lr: float = 1e-4
     max_grad_norm: float = 10.0
-    popart_beta: float = 3e-4
-    popart_eps: float = 1e-4
-    popart_min_sigma: float = 1e-4
     optimizer_type: str = "adam"
     sgd_momentum: float = 0.9
 
@@ -55,9 +52,6 @@ class VMPOAgent:
             value_layer_sizes=value_layer_sizes,
             action_low=action_low,
             action_high=action_high,
-            popart_beta=config.popart_beta,
-            popart_eps=config.popart_eps,
-            popart_min_sigma=config.popart_min_sigma,
             shared_encoder=False,  # Explicitly using separate encoders
         ).to(device)
 
@@ -180,7 +174,7 @@ class VMPOAgent:
 
         obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device)
         with torch.no_grad():
-            v = self.policy.get_value(obs_t, normalized=False).squeeze(-1)
+            v = self.policy.get_value(obs_t).squeeze(-1)
 
         v_np = v.cpu().numpy()
         if not is_batch:
@@ -207,10 +201,6 @@ class VMPOAgent:
             params_before = nn.utils.parameters_to_vector(
                 self.policy.parameters()
             ).detach()
-
-        # 1. PopArt Update (Critical: Before computing losses)
-        with torch.no_grad():
-            self.policy.value_head.update_stats(returns_raw)
 
         # ================================================================
         # E-Step: Re-weighting Advantages
@@ -335,12 +325,9 @@ class VMPOAgent:
             weighted_nll + (alpha_mu_det * kl_mu_sel) + (alpha_sigma_det * kl_sigma_sel)
         )
 
-        # -- Critic Loss (PopArt) --
-        v_hat = self.policy.get_value(obs, normalized=True).squeeze(-1)
-        target_hat = (
-            returns_raw - self.policy.value_head.mu
-        ) / self.policy.value_head.sigma
-        value_loss = 0.5 * F.mse_loss(v_hat, target_hat.detach())
+        # -- Critic Loss --
+        v_pred = self.policy.get_value(obs).squeeze(-1)
+        value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
 
         total_loss = policy_loss + value_loss
 
@@ -364,7 +351,7 @@ class VMPOAgent:
             param_delta = torch.norm(params_after - params_before).item()
 
             # 2. Explained Variance (Unnormalized)
-            v_pred = self.policy.get_value(obs, normalized=False).squeeze(-1)
+            v_pred = self.policy.get_value(obs).squeeze(-1)
             y = returns_raw
             var_y = y.var(unbiased=False)
             explained_var = 1.0 - (y - v_pred).var(unbiased=False) / (var_y + 1e-8)
@@ -416,11 +403,6 @@ class VMPOAgent:
             "returns/raw_mean": float(returns_raw.mean().item()),
             "returns/raw_std": float((returns_raw.std(unbiased=False) + 1e-8).item()),
             "value/explained_var": float(explained_var.item()),
-            # PopArt Internals
-            "popart/value_head_mu": float(self.policy.value_head.mu.item()),
-            "popart/value_head_sigma": float(self.policy.value_head.sigma.item()),
-            "popart/target_hat_mean": float(target_hat.mean().item()),
-            "popart/target_hat_std": float(target_hat.std(unbiased=False).item()),
-            "popart/v_hat_mean": float(v_hat.mean().item()),
-            "popart/v_hat_std": float(v_hat.std(unbiased=False).item()),
+            "value/pred_mean": float(v_pred.mean().item()),
+            "value/pred_std": float(v_pred.std(unbiased=False).item()),
         }
