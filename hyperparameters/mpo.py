@@ -9,7 +9,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
         "replay_size": 1_000_000,
         "save_interval": 50_000,
-        "total_steps": 20_000_000,
+        "total_steps": 1_000_000,
         "update_after": 1_000,
         "batch_size": 256,
         "eval_interval": 100,
