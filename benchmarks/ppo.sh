@@ -1,24 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
 
-environments = [
-    "HalfCheetah-v5",
-    "Walker2d-v5",
-    "Hopper-v5",
-    "Humanoid-v5",
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
 
-    "dm_control/cheetah/run",
-    "dm_control/humanoid/walk",
-    "dm_control/humanoid/run",
-    "dm_control/walker/walk",
-    "dm_control/walker/run",
-]
+environments=(
+    "HalfCheetah-v5"
+    "Walker2d-v5"
+    "Humanoid-v5"
+    "dm_control/cheetah/run"
+    "dm_control/humanoid/walk"
+    "dm_control/humanoid/run"
+    "dm_control/walker/walk"
+    "dm_control/walker/run"
+)
 
-WANDB_PROJECT_NAME="minerva-rl-benchmark-1"
-SEEDS=1
-SEED_START=42
+WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-1}"
+SEEDS="${SEEDS:-1}"
+SEED_START="${SEED_START:-42}"
+EXTRA_ARGS=("$@")
 
-# loop through in bash
 for env in "${environments[@]}"; do
-    for seed in $(seq $SEED_START $(($SEED_START + $SEEDS - 1))); do
-        python main.py ppo --env "$env"  --wandb_project_name "$WANDB_PROJECT_NAME" --seed "$seed"
+    for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
+        echo "[ppo] env=${env} seed=${seed}"
+        python main.py ppo \
+        --env "$env" \
+        --wandb_project "$WANDB_PROJECT_NAME" \
+        --seed "$seed" \
+        "${EXTRA_ARGS[@]}"
     done
 done
