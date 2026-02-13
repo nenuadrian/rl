@@ -252,7 +252,7 @@ class PPOAgent:
 
         if self.norm_adv:
             advantages = (advantages - advantages.mean()) / (
-                advantages.std(unbiased=False) + 1e-8
+                advantages.std() + 1e-8
             )
 
         log_probs = self.policy.log_prob(obs, actions)

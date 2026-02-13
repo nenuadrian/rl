@@ -11,6 +11,7 @@ from utils.wandb_utils import finish_wandb, init_wandb
 from trainers.vmpo.trainer import VMPOTrainer
 from trainers.mpo.trainer import MPOTrainer
 from trainers.ppo.trainer import PPOTrainer
+from trainers.ppo_trxl.trainer import PPOTRxLTrainer
 from trainers.trpo.trainer import TRPOTrainer
 
 
@@ -80,6 +81,7 @@ if __name__ == "__main__":
         nargs="?",
         choices=[
             "ppo",
+            "ppo_trxl",
             "trpo",
             "vmpo",
             "mpo",
@@ -224,6 +226,71 @@ if __name__ == "__main__":
             total_steps=args.total_steps,
             eval_interval=args.eval_interval,
             save_interval=args.save_interval,
+            out_dir=args.out_dir,
+        )
+    elif algo == "ppo_trxl":
+        target_kl = getattr(args, "target_kl", None)
+        trxl_params = {
+            "num_envs": int(args.num_envs),
+            "num_steps": int(args.num_steps),
+            "num_minibatches": int(args.num_minibatches),
+            "update_epochs": int(args.update_epochs),
+            "init_lr": float(args.init_lr),
+            "final_lr": float(args.final_lr),
+            "anneal_steps": int(args.anneal_steps),
+            "gamma": float(args.gamma),
+            "gae_lambda": float(args.gae_lambda),
+            "norm_adv": bool(args.norm_adv),
+            "clip_coef": float(args.clip_coef),
+            "clip_vloss": bool(args.clip_vloss),
+            "init_ent_coef": float(args.init_ent_coef),
+            "final_ent_coef": float(args.final_ent_coef),
+            "vf_coef": float(args.vf_coef),
+            "max_grad_norm": float(args.max_grad_norm),
+            "target_kl": None if target_kl is None else float(target_kl),
+            "trxl_num_layers": int(args.trxl_num_layers),
+            "trxl_num_heads": int(args.trxl_num_heads),
+            "trxl_dim": int(args.trxl_dim),
+            "trxl_memory_length": int(args.trxl_memory_length),
+            "trxl_positional_encoding": str(args.trxl_positional_encoding),
+            "reconstruction_coef": float(args.reconstruction_coef),
+        }
+        _print_config("PPO-TRxL config", trxl_params)
+
+        trainer = PPOTRxLTrainer(
+            env_id=args.env,
+            seed=args.seed,
+            device=device,
+            num_envs=int(args.num_envs),
+            num_steps=int(args.num_steps),
+            num_minibatches=int(args.num_minibatches),
+            update_epochs=int(args.update_epochs),
+            init_lr=float(args.init_lr),
+            final_lr=float(args.final_lr),
+            anneal_steps=int(args.anneal_steps),
+            gamma=float(args.gamma),
+            gae_lambda=float(args.gae_lambda),
+            norm_adv=bool(args.norm_adv),
+            clip_coef=float(args.clip_coef),
+            clip_vloss=bool(args.clip_vloss),
+            init_ent_coef=float(args.init_ent_coef),
+            final_ent_coef=float(args.final_ent_coef),
+            vf_coef=float(args.vf_coef),
+            max_grad_norm=float(args.max_grad_norm),
+            target_kl=None if target_kl is None else float(target_kl),
+            trxl_num_layers=int(args.trxl_num_layers),
+            trxl_num_heads=int(args.trxl_num_heads),
+            trxl_dim=int(args.trxl_dim),
+            trxl_memory_length=int(args.trxl_memory_length),
+            trxl_positional_encoding=str(args.trxl_positional_encoding),
+            reconstruction_coef=float(args.reconstruction_coef),
+            capture_video=bool(args.generate_video),
+            run_name=run_name,
+        )
+        trainer.train(
+            total_steps=int(args.total_steps),
+            eval_interval=int(args.eval_interval),
+            save_interval=int(args.save_interval),
             out_dir=args.out_dir,
         )
     elif algo == "trpo":

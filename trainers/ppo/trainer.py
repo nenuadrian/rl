@@ -132,10 +132,7 @@ class PPOTrainer:
             )
             for i in range(self.num_envs)
         ]
-        # Avoid NEXT_STEP synthetic transitions after done=True.
-        self.env = gym.vector.SyncVectorEnv(
-            env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
-        )
+        self.env = gym.vector.SyncVectorEnv(env_fns)
         obs_space = self.env.single_observation_space
         act_space = self.env.single_action_space
         obs_dim = infer_obs_dim(obs_space)
@@ -217,10 +214,12 @@ class PPOTrainer:
             1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
         )
         batch_size = self.rollout_steps * self.num_envs
-        num_updates = max(1, total_steps // batch_size)
+        num_updates = total_steps // batch_size
+        scheduled_steps = num_updates * batch_size
         print(
             "[PPO] training started: "
-            f"total_steps={total_steps}, "
+            f"requested_total_steps={total_steps}, "
+            f"scheduled_total_steps={scheduled_steps}, "
             f"rollout_steps={self.rollout_steps}, "
             f"num_envs={self.num_envs}, "
             f"batch_size={batch_size}, "
@@ -228,6 +227,13 @@ class PPOTrainer:
             f"minibatch_size={self.minibatch_size}, "
             f"console_log_interval={console_log_interval}"
         )
+        if num_updates <= 0:
+            print(
+                "[PPO] no updates scheduled because requested_total_steps < batch_size "
+                f"({total_steps} < {batch_size})."
+            )
+            self.env.close()
+            return
         interval_metric_sums: Dict[str, float] = {}
         interval_update_count = 0
         interval_episode_count = 0
@@ -240,8 +246,7 @@ class PPOTrainer:
         obs = flatten_obs(obs)
 
         step = 0
-        update_idx = 0
-        while step < total_steps:
+        for update_idx in range(num_updates):
             if self.anneal_lr:
                 frac = 1.0 - (update_idx / float(num_updates))
                 frac = max(frac, 0.0)
@@ -314,8 +319,6 @@ class PPOTrainer:
 
                 obs = next_obs
                 step += self.num_envs
-                if step >= total_steps:
-                    break
 
             with torch.no_grad():
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
@@ -367,7 +370,6 @@ class PPOTrainer:
                     break
 
             self.buffer.reset()
-            update_idx += 1
 
             if eval_interval > 0 and self.last_eval < step // eval_interval:
                 self.last_eval = step // eval_interval
@@ -380,7 +382,7 @@ class PPOTrainer:
                 )
                 log_wandb(metrics, step=step)
                 print(
-                    f"[PPO][eval] step={min(step, total_steps)}/{total_steps}: "
+                    f"[PPO][eval] step={step}/{scheduled_steps}: "
                     f"{_format_metrics(metrics)}"
                 )
 
@@ -396,19 +398,20 @@ class PPOTrainer:
                     ckpt_path,
                 )
                 print(
-                    f"[PPO][checkpoint] step={min(step, total_steps)}: saved {ckpt_path}"
+                    f"[PPO][checkpoint] step={step}/{scheduled_steps}: saved {ckpt_path}"
                 )
 
-            step_display = min(step, total_steps)
+            update_display = update_idx + 1
+            step_display = step
             should_print_progress = (
-                step >= total_steps or step_display % console_log_interval == 0
+                update_display >= num_updates or step_display % console_log_interval == 0
             )
             if should_print_progress:
-                progress = 100.0 * float(step_display) / float(total_steps)
+                progress = 100.0 * float(step_display) / float(scheduled_steps)
                 print(
                     "[PPO][progress] "
-                    f"step={step_display}/{total_steps} ({progress:.2f}%), "
-                    f"update={update_idx}/{num_updates}"
+                    f"step={step_display}/{scheduled_steps} ({progress:.2f}%), "
+                    f"update={update_display}/{num_updates}"
                 )
                 if interval_episode_count > 0:
                     print(

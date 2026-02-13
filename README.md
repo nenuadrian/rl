@@ -26,6 +26,7 @@ pip install -r requirements.txt
 ```bash
 python main.py mpo --env dm_control/cheetah/run
 python main.py ppo --env HalfCheetah-v5
+python main.py ppo_trxl --env ProofofMemory-v0
 python main.py trpo --env HalfCheetah-v5
 python main.py vmpo --env dm_control/cheetah/run
 ```

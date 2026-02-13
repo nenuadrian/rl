@@ -226,7 +226,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "HalfCheetah-v5": {
         "replay_size": 1_000_000,
         "save_interval": 50_000,
-        "total_steps": 50_000_000,
+        "total_steps": 50_000,
         "update_after": 10_000,
         "batch_size": 512,
         "eval_interval": 100,
