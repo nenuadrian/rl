@@ -133,6 +133,29 @@ def test_vmpo_agent_supports_sgd_optimizer():
     assert isinstance(agent.alpha_opt, torch.optim.SGD)
 
 
+def test_vmpo_temperature_init_maps_to_eta_space():
+    obs_dim = 6
+    act_dim = 2
+    action_low = -np.ones(act_dim, dtype=np.float32)
+    action_high = np.ones(act_dim, dtype=np.float32)
+
+    target_temperature = 2.0
+    agent = VMPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        action_low=action_low,
+        action_high=action_high,
+        device=torch.device("cpu"),
+        policy_layer_sizes=(32, 32),
+        temperature_init=target_temperature,
+    )
+
+    eta = torch.nn.functional.softplus(agent.log_temperature.detach())
+    assert torch.allclose(
+        eta, torch.tensor(target_temperature), rtol=1e-6, atol=1e-6
+    )
+
+
 def test_mpo_agent_act_and_update():
     torch.manual_seed(0)
     np.random.seed(0)

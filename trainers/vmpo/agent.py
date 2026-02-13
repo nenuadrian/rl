@@ -96,8 +96,10 @@ class VMPOAgent:
         # Lagrange Multipliers (Dual Variables)
 
         # Temperature (eta) for advantage weighting
+        temperature_init_t = torch.tensor(self.temperature_init, device=device)
+        temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
         self.log_temperature = nn.Parameter(
-            torch.log(torch.tensor(self.temperature_init, device=device))
+            torch.log(torch.expm1(temperature_init_t))
         )
         self.eta_opt = self._build_optimizer(
             [self.log_temperature], lr=self.temperature_lr
