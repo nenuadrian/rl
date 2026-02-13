@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from trainers.vmpo.agent import VMPOAgent, VMPOConfig
+from trainers.vmpo.targets import compute_rollout_targets
 from utils.env import flatten_obs, make_env, infer_obs_dim
 from utils.wandb_utils import log_wandb
 
@@ -212,15 +213,17 @@ class VMPOTrainer:
                 means_flat = means_arr.reshape(T * N, -1)
                 log_stds_flat = log_stds_arr.reshape(T * N, -1)
 
-                returns = _compute_returns(
-                    rewards_flat, dones_flat, last_value, self.agent.config.gamma
+                returns, advantages = compute_rollout_targets(
+                    rewards=rewards_flat,
+                    dones=dones_flat,
+                    values=values_flat,
+                    last_value=last_value,
+                    gamma=self.agent.config.gamma,
+                    estimator=self.agent.config.advantage_estimator,
+                    gae_lambda=self.agent.config.gae_lambda,
                 )
                 returns_flat = returns.reshape(T * N, 1)
-                values_flat2 = values_flat.reshape(T * N, 1)
-
-                advantages = returns_flat - values_flat2
-                # Zero advantages where done == 1
-                advantages[dones_flat.reshape(-1) == 1.0] = 0.0
+                advantages_flat = advantages.reshape(T * N, 1)
 
                 batch = {
                     "obs": torch.tensor(
@@ -233,7 +236,7 @@ class VMPOTrainer:
                         returns_flat, dtype=torch.float32, device=self.agent.device
                     ),
                     "advantages": torch.tensor(
-                        advantages, dtype=torch.float32, device=self.agent.device
+                        advantages_flat, dtype=torch.float32, device=self.agent.device
                     ),
                     "old_means": torch.tensor(
                         means_flat, dtype=torch.float32, device=self.agent.device
@@ -310,48 +313,6 @@ class VMPOTrainer:
                     interval_update_count = 0
 
         self.env.close()
-
-
-def _compute_returns(
-    rewards: np.ndarray, dones: np.ndarray, last_value: np.ndarray, gamma: float
-) -> np.ndarray:
-    """
-    Vectorised return computation.
-
-    rewards: shape (T, N) or (T,) for single-env
-    dones: shape (T, N) or (T,)
-    last_value: shape (N,) or scalar
-    Returns: shape (T, N) or (T,)
-    """
-    rewards_np = np.asarray(rewards)
-    dones_np = np.asarray(dones)
-
-    # Ensure 2D (T, N)
-    if rewards_np.ndim == 1:
-        rewards_np = rewards_np.reshape(-1, 1)
-    if dones_np.ndim == 1:
-        dones_np = dones_np.reshape(-1, 1)
-
-    T, N = rewards_np.shape
-
-    returns = np.zeros_like(rewards_np, dtype=np.float32)
-
-    # Last value per environment
-    R = np.zeros(N, dtype=np.float32)
-    last_val_arr = np.asarray(last_value)
-    if last_val_arr.ndim == 0:
-        R[:] = float(last_val_arr)
-    else:
-        R[:] = last_val_arr
-
-    for t in reversed(range(T)):
-        R = rewards_np[t] + gamma * (1.0 - dones_np[t]) * R
-        returns[t] = R
-
-    # If original input was 1D, return 1D
-    if returns.shape[1] == 1:
-        return returns.reshape(-1)
-    return returns
 
 
 @torch.no_grad()

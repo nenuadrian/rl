@@ -275,6 +275,8 @@ if __name__ == "__main__":
 
         vmpo_config = VMPOConfig(
             gamma=float(args.gamma),
+            advantage_estimator=str(getattr(args, "advantage_estimator", "returns")),
+            gae_lambda=float(getattr(args, "gae_lambda", 0.95)),
             policy_lr=float(args.policy_lr),
             value_lr=float(args.value_lr),
             topk_fraction=float(args.topk_fraction),

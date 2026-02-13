@@ -62,7 +62,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "policy_layer_sizes": (256, 256, 256),
         "value_layer_sizes": (526, 526, 256),
         "gamma": 0.995,
-        "lambda_gae": 0.97,
+        "gae_lambda": 0.97,
         "policy_lr": 1e-4,
         "value_lr": 3e-4,
         "topk_fraction": 0.5,
@@ -247,5 +247,10 @@ def get(env_id: str) -> dict[str, Any]:
         env_id=env_id,
         presets=PRESETS,
         algorithm_name="VMPO",
-        defaults={"optimizer_type": "adam", "sgd_momentum": 0.9},
+        defaults={
+            "optimizer_type": "adam",
+            "sgd_momentum": 0.9,
+            "advantage_estimator": "returns",
+            "gae_lambda": 0.95,
+        },
     )

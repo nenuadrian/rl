@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Literal
 
 import numpy as np
 import torch
@@ -15,6 +15,8 @@ from trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
 class VMPOConfig:
     normalize_advantages: bool = True
     gamma: float = 0.99
+    advantage_estimator: Literal["returns", "dae", "gae"] = "returns"
+    gae_lambda: float = 0.95
     policy_lr: float = 5e-4
     value_lr: float = 1e-3
     topk_fraction: float = 0.5
