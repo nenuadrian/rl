@@ -58,6 +58,7 @@ def _make_env(
 
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
+    env = gym.wrappers.ClipAction(env)
 
     if normalize_observation:
         env = gym.wrappers.NormalizeObservation(env)
@@ -266,6 +267,7 @@ class PPOTrainer:
 
                 action_t, logp_t, value_t = self.agent.act(obs_t, deterministic=False)
                 action = action_t.cpu().numpy()
+                action_for_buffer = action.copy()
                 logp = logp_t.cpu().numpy().squeeze(-1)
                 value = value_t.cpu().numpy().squeeze(-1)
                 action = np.clip(
@@ -274,10 +276,11 @@ class PPOTrainer:
                     self.env.single_action_space.high,
                 )
 
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                next_obs, reward, terminated, truncated, infos = self.env.step(action)
                 next_obs = np.asarray(next_obs, dtype=np.float32)
                 done = np.asarray(terminated) | np.asarray(truncated)
                 reward = np.asarray(reward)
+                final_infos = infos.get("final_info", None) if isinstance(infos, dict) else None
 
                 # Defensive check
                 if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
@@ -290,7 +293,7 @@ class PPOTrainer:
                         t,
                         i,
                         obs[i],
-                        action[i],
+                        action_for_buffer[i],
                         float(reward[i]),
                         float(done[i]),
                         float(value[i]),
@@ -299,7 +302,13 @@ class PPOTrainer:
                     self.episode_return[i] += float(reward[i])
                     # Log episode return for each env when done
                     if done[i]:
-                        episode_return = float(self.episode_return[i])
+                        episode_return = None
+                        if final_infos is not None and i < len(final_infos):
+                            final_info = final_infos[i]
+                            if final_info and "episode" in final_info:
+                                episode_return = float(final_info["episode"]["r"])
+                        if episode_return is None:
+                            episode_return = float(self.episode_return[i])
                         log_wandb(
                             {"train/episode_return": episode_return},
                             step=step + 1,
@@ -482,14 +491,20 @@ def _evaluate_vectorized(
             eval_envs.single_action_space.high,
         )
 
-        next_obs, reward, terminated, truncated, _ = eval_envs.step(action)
+        next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
         episode_returns += np.asarray(reward, dtype=np.float32)
-
         done = np.asarray(terminated) | np.asarray(truncated)
-        for i in range(n_episodes):
-            if not dones[i] and done[i]:
-                final_returns.append(float(episode_returns[i]))
-                dones[i] = True
+
+        if isinstance(infos, dict) and "final_info" in infos:
+            for i, final_info in enumerate(infos["final_info"]):
+                if not dones[i] and final_info and "episode" in final_info:
+                    final_returns.append(float(final_info["episode"]["r"]))
+                    dones[i] = True
+        else:
+            for i in range(n_episodes):
+                if not dones[i] and done[i]:
+                    final_returns.append(float(episode_returns[i]))
+                    dones[i] = True
 
         obs = next_obs
 
