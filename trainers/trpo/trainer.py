@@ -9,7 +9,7 @@ import torch
 
 from trainers.ppo.rollout_buffer import RolloutBuffer
 from trainers.trpo.agent import TRPOAgent, TRPOConfig
-from utils.env import flatten_obs, infer_obs_dim, make_env
+from utils.env import flatten_obs, infer_obs_dim, make_env, wrap_record_video
 from utils.wandb_utils import log_wandb
 
 
@@ -31,20 +31,26 @@ class TRPOTrainer:
         config: TRPOConfig,
         normalize_obs: bool = False,
         num_envs: int = 1,
+        capture_video: bool = False,
+        run_name: str | None = None,
     ):
         self.seed = seed
         self.num_envs = int(num_envs)
         self.env_id = env_id
         self.normalize_obs = bool(normalize_obs)
+        self.capture_video = bool(capture_video)
+        safe_run_name = (
+            run_name if run_name is not None else f"trpo-{env_id}-seed{seed}"
+        ).replace("/", "-")
+        self.video_dir = os.path.join("videos", safe_run_name)
 
         env_fns = [
             (
-                lambda i=i: make_env(
-                    env_id,
+                lambda i=i: self._make_train_env(
+                    env_id=env_id,
                     seed=seed + i,
-                    ppo_wrappers=True,
+                    env_index=i,
                     gamma=config.gamma,
-                    normalize_observation=self.normalize_obs,
                 )
             )
             for i in range(self.num_envs)
@@ -102,6 +108,27 @@ class TRPOTrainer:
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
         self.last_eval = 0
         self.last_checkpoint = 0
+
+    def _make_train_env(
+        self,
+        *,
+        env_id: str,
+        seed: int,
+        env_index: int,
+        gamma: float,
+    ):
+        should_record = self.capture_video and env_index == 0
+        env = make_env(
+            env_id,
+            seed=seed,
+            render_mode="rgb_array" if should_record else None,
+            ppo_wrappers=True,
+            gamma=gamma,
+            normalize_observation=self.normalize_obs,
+        )
+        if should_record:
+            env = wrap_record_video(env, self.video_dir)
+        return env
 
     def train(
         self,

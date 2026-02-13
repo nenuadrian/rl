@@ -126,6 +126,11 @@ if __name__ == "__main__":
         default=None,
         help="SGD momentum override when --optimizer_type=sgd",
     )
+    parser.add_argument(
+        "--generate_video",
+        action="store_true",
+        help="Capture training videos with RecordVideo on env 0 and upload via wandb.",
+    )
     args = parser.parse_args()
 
     cli_device_override = args.device
@@ -157,13 +162,15 @@ if __name__ == "__main__":
     os.makedirs(args.out_dir, exist_ok=True)
 
     group = args.wandb_group or f"{algo}-{args.env}"
-    run_name = f"{algo}-{args.env}"
+    run_name = f"{algo}-{args.env}-seed{args.seed}"
     init_wandb(
         project=args.wandb_project,
         entity=args.wandb_entity,
         group=group,
         name=run_name,
         config=vars(args),
+        monitor_gym=bool(args.generate_video),
+        save_code=True,
     )
 
     if algo == "ppo":
@@ -217,6 +224,8 @@ if __name__ == "__main__":
             num_envs=int(args.num_envs),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
+            capture_video=bool(args.generate_video),
+            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,
@@ -253,6 +262,8 @@ if __name__ == "__main__":
             config=trpo_config,
             normalize_obs=bool(args.normalize_obs),
             num_envs=int(args.num_envs),
+            capture_video=bool(args.generate_video),
+            run_name=run_name,
         )
         trainer.train(
             total_steps=int(args.total_steps),
@@ -292,6 +303,8 @@ if __name__ == "__main__":
             rollout_steps=int(args.rollout_steps),
             config=vmpo_config,
             num_envs=int(args.num_envs),
+            capture_video=bool(args.generate_video),
+            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,
@@ -336,6 +349,8 @@ if __name__ == "__main__":
             critic_layer_sizes=tuple(args.critic_layer_sizes),
             replay_size=args.replay_size,
             config=mpo_config,
+            capture_video=bool(args.generate_video),
+            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,

@@ -29,13 +29,24 @@ class VMPOTrainer:
         rollout_steps: int,
         config: VMPOConfig,
         num_envs: int = 1,
+        capture_video: bool = False,
+        run_name: str | None = None,
     ):
+        self.run_name = run_name
         self.num_envs = int(num_envs)
         self.env_id = env_id
         self.seed = seed
+        self.capture_video = bool(capture_video)
+        self.video_dir = f"videos/{run_name}"
 
         env_fns = [
-            (lambda i=i: make_env(env_id, seed=seed + i))
+            (
+                lambda i=i: self._make_train_env(
+                    env_id=env_id,
+                    seed=seed + i,
+                    env_index=i,
+                )
+            )
             for i in range(self.num_envs)
         ]
         # Always use vectorized env, even when num_envs == 1.
@@ -80,6 +91,19 @@ class VMPOTrainer:
 
         # episode returns per environment
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
+
+    def _make_train_env(
+        self,
+        *,
+        env_id: str,
+        seed: int,
+        env_index: int,
+    ):
+        env = make_env(
+            env_id,
+            seed=seed,
+        )
+        return env
 
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
@@ -224,9 +248,9 @@ class VMPOTrainer:
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=step)
                     for key, value in metrics.items():
-                        interval_metric_sums[key] = (
-                            interval_metric_sums.get(key, 0.0) + float(value)
-                        )
+                        interval_metric_sums[key] = interval_metric_sums.get(
+                            key, 0.0
+                        ) + float(value)
                     interval_update_count += 1
                     total_update_count += 1
 
@@ -234,7 +258,11 @@ class VMPOTrainer:
 
             if eval_interval > 0 and step % eval_interval == 0:
                 metrics = _evaluate_vectorized(
-                    agent=self.agent, env_id=self.env_id, seed=self.seed + 1000
+                    agent=self.agent,
+                    env_id=self.env_id,
+                    seed=self.seed + 1000,
+                    capture_video=self.capture_video,
+                    run_name=self.run_name,
                 )
                 log_wandb(metrics, step=step)
                 print(
@@ -333,13 +361,25 @@ def _evaluate_vectorized(
     n_episodes: int = 10,
     seed: int = 42,
     obs_normalizer=None,
+    capture_video: bool = False,
+    run_name: str | None = None,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
     eval_envs = gym.vector.SyncVectorEnv(
-        [lambda i=i: make_env(env_id, seed=seed + i) for i in range(n_episodes)]
+        [
+            lambda i=i: make_env(
+                env_id,
+                seed=seed + i,
+                capture_video=capture_video,
+                render_mode="rgb_array" if capture_video else None,
+                run_name=run_name,
+                idx=i,
+            )
+            for i in range(n_episodes)
+        ]
     )
 
     agent.policy.eval()
@@ -382,7 +422,6 @@ def _evaluate_vectorized(
                 dones[i] = True
 
         obs = next_obs
-
     eval_envs.close()
     agent.policy.train()
 

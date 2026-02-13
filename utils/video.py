@@ -70,17 +70,23 @@ def build_policy_for_algo(
     action_low: np.ndarray,
     action_high: np.ndarray,
     policy_layer_sizes: Iterable[int],
+    value_layer_sizes: Iterable[int] | None,
     device: torch.device,
 ) -> torch.nn.Module:
-    layer_sizes = _as_tuple_ints(policy_layer_sizes)
+    policy_sizes = _as_tuple_ints(policy_layer_sizes)
+    value_sizes = (
+        _as_tuple_ints(value_layer_sizes)
+        if value_layer_sizes is not None
+        else policy_sizes
+    )
 
-    if algo == "ppo":
+    if algo in {"ppo", "trpo"}:
         from trainers.ppo.agent import GaussianPolicy
 
         policy = GaussianPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=layer_sizes,
+            hidden_sizes=policy_sizes,
             action_low=action_low,
             action_high=action_high,
         )
@@ -90,17 +96,18 @@ def build_policy_for_algo(
         policy = DiagonalGaussianPolicy(
             obs_dim,
             act_dim,
-            layer_sizes=layer_sizes,
+            layer_sizes=policy_sizes,
             action_low=action_low,
             action_high=action_high,
         )
-    elif algo in {"vmpo"}:
-        from trainers.vmpo.gaussian_mlp_policy import GaussianMLPPolicy
+    elif algo == "vmpo":
+        from trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
 
-        policy = GaussianMLPPolicy(
+        policy = SquashedGaussianPolicy(
             obs_dim,
             act_dim,
-            hidden_sizes=layer_sizes,
+            policy_layer_sizes=policy_sizes,
+            value_layer_sizes=value_sizes,
             action_low=action_low,
             action_high=action_high,
         )
@@ -110,17 +117,31 @@ def build_policy_for_algo(
     return policy.to(device)
 
 
+def _extract_action_tensor(action_out: object) -> torch.Tensor:
+    if isinstance(action_out, torch.Tensor):
+        return action_out
+    if isinstance(action_out, (tuple, list)) and len(action_out) > 0:
+        first = action_out[0]
+        if isinstance(first, torch.Tensor):
+            return first
+    raise TypeError(
+        f"Expected action tensor or (action, ...) tuple, got {type(action_out)}"
+    )
+
+
 def _select_deterministic_action(
     policy: torch.nn.Module, obs_t: torch.Tensor
 ) -> torch.Tensor:
     """Best-effort deterministic action across policy implementations."""
     if hasattr(policy, "act_deterministic"):
-        return policy.act_deterministic(obs_t)  # type: ignore[attr-defined]
+        action_out = policy.act_deterministic(obs_t)  # type: ignore[attr-defined]
+        return _extract_action_tensor(action_out)
 
     # PPO style: sample_action(obs, deterministic=True)
     if hasattr(policy, "sample_action"):
         try:
-            return policy.sample_action(obs_t, deterministic=True)  # type: ignore[attr-defined]
+            action_out = policy.sample_action(obs_t, deterministic=True)  # type: ignore[attr-defined]
+            return _extract_action_tensor(action_out)
         except TypeError:
             pass
 
@@ -134,7 +155,8 @@ def _select_deterministic_action(
     if not hasattr(policy, "sample_action"):
         raise AttributeError("Policy has no sample_action method")
 
-    return policy.sample_action(mean, log_std, deterministic=True)  # type: ignore[attr-defined]
+    action_out = policy.sample_action(mean, log_std, deterministic=True)  # type: ignore[attr-defined]
+    return _extract_action_tensor(action_out)
 
 
 def render_policy_video(
@@ -146,6 +168,7 @@ def render_policy_video(
     seed: int,
     config: VideoRenderConfig = VideoRenderConfig(),
     policy_layer_sizes: Iterable[int] = (256, 256, 256),
+    value_layer_sizes: Iterable[int] | None = None,
     device: torch.device | None = None,
     num_attempts: int = 10,
 ) -> tuple[str, int]:
@@ -192,6 +215,7 @@ def render_policy_video(
         action_low=action_low,
         action_high=action_high,
         policy_layer_sizes=policy_layer_sizes,
+        value_layer_sizes=value_layer_sizes,
         device=device,
     )
     policy.load_state_dict(ckpt["policy"])

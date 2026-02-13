@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "algo",
-        choices=["ppo", "vmpo", "mpo"],
+        choices=["ppo", "trpo", "vmpo", "mpo"],
         help="Which algorithm's checkpoint to load.",
     )
     parser.add_argument(
@@ -125,6 +125,11 @@ def main() -> None:
             fps=int(args.fps),
         ),
         policy_layer_sizes=tuple(args.policy_layer_sizes),
+        value_layer_sizes=(
+            tuple(args.value_layer_sizes)
+            if hasattr(args, "value_layer_sizes")
+            else None
+        ),
         device=device,
     )
     print(f"Saved video to: {saved_path}")

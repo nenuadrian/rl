@@ -1,5 +1,5 @@
 torch
-gymnasium[mujoco]
+gymnasium[mujoco, other, dm_control]
 wandb
 imageio[ffmpeg]
 dm_control

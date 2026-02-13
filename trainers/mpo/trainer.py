@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent, MPOConfig
-from utils.env import flatten_obs, make_env, infer_obs_dim
+from utils.env import flatten_obs, make_env, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.mpo.replay_buffer import MPOReplayBuffer
 
@@ -29,9 +29,22 @@ class MPOTrainer:
         critic_layer_sizes: Tuple[int, ...],
         replay_size: int,
         config: MPOConfig,
+        capture_video: bool = False,
+        run_name: str | None = None,
     ):
         self.seed = seed
-        self.env = make_env(env_id, seed=seed)
+        self.capture_video = bool(capture_video)
+        safe_run_name = (
+            run_name if run_name is not None else f"mpo-{env_id}-seed{seed}"
+        ).replace("/", "-")
+        self.video_dir = os.path.join("videos", safe_run_name)
+        self.env = make_env(
+            env_id,
+            seed=seed,
+            render_mode="rgb_array" if self.capture_video else None,
+        )
+        if self.capture_video:
+            self.env = wrap_record_video(self.env, self.video_dir)
         self.env_id = env_id
 
         obs_dim = infer_obs_dim(self.env.observation_space)
@@ -218,7 +231,6 @@ class MPOTrainer:
                     )
 
         self.env.close()
-
 
 @torch.no_grad()
 def _evaluate_vectorized(

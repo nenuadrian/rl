@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.ppo.agent import PPOAgent, PPOConfig
-from utils.env import flatten_obs, make_env, infer_obs_dim
+from utils.env import flatten_obs, make_env, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
 
@@ -46,18 +46,25 @@ class PPOTrainer:
         num_envs: int = 1,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
+        capture_video: bool = False,
+        run_name: str | None = None,
     ):
         self.seed = seed
         self.num_envs = int(num_envs)
         self.env_id = env_id
+        self.capture_video = bool(capture_video)
+        safe_run_name = (
+            run_name if run_name is not None else f"ppo-{env_id}-seed{seed}"
+        ).replace("/", "-")
+        self.video_dir = os.path.join("videos", safe_run_name)
         env_fns = [
             (
-                lambda i=i: make_env(
-                    env_id,
+                lambda i=i: self._make_train_env(
+                    env_id=env_id,
                     seed=seed + i,
-                    ppo_wrappers=True,
+                    env_index=i,
                     gamma=gamma,
-                    normalize_observation=normalize_obs,
+                    normalize_obs=normalize_obs,
                 )
             )
             for i in range(self.num_envs)
@@ -116,6 +123,28 @@ class PPOTrainer:
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
         self.last_eval = 0
         self.last_checkpoint = 0
+
+    def _make_train_env(
+        self,
+        *,
+        env_id: str,
+        seed: int,
+        env_index: int,
+        gamma: float,
+        normalize_obs: bool,
+    ):
+        should_record = self.capture_video and env_index == 0
+        env = make_env(
+            env_id,
+            seed=seed,
+            render_mode="rgb_array" if should_record else None,
+            ppo_wrappers=True,
+            gamma=gamma,
+            normalize_observation=normalize_obs,
+        )
+        if should_record:
+            env = wrap_record_video(env, self.video_dir)
+        return env
 
     def train(
         self,
@@ -341,7 +370,6 @@ class PPOTrainer:
                     interval_update_count = 0
 
         self.env.close()
-
 
 @torch.no_grad()
 def _evaluate_vectorized(

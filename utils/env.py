@@ -118,6 +118,18 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
+def wrap_record_video(env: gym.Env, video_dir: str) -> gym.Env:
+    """Wrap env with RecordVideo and patch compatibility attrs for wandb monitor."""
+    wrapped_env = gym.wrappers.RecordVideo(env, video_dir)
+
+    # wandb monitor_gym still expects pre-1.0 gymnasium fields on RecordVideo.
+    # gymnasium>=1.0 removed `enabled`; setting it avoids teardown crashes.
+    if not hasattr(wrapped_env, "enabled"):
+        setattr(wrapped_env, "enabled", False)
+
+    return wrapped_env
+
+
 def make_env(
     env_id: str,
     seed=None,
@@ -129,6 +141,9 @@ def make_env(
     clip_observation: float | None = 10.0,
     normalize_reward: bool = True,
     clip_reward: float | None = 10.0,
+    capture_video: bool = False,
+    run_name: str | None = None,
+    idx: int = 0,
 ):
     if env_id.startswith("dm_control/"):
         # Parse dm_control/domain/task
@@ -142,6 +157,9 @@ def make_env(
     if seed is not None:
         env.reset(seed=seed)
         env.action_space.seed(seed)
+    if capture_video and run_name is not None and idx == 0:
+        env = wrap_record_video(env, f"videos/{run_name}")
+    env = gym.wrappers.RecordEpisodeStatistics(env)
 
     if ppo_wrappers:
         # CleanRL-style wrapper stack for continuous-control PPO.
@@ -164,4 +182,5 @@ def make_env(
                     env,
                     lambda reward: np.clip(reward, -clip_reward, clip_reward),
                 )
+
     return env
