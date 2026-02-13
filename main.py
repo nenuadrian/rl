@@ -1,7 +1,6 @@
 import argparse
 import os
 import importlib
-from dataclasses import asdict, is_dataclass
 from pprint import pformat
 
 import torch
@@ -10,12 +9,9 @@ from utils.env import set_seed
 from utils.wandb_utils import finish_wandb, init_wandb
 
 from trainers.vmpo.trainer import VMPOTrainer
-from trainers.vmpo.agent import VMPOConfig
 from trainers.mpo.trainer import MPOTrainer
-from trainers.mpo.agent import MPOConfig
 from trainers.ppo.trainer import PPOTrainer
 from trainers.trpo.trainer import TRPOTrainer
-from trainers.trpo.agent import TRPOConfig
 
 
 def _load_preset(algo: str, env_id: str) -> dict:
@@ -43,10 +39,7 @@ def _print_resolved_args(args: argparse.Namespace) -> None:
 
 def _print_config(name: str, config: object) -> None:
     print(f"{name}:")
-    if is_dataclass(config) and not isinstance(config, type):
-        print(pformat(asdict(config), sort_dicts=True))
-    else:
-        print(repr(config))
+    print(pformat(config, sort_dicts=True))
 
 
 def _resolve_device(device_arg: str | None) -> torch.device:
@@ -234,7 +227,31 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
     elif algo == "trpo":
-        trpo_config = TRPOConfig(
+        trpo_params = {
+            "gamma": float(args.gamma),
+            "gae_lambda": float(args.gae_lambda),
+            "target_kl": float(args.target_kl),
+            "cg_iters": int(args.cg_iters),
+            "cg_damping": float(args.cg_damping),
+            "backtrack_coeff": float(args.backtrack_coeff),
+            "backtrack_iters": int(args.backtrack_iters),
+            "value_lr": float(args.value_lr),
+            "value_epochs": int(args.value_epochs),
+            "value_minibatch_size": int(args.value_minibatch_size),
+            "max_grad_norm": float(args.max_grad_norm),
+            "normalize_advantages": bool(args.normalize_advantages),
+            "optimizer_type": str(args.optimizer_type),
+            "sgd_momentum": float(args.sgd_momentum),
+        }
+        _print_config("TRPO config", trpo_params)
+
+        trainer = TRPOTrainer(
+            env_id=args.env,
+            seed=args.seed,
+            device=device,
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
+            rollout_steps=int(args.rollout_steps),
             gamma=float(args.gamma),
             gae_lambda=float(args.gae_lambda),
             target_kl=float(args.target_kl),
@@ -249,17 +266,6 @@ if __name__ == "__main__":
             normalize_advantages=bool(args.normalize_advantages),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
-        )
-        _print_config("TRPOConfig", trpo_config)
-
-        trainer = TRPOTrainer(
-            env_id=args.env,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            critic_layer_sizes=tuple(args.critic_layer_sizes),
-            rollout_steps=int(args.rollout_steps),
-            config=trpo_config,
             normalize_obs=bool(args.normalize_obs),
             num_envs=int(args.num_envs),
             capture_video=bool(args.generate_video),
@@ -273,7 +279,33 @@ if __name__ == "__main__":
         )
     elif algo == "vmpo":
 
-        vmpo_config = VMPOConfig(
+        vmpo_params = {
+            "gamma": float(args.gamma),
+            "advantage_estimator": str(getattr(args, "advantage_estimator", "returns")),
+            "gae_lambda": float(getattr(args, "gae_lambda", 0.95)),
+            "policy_lr": float(args.policy_lr),
+            "value_lr": float(args.value_lr),
+            "topk_fraction": float(args.topk_fraction),
+            "temperature_init": float(args.temperature_init),
+            "temperature_lr": float(args.temperature_lr),
+            "epsilon_eta": float(args.epsilon_eta),
+            "epsilon_mu": float(args.epsilon_mu),
+            "epsilon_sigma": float(args.epsilon_sigma),
+            "alpha_lr": float(args.alpha_lr),
+            "max_grad_norm": float(args.max_grad_norm),
+            "normalize_advantages": bool(args.normalize_advantages),
+            "optimizer_type": str(args.optimizer_type),
+            "sgd_momentum": float(args.sgd_momentum),
+        }
+        _print_config("VMPO config", vmpo_params)
+
+        trainer = VMPOTrainer(
+            env_id=args.env,
+            seed=args.seed,
+            device=device,
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            value_layer_sizes=tuple(args.value_layer_sizes),
+            rollout_steps=int(args.rollout_steps),
             gamma=float(args.gamma),
             advantage_estimator=str(getattr(args, "advantage_estimator", "returns")),
             gae_lambda=float(getattr(args, "gae_lambda", 0.95)),
@@ -290,17 +322,6 @@ if __name__ == "__main__":
             normalize_advantages=bool(args.normalize_advantages),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
-        )
-        _print_config("VMPOConfig", vmpo_config)
-
-        trainer = VMPOTrainer(
-            env_id=args.env,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            value_layer_sizes=tuple(args.value_layer_sizes),
-            rollout_steps=int(args.rollout_steps),
-            config=vmpo_config,
             num_envs=int(args.num_envs),
             capture_video=bool(args.generate_video),
             run_name=run_name,
@@ -314,7 +335,39 @@ if __name__ == "__main__":
         )
     elif algo == "mpo":
 
-        mpo_config = MPOConfig(
+        mpo_params = {
+            "gamma": float(args.gamma),
+            "target_policy_update_period": int(args.target_policy_update_period),
+            "target_critic_update_period": int(args.target_critic_update_period),
+            "policy_lr": float(args.policy_lr),
+            "q_lr": float(args.q_lr),
+            "temperature_init": float(args.temperature_init),
+            "temperature_lr": float(args.temperature_lr),
+            "kl_epsilon": float(args.kl_epsilon),
+            "mstep_kl_epsilon": float(args.mstep_kl_epsilon),
+            "per_dim_constraining": bool(args.per_dim_constraining),
+            "lambda_init": float(args.lambda_init),
+            "lambda_lr": float(args.lambda_lr),
+            "action_penalization": bool(args.action_penalization),
+            "epsilon_penalty": float(args.epsilon_penalty),
+            "max_grad_norm": float(args.max_grad_norm),
+            "action_samples": int(args.action_samples),
+            "retrace_steps": int(args.retrace_steps),
+            "retrace_mc_actions": int(args.retrace_mc_actions),
+            "retrace_lambda": float(args.retrace_lambda),
+            "use_retrace": bool(args.use_retrace),
+            "optimizer_type": str(args.optimizer_type),
+            "sgd_momentum": float(args.sgd_momentum),
+        }
+        _print_config("MPO config", mpo_params)
+
+        trainer = MPOTrainer(
+            env_id=args.env,
+            seed=args.seed,
+            device=device,
+            policy_layer_sizes=tuple(args.policy_layer_sizes),
+            critic_layer_sizes=tuple(args.critic_layer_sizes),
+            replay_size=args.replay_size,
             gamma=float(args.gamma),
             target_policy_update_period=int(args.target_policy_update_period),
             target_critic_update_period=int(args.target_critic_update_period),
@@ -337,17 +390,6 @@ if __name__ == "__main__":
             use_retrace=bool(args.use_retrace),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
-        )
-        _print_config("MPOConfig", mpo_config)
-
-        trainer = MPOTrainer(
-            env_id=args.env,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            critic_layer_sizes=tuple(args.critic_layer_sizes),
-            replay_size=args.replay_size,
-            config=mpo_config,
             capture_video=bool(args.generate_video),
             run_name=run_name,
         )

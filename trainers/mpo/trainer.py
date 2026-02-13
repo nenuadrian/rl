@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.mpo.agent import MPOAgent, MPOConfig
+from trainers.mpo.agent import MPOAgent
 from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.mpo.replay_buffer import MPOReplayBuffer
@@ -48,12 +48,35 @@ class MPOTrainer:
         policy_layer_sizes: Tuple[int, ...],
         critic_layer_sizes: Tuple[int, ...],
         replay_size: int,
-        config: MPOConfig,
+        gamma: float = 0.99,
+        target_policy_update_period: int = 100,
+        target_critic_update_period: int = 100,
+        policy_lr: float = 3e-4,
+        q_lr: float = 3e-4,
+        kl_epsilon: float = 0.1,
+        mstep_kl_epsilon: float = 0.1,
+        per_dim_constraining: bool = True,
+        temperature_init: float = 1.0,
+        temperature_lr: float = 3e-4,
+        lambda_init: float = 1.0,
+        lambda_lr: float = 3e-4,
+        action_penalization: bool = False,
+        epsilon_penalty: float = 0.001,
+        max_grad_norm: float = 1.0,
+        action_samples: int = 20,
+        use_retrace: bool = False,
+        retrace_steps: int = 2,
+        retrace_mc_actions: int = 8,
+        retrace_lambda: float = 0.95,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
         capture_video: bool = False,
         run_name: str | None = None,
     ):
         self.seed = seed
         self.capture_video = bool(capture_video)
+        self.use_retrace = bool(use_retrace)
+        self.retrace_steps = int(retrace_steps)
         safe_run_name = (
             run_name if run_name is not None else f"mpo-{env_id}-seed{seed}"
         ).replace("/", "-")
@@ -84,7 +107,28 @@ class MPOTrainer:
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             critic_layer_sizes=critic_layer_sizes,
-            config=config,
+            gamma=gamma,
+            target_policy_update_period=target_policy_update_period,
+            target_critic_update_period=target_critic_update_period,
+            policy_lr=policy_lr,
+            q_lr=q_lr,
+            kl_epsilon=kl_epsilon,
+            mstep_kl_epsilon=mstep_kl_epsilon,
+            per_dim_constraining=per_dim_constraining,
+            temperature_init=temperature_init,
+            temperature_lr=temperature_lr,
+            lambda_init=lambda_init,
+            lambda_lr=lambda_lr,
+            action_penalization=action_penalization,
+            epsilon_penalty=epsilon_penalty,
+            max_grad_norm=max_grad_norm,
+            action_samples=action_samples,
+            use_retrace=use_retrace,
+            retrace_steps=retrace_steps,
+            retrace_mc_actions=retrace_mc_actions,
+            retrace_lambda=retrace_lambda,
+            optimizer_type=optimizer_type,
+            sgd_momentum=sgd_momentum,
         )
 
         self.replay = MPOReplayBuffer(obs_dim, act_dim, capacity=replay_size)
@@ -166,8 +210,8 @@ class MPOTrainer:
 
             if step >= update_after and self.replay.size >= batch_size:
                 for _ in range(int(updates_per_step)):
-                    seq_len = self.agent.config.retrace_steps
-                    if self.agent.config.use_retrace and seq_len > 1:
+                    seq_len = self.retrace_steps
+                    if self.use_retrace and seq_len > 1:
                         if self.replay.size >= batch_size + seq_len:
                             batch = self.replay.sample_sequences(
                                 batch_size, seq_len=seq_len

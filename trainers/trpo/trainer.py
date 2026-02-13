@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from trainers.ppo.rollout_buffer import RolloutBuffer
-from trainers.trpo.agent import TRPOAgent, TRPOConfig
+from trainers.trpo.agent import TRPOAgent
 from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 
@@ -87,7 +87,20 @@ class TRPOTrainer:
         policy_layer_sizes: Tuple[int, ...],
         critic_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
-        config: TRPOConfig,
+        gamma: float = 0.99,
+        gae_lambda: float = 0.95,
+        target_kl: float = 0.01,
+        cg_iters: int = 10,
+        cg_damping: float = 0.1,
+        backtrack_coeff: float = 0.8,
+        backtrack_iters: int = 10,
+        value_lr: float = 3e-4,
+        value_epochs: int = 10,
+        value_minibatch_size: int = 256,
+        max_grad_norm: float = 0.5,
+        normalize_advantages: bool = True,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
         normalize_obs: bool = False,
         num_envs: int = 1,
         capture_video: bool = False,
@@ -98,6 +111,9 @@ class TRPOTrainer:
         self.env_id = env_id
         self.normalize_obs = bool(normalize_obs)
         self.capture_video = bool(capture_video)
+        self.gamma = float(gamma)
+        self.gae_lambda = float(gae_lambda)
+        self.normalize_advantages = bool(normalize_advantages)
         safe_run_name = (
             run_name if run_name is not None else f"trpo-{env_id}-seed{seed}"
         ).replace("/", "-")
@@ -109,7 +125,7 @@ class TRPOTrainer:
                     env_id=env_id,
                     seed=seed + i,
                     env_index=i,
-                    gamma=config.gamma,
+                    gamma=self.gamma,
                 )
             )
             for i in range(self.num_envs)
@@ -140,7 +156,20 @@ class TRPOTrainer:
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             critic_layer_sizes=critic_layer_sizes,
-            config=config,
+            gamma=gamma,
+            gae_lambda=gae_lambda,
+            target_kl=target_kl,
+            cg_iters=cg_iters,
+            cg_damping=cg_damping,
+            backtrack_coeff=backtrack_coeff,
+            backtrack_iters=backtrack_iters,
+            value_lr=value_lr,
+            value_epochs=value_epochs,
+            value_minibatch_size=value_minibatch_size,
+            max_grad_norm=max_grad_norm,
+            normalize_advantages=normalize_advantages,
+            optimizer_type=optimizer_type,
+            sgd_momentum=sgd_momentum,
         )
 
         self.rollout_steps = int(rollout_steps)
@@ -268,11 +297,11 @@ class TRPOTrainer:
 
             obs_f, act_f, logp_f, _, ret_f, adv_f = self.buffer.compute_returns_advantages(
                 last_values,
-                self.agent.config.gamma,
-                self.agent.config.gae_lambda,
+                self.gamma,
+                self.gae_lambda,
             )
 
-            if self.agent.config.normalize_advantages:
+            if self.normalize_advantages:
                 adv_f = (adv_f - adv_f.mean()) / (adv_f.std() + 1e-8)
 
             batch = {
@@ -316,7 +345,7 @@ class TRPOTrainer:
                     agent=self.agent,
                     env_id=self.env_id,
                     seed=self.seed + 1000,
-                    gamma=self.agent.config.gamma,
+                    gamma=self.gamma,
                     normalize_observation=self.normalize_obs,
                 )
                 log_wandb(metrics, step=step)

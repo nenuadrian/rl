@@ -1,25 +1,33 @@
-# Reinforcement Learning Algorithms in PyTorch
+# Minerva - Reinforcement Learning Algorithms in PyTorch
 
 [![Python tests](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml/badge.svg)](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml)
 
 [See the latest report here.](reports/latest/README.md)
 
 
-- [Reinforcement Learning Algorithms in PyTorch](#reinforcement-learning-algorithms-in-pytorch)
-	- [usage](#usage)
+- [Minerva - Reinforcement Learning Algorithms in PyTorch](#minerva---reinforcement-learning-algorithms-in-pytorch)
+	- [Installation](#installation)
+	- [Usage](#usage)
 	- [video](#video)
 	- [hyperparameters](#hyperparameters)
-	- [nanochat](#nanochat)
-	- [reports](#reports)
+	- [Benchmarks](#benchmarks)
+	- [Reports](#reports)
 
-## usage
+## Installation
+
+```bash
+conda create -n minerva python=3.11 -y
+conda activate minerva
+pip install -r requirements.txt
+```
+
+## Usage
 
 ```bash
 python main.py mpo --env dm_control/cheetah/run
 python main.py ppo --env HalfCheetah-v5
 python main.py trpo --env HalfCheetah-v5
 python main.py vmpo --env dm_control/cheetah/run
-python main.py nanochat_rl --env isambard
 ```
 
 ## video
@@ -42,36 +50,13 @@ python generate_video.py ppo --env dm_control/cheetah/run \
 
 Hyperparameters are defined in the `hyperparameters/*.py` files for each algorithm.
 
-
-## nanochat
+## Benchmarks
 
 ```bash
-export WANDB_RUN="nanochat_test_run"
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
-mkdir -p $NANOCHAT_BASE_DIR
-
-python -m nanochat.dataset -n 370 
-
-# train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
-python -m nanochat.scripts.tok_train
-# evaluate the tokenizer (report compression ratio etc.)
-python -m nanochat.scripts.tok_eval
-
-
-python -m nanochat.scripts.base_train --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
-# OR train with torchrun for better performance
-export TORCH_COMPILE_DISABLE=1
-export OMP_NUM_THREADS=1
-
-torchrun --standalone --nproc_per_node=4 -m nanochat.scripts.base_train -- --depth=26 --target-param-data-ratio=8.25 --device-batch-size=16 --fp8 --run=$WANDB_RUN --save-every 100
-
-python -m nanochat.scripts.base_eval --device-batch-size=16
-
-python -m nanochat.scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN -- --depth=26 
-python -m nanochat.scripts.chat_eval -i sft
+bash benchmarks/mpo.sh
 ```
 
-## reports
+## Reports
 
 ```bash
 python generate_report.py

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
@@ -115,24 +114,6 @@ class ValueNetwork(nn.Module):
         return self.value_head(self.encoder(obs))
 
 
-@dataclass
-class PPOConfig:
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    clip_ratio: float = 0.2
-    policy_lr: float = 3e-4
-    value_lr: float = 1e-3
-    ent_coef: float = 0.0
-    vf_coef: float = 0.5
-    max_grad_norm: float = 0.5
-    target_kl: float = 0.02
-    norm_adv: bool = True
-    clip_vloss: bool = True
-    anneal_lr: bool = True
-    optimizer_type: str = "adam"
-    sgd_momentum: float = 0.9
-
-
 class PPOAgent:
     def __init__(
         self,
@@ -143,10 +124,36 @@ class PPOAgent:
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...],
         critic_layer_sizes: Tuple[int, ...],
-        config: PPOConfig | None = None,
+        gamma: float = 0.99,
+        gae_lambda: float = 0.95,
+        clip_ratio: float = 0.2,
+        policy_lr: float = 3e-4,
+        value_lr: float = 1e-3,
+        ent_coef: float = 0.0,
+        vf_coef: float = 0.5,
+        max_grad_norm: float = 0.5,
+        target_kl: float = 0.02,
+        norm_adv: bool = True,
+        clip_vloss: bool = True,
+        anneal_lr: bool = True,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
     ):
         self.device = device
-        self.config = config or PPOConfig()
+        self.gamma = float(gamma)
+        self.gae_lambda = float(gae_lambda)
+        self.clip_ratio = float(clip_ratio)
+        self.policy_lr = float(policy_lr)
+        self.value_lr = float(value_lr)
+        self.ent_coef = float(ent_coef)
+        self.vf_coef = float(vf_coef)
+        self.max_grad_norm = float(max_grad_norm)
+        self.target_kl = float(target_kl)
+        self.norm_adv = bool(norm_adv)
+        self.clip_vloss = bool(clip_vloss)
+        self.anneal_lr = bool(anneal_lr)
+        self.optimizer_type = str(optimizer_type)
+        self.sgd_momentum = float(sgd_momentum)
 
         self.policy = GaussianPolicy(
             obs_dim,
@@ -159,26 +166,26 @@ class PPOAgent:
         self.value = ValueNetwork(obs_dim, critic_layer_sizes).to(device)
 
         self.policy_opt = self._build_optimizer(
-            self.policy.parameters(), lr=self.config.policy_lr
+            self.policy.parameters(), lr=self.policy_lr
         )
         self.value_opt = self._build_optimizer(
-            self.value.parameters(), lr=self.config.value_lr
+            self.value.parameters(), lr=self.value_lr
         )
 
     def _build_optimizer(
         self, params, *, lr: float
     ) -> torch.optim.Optimizer:
-        optimizer_type = self.config.optimizer_type.strip().lower()
+        optimizer_type = self.optimizer_type.strip().lower()
         if optimizer_type == "adam":
             return torch.optim.Adam(params, lr=float(lr), eps=1e-5)
         if optimizer_type == "sgd":
             return torch.optim.SGD(
                 params,
                 lr=float(lr),
-                momentum=float(self.config.sgd_momentum),
+                momentum=float(self.sgd_momentum),
             )
         raise ValueError(
-            f"Unsupported PPO optimizer_type '{self.config.optimizer_type}'. "
+            f"Unsupported PPO optimizer_type '{self.optimizer_type}'. "
             "Expected one of: adam, sgd."
         )
 
@@ -197,31 +204,31 @@ class PPOAgent:
         anneal_lr: bool | None = None,
     ) -> None:
         if clip_ratio is not None:
-            self.config.clip_ratio = float(clip_ratio)
+            self.clip_ratio = float(clip_ratio)
         if ent_coef is not None:
-            self.config.ent_coef = float(ent_coef)
+            self.ent_coef = float(ent_coef)
         if vf_coef is not None:
-            self.config.vf_coef = float(vf_coef)
+            self.vf_coef = float(vf_coef)
         if max_grad_norm is not None:
-            self.config.max_grad_norm = float(max_grad_norm)
+            self.max_grad_norm = float(max_grad_norm)
         if target_kl is not None:
-            self.config.target_kl = float(target_kl)
+            self.target_kl = float(target_kl)
         if norm_adv is not None:
-            self.config.norm_adv = bool(norm_adv)
+            self.norm_adv = bool(norm_adv)
         if clip_vloss is not None:
-            self.config.clip_vloss = bool(clip_vloss)
+            self.clip_vloss = bool(clip_vloss)
         if anneal_lr is not None:
-            self.config.anneal_lr = bool(anneal_lr)
+            self.anneal_lr = bool(anneal_lr)
 
         if policy_lr is not None:
-            self.config.policy_lr = float(policy_lr)
+            self.policy_lr = float(policy_lr)
             for g in self.policy_opt.param_groups:
-                g["lr"] = self.config.policy_lr
+                g["lr"] = self.policy_lr
 
         if value_lr is not None:
-            self.config.value_lr = float(value_lr)
+            self.value_lr = float(value_lr)
             for g in self.value_opt.param_groups:
-                g["lr"] = self.config.value_lr
+                g["lr"] = self.value_lr
 
     def act(
         self, obs: torch.Tensor, deterministic: bool = False
@@ -243,7 +250,7 @@ class PPOAgent:
         advantages = batch["advantages"]
         values_old = batch.get("values_old", None)
 
-        if self.config.norm_adv:
+        if self.norm_adv:
             advantages = (advantages - advantages.mean()) / (
                 advantages.std(unbiased=False) + 1e-8
             )
@@ -254,19 +261,19 @@ class PPOAgent:
 
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(
-            ratio, 1.0 - self.config.clip_ratio, 1.0 + self.config.clip_ratio
+            ratio, 1.0 - self.clip_ratio, 1.0 + self.clip_ratio
         )
         policy_loss = torch.max(pg_loss1, pg_loss2).mean()
 
         entropy = self.policy.entropy(obs).mean()
 
         new_values = self.value(obs)
-        if self.config.clip_vloss and values_old is not None:
+        if self.clip_vloss and values_old is not None:
             value_loss_unclipped = (new_values - returns).pow(2)
             values_clipped = values_old + torch.clamp(
                 new_values - values_old,
-                -self.config.clip_ratio,
-                self.config.clip_ratio,
+                -self.clip_ratio,
+                self.clip_ratio,
             )
             value_loss_clipped = (values_clipped - returns).pow(2)
             value_loss = 0.5 * torch.max(value_loss_unclipped, value_loss_clipped).mean()
@@ -275,8 +282,8 @@ class PPOAgent:
 
         total_loss = (
             policy_loss
-            - self.config.ent_coef * entropy
-            + self.config.vf_coef * value_loss
+            - self.ent_coef * entropy
+            + self.vf_coef * value_loss
         )
 
         with torch.no_grad():
@@ -289,14 +296,14 @@ class PPOAgent:
             old_approx_kl = (-log_ratio).mean()
             # k3 estimator from http://joschu.net/blog/kl-approx.html
             approx_kl = ((ratio - 1.0) - log_ratio).mean()
-            clipfrac = ((ratio - 1.0).abs() > self.config.clip_ratio).float().mean()
+            clipfrac = ((ratio - 1.0).abs() > self.clip_ratio).float().mean()
 
         self.policy_opt.zero_grad()
         self.value_opt.zero_grad()
         total_loss.backward()
         grad_norm = nn.utils.clip_grad_norm_(
             list(self.policy.parameters()) + list(self.value.parameters()),
-            self.config.max_grad_norm,
+            self.max_grad_norm,
         )
         self.policy_opt.step()
         self.value_opt.step()

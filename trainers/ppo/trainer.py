@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.ppo.agent import PPOAgent, PPOConfig
+from trainers.ppo.agent import PPOAgent
 from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
 from trainers.ppo.rollout_buffer import RolloutBuffer
@@ -116,13 +116,17 @@ class PPOTrainer:
             run_name if run_name is not None else f"ppo-{env_id}-seed{seed}"
         ).replace("/", "-")
         self.video_dir = os.path.join("videos", safe_run_name)
+        self.gamma = float(gamma)
+        self.gae_lambda = float(gae_lambda)
+        self.target_kl = float(target_kl)
+        self.anneal_lr = bool(anneal_lr)
         env_fns = [
             (
                 lambda i=i: self._make_train_env(
                     env_id=env_id,
                     seed=seed + i,
                     env_index=i,
-                    gamma=gamma,
+                    gamma=self.gamma,
                     normalize_obs=normalize_obs,
                 )
             )
@@ -153,22 +157,20 @@ class PPOTrainer:
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             critic_layer_sizes=critic_layer_sizes,
-            config=PPOConfig(
-                gamma=gamma,
-                gae_lambda=gae_lambda,
-                clip_ratio=clip_ratio,
-                policy_lr=policy_lr,
-                value_lr=value_lr,
-                ent_coef=ent_coef,
-                vf_coef=vf_coef,
-                max_grad_norm=max_grad_norm,
-                target_kl=target_kl,
-                norm_adv=norm_adv,
-                clip_vloss=clip_vloss,
-                anneal_lr=anneal_lr,
-                optimizer_type=optimizer_type,
-                sgd_momentum=sgd_momentum,
-            ),
+            gamma=gamma,
+            gae_lambda=gae_lambda,
+            clip_ratio=clip_ratio,
+            policy_lr=policy_lr,
+            value_lr=value_lr,
+            ent_coef=ent_coef,
+            vf_coef=vf_coef,
+            max_grad_norm=max_grad_norm,
+            target_kl=target_kl,
+            norm_adv=norm_adv,
+            clip_vloss=clip_vloss,
+            anneal_lr=anneal_lr,
+            optimizer_type=optimizer_type,
+            sgd_momentum=sgd_momentum,
         )
         self.rollout_steps = rollout_steps
         self.update_epochs = update_epochs
@@ -240,7 +242,7 @@ class PPOTrainer:
         step = 0
         update_idx = 0
         while step < total_steps:
-            if self.agent.config.anneal_lr:
+            if self.anneal_lr:
                 frac = 1.0 - (update_idx / float(num_updates))
                 frac = max(frac, 0.0)
                 for group in self.agent.policy_opt.param_groups:
@@ -320,7 +322,7 @@ class PPOTrainer:
                 last_values = self.agent.value(obs_t).cpu().numpy().squeeze(-1)
 
             data = self.buffer.compute_returns_advantages(
-                last_values, self.agent.config.gamma, self.agent.config.gae_lambda
+                last_values, self.gamma, self.gae_lambda
             )
             obs_f, act_f, logp_f, val_f, ret_f, adv_f = data
             var_y = np.var(ret_f)
@@ -355,8 +357,8 @@ class PPOTrainer:
                     approx_kl = metrics.get("approx_kl", None)
                     if (
                         approx_kl is not None
-                        and self.agent.config.target_kl > 0.0
-                        and approx_kl > self.agent.config.target_kl
+                        and self.target_kl > 0.0
+                        and approx_kl > self.target_kl
                     ):
                         # Stop PPO updates early to preserve trust region.
                         early_stop = True
@@ -373,7 +375,7 @@ class PPOTrainer:
                     agent=self.agent,
                     env_id=self.env_id,
                     seed=self.seed + 1000,
-                    gamma=self.agent.config.gamma,
+                    gamma=self.gamma,
                     normalize_observation=self.normalize_obs,
                 )
                 log_wandb(metrics, step=step)

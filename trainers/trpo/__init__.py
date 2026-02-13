@@ -1,6 +1,6 @@
-from .agent import TRPOAgent, TRPOConfig
+from .agent import TRPOAgent
 
-__all__ = ["TRPOAgent", "TRPOConfig", "TRPOTrainer"]
+__all__ = ["TRPOAgent", "TRPOTrainer"]
 
 
 def __getattr__(name: str):

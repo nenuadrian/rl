@@ -3,9 +3,9 @@ import torch
 
 
 from trainers.ppo.agent import PPOAgent
-from trainers.trpo.agent import TRPOAgent, TRPOConfig
-from trainers.vmpo.agent import VMPOAgent, VMPOConfig
-from trainers.mpo.agent import MPOAgent, MPOConfig
+from trainers.trpo.agent import TRPOAgent
+from trainers.vmpo.agent import VMPOAgent
+from trainers.mpo.agent import MPOAgent
 
 
 def test_ppo_agent_act_and_update():
@@ -65,19 +65,17 @@ def test_vmpo_agent_act_and_update():
         action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
-        config=VMPOConfig(
-            gamma=0.99,
-            policy_lr=3e-4,
-            value_lr=1e-3,
-            topk_fraction=0.2,
-            temperature_init=0.1,
-            temperature_lr=1e-3,
-            epsilon_eta=0.1,
-            epsilon_mu=0.1,
-            epsilon_sigma=0.1,
-            alpha_lr=1e-3,
-            max_grad_norm=0.5,
-        ),
+        gamma=0.99,
+        policy_lr=3e-4,
+        value_lr=1e-3,
+        topk_fraction=0.2,
+        temperature_init=0.1,
+        temperature_lr=1e-3,
+        epsilon_eta=0.1,
+        epsilon_mu=0.1,
+        epsilon_sigma=0.1,
+        alpha_lr=1e-3,
+        max_grad_norm=0.5,
     )
     assert isinstance(agent.opt, torch.optim.Adam)
     assert isinstance(agent.eta_opt, torch.optim.Adam)
@@ -127,7 +125,7 @@ def test_vmpo_agent_supports_sgd_optimizer():
         action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
-        config=VMPOConfig(optimizer_type="sgd"),
+        optimizer_type="sgd",
     )
 
     assert isinstance(agent.opt, torch.optim.SGD)
@@ -152,7 +150,6 @@ def test_mpo_agent_act_and_update():
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         critic_layer_sizes=(32, 32),
-        config=MPOConfig(),
     )
 
     obs = np.random.randn(obs_dim).astype(np.float32)
@@ -233,13 +230,11 @@ def test_trpo_agent_act_and_update():
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         critic_layer_sizes=(32, 32),
-        config=TRPOConfig(
-            target_kl=0.02,
-            cg_iters=5,
-            backtrack_iters=5,
-            value_epochs=2,
-            value_minibatch_size=16,
-        ),
+        target_kl=0.02,
+        cg_iters=5,
+        backtrack_iters=5,
+        value_epochs=2,
+        value_minibatch_size=16,
     )
 
     obs = torch.randn(12, obs_dim)

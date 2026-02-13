@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
@@ -84,24 +83,6 @@ def _kl_old_to_new(
     return kl.sum(dim=-1, keepdim=True)
 
 
-@dataclass
-class TRPOConfig:
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    target_kl: float = 0.01
-    cg_iters: int = 10
-    cg_damping: float = 0.1
-    backtrack_coeff: float = 0.8
-    backtrack_iters: int = 10
-    value_lr: float = 3e-4
-    value_epochs: int = 10
-    value_minibatch_size: int = 256
-    max_grad_norm: float = 0.5
-    normalize_advantages: bool = True
-    optimizer_type: str = "adam"
-    sgd_momentum: float = 0.9
-
-
 class TRPOAgent:
     def __init__(
         self,
@@ -112,10 +93,36 @@ class TRPOAgent:
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...],
         critic_layer_sizes: Tuple[int, ...],
-        config: TRPOConfig | None = None,
+        gamma: float = 0.99,
+        gae_lambda: float = 0.95,
+        target_kl: float = 0.01,
+        cg_iters: int = 10,
+        cg_damping: float = 0.1,
+        backtrack_coeff: float = 0.8,
+        backtrack_iters: int = 10,
+        value_lr: float = 3e-4,
+        value_epochs: int = 10,
+        value_minibatch_size: int = 256,
+        max_grad_norm: float = 0.5,
+        normalize_advantages: bool = True,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
     ):
         self.device = device
-        self.config = config or TRPOConfig()
+        self.gamma = float(gamma)
+        self.gae_lambda = float(gae_lambda)
+        self.target_kl = float(target_kl)
+        self.cg_iters = int(cg_iters)
+        self.cg_damping = float(cg_damping)
+        self.backtrack_coeff = float(backtrack_coeff)
+        self.backtrack_iters = int(backtrack_iters)
+        self.value_lr = float(value_lr)
+        self.value_epochs = int(value_epochs)
+        self.value_minibatch_size = int(value_minibatch_size)
+        self.max_grad_norm = float(max_grad_norm)
+        self.normalize_advantages = bool(normalize_advantages)
+        self.optimizer_type = str(optimizer_type)
+        self.sgd_momentum = float(sgd_momentum)
 
         self.policy = GaussianPolicy(
             obs_dim,
@@ -129,17 +136,17 @@ class TRPOAgent:
         self.value_opt = self._build_value_optimizer(self.value.parameters())
 
     def _build_value_optimizer(self, params) -> torch.optim.Optimizer:
-        optimizer_type = self.config.optimizer_type.strip().lower()
+        optimizer_type = self.optimizer_type.strip().lower()
         if optimizer_type == "adam":
-            return torch.optim.Adam(params, lr=self.config.value_lr, eps=1e-5)
+            return torch.optim.Adam(params, lr=self.value_lr, eps=1e-5)
         if optimizer_type == "sgd":
             return torch.optim.SGD(
                 params,
-                lr=self.config.value_lr,
-                momentum=float(self.config.sgd_momentum),
+                lr=self.value_lr,
+                momentum=float(self.sgd_momentum),
             )
         raise ValueError(
-            f"Unsupported TRPO optimizer_type '{self.config.optimizer_type}'. "
+            f"Unsupported TRPO optimizer_type '{self.optimizer_type}'. "
             "Expected one of: adam, sgd."
         )
 
@@ -219,12 +226,12 @@ class TRPOAgent:
                     kl_v, policy_params, create_graph=False, retain_graph=False
                 )
                 fisher_v = _flat_grads(hvp_parts, policy_params).detach()
-                return fisher_v + self.config.cg_damping * v
+                return fisher_v + self.cg_damping * v
 
             step_dir = _conjugate_gradient(
                 Avp=hvp,
                 b=g,
-                nsteps=int(self.config.cg_iters),
+                nsteps=int(self.cg_iters),
             )
 
             fisher_step_dir = hvp(step_dir)
@@ -233,7 +240,7 @@ class TRPOAgent:
             if torch.isfinite(step_den) and step_den > 0:
                 scale = torch.sqrt(
                     torch.tensor(
-                        self.config.target_kl,
+                        self.target_kl,
                         dtype=step_den.dtype,
                         device=step_den.device,
                     )
@@ -244,8 +251,8 @@ class TRPOAgent:
                 expected_improve = float(torch.dot(g, full_step).item())
 
                 if np.isfinite(expected_improve) and expected_improve > 0:
-                    for j in range(int(self.config.backtrack_iters)):
-                        frac = self.config.backtrack_coeff**j
+                    for j in range(int(self.backtrack_iters)):
+                        frac = self.backtrack_coeff**j
                         candidate_params = old_params + frac * full_step
                         _set_flat_params(self.policy, candidate_params)
 
@@ -271,7 +278,7 @@ class TRPOAgent:
                             np.isfinite(improve)
                             and np.isfinite(kl_after)
                             and improve > 0.0
-                            and kl_after <= self.config.target_kl
+                            and kl_after <= self.target_kl
                         ):
                             line_search_frac = float(frac)
                             line_search_accepted = True
@@ -286,16 +293,16 @@ class TRPOAgent:
 
         value_losses: list[float] = []
         n_samples = obs.shape[0]
-        mb_size = min(int(self.config.value_minibatch_size), n_samples)
+        mb_size = min(int(self.value_minibatch_size), n_samples)
 
-        for _ in range(int(self.config.value_epochs)):
+        for _ in range(int(self.value_epochs)):
             perm = torch.randperm(n_samples, device=obs.device)
             for start in range(0, n_samples, mb_size):
                 idx = perm[start : start + mb_size]
                 value_loss = F.mse_loss(self.value(obs[idx]), returns[idx])
                 self.value_opt.zero_grad()
                 value_loss.backward()
-                nn.utils.clip_grad_norm_(self.value.parameters(), self.config.max_grad_norm)
+                nn.utils.clip_grad_norm_(self.value.parameters(), self.max_grad_norm)
                 self.value_opt.step()
                 value_losses.append(float(value_loss.item()))
 

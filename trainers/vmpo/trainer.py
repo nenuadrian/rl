@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.vmpo.agent import VMPOAgent, VMPOConfig
+from trainers.vmpo.agent import VMPOAgent
 from trainers.vmpo.targets import compute_rollout_targets
 from utils.env import flatten_obs, infer_obs_dim, wrap_record_video
 from utils.wandb_utils import log_wandb
@@ -93,7 +93,22 @@ class VMPOTrainer:
         policy_layer_sizes: Tuple[int, ...],
         value_layer_sizes: Tuple[int, ...],
         rollout_steps: int,
-        config: VMPOConfig,
+        normalize_advantages: bool = True,
+        gamma: float = 0.99,
+        advantage_estimator: str = "returns",
+        gae_lambda: float = 0.95,
+        policy_lr: float = 5e-4,
+        value_lr: float = 1e-3,
+        topk_fraction: float = 0.5,
+        temperature_init: float = 1.0,
+        temperature_lr: float = 1e-4,
+        epsilon_eta: float = 0.1,
+        epsilon_mu: float = 0.01,
+        epsilon_sigma: float = 0.01,
+        alpha_lr: float = 1e-4,
+        max_grad_norm: float = 10.0,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
         num_envs: int = 1,
         capture_video: bool = False,
         run_name: str | None = None,
@@ -104,6 +119,9 @@ class VMPOTrainer:
         self.seed = seed
         self.capture_video = bool(capture_video)
         self.video_dir = f"videos/{run_name}"
+        self.gamma = float(gamma)
+        self.advantage_estimator = str(advantage_estimator)
+        self.gae_lambda = float(gae_lambda)
 
         env_fns = [
             (
@@ -111,7 +129,7 @@ class VMPOTrainer:
                     env_id=env_id,
                     seed=seed + i,
                     env_index=i,
-                    gamma=config.gamma,
+                    gamma=self.gamma,
                 )
             )
             for i in range(self.num_envs)
@@ -143,7 +161,22 @@ class VMPOTrainer:
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             value_layer_sizes=value_layer_sizes,
-            config=config,
+            normalize_advantages=normalize_advantages,
+            gamma=gamma,
+            advantage_estimator=advantage_estimator,
+            gae_lambda=gae_lambda,
+            policy_lr=policy_lr,
+            value_lr=value_lr,
+            topk_fraction=topk_fraction,
+            temperature_init=temperature_init,
+            temperature_lr=temperature_lr,
+            epsilon_eta=epsilon_eta,
+            epsilon_mu=epsilon_mu,
+            epsilon_sigma=epsilon_sigma,
+            alpha_lr=alpha_lr,
+            max_grad_norm=max_grad_norm,
+            optimizer_type=optimizer_type,
+            sgd_momentum=sgd_momentum,
         )
 
         self.rollout_steps = rollout_steps
@@ -286,9 +319,9 @@ class VMPOTrainer:
                     dones=dones_flat,
                     values=values_flat,
                     last_value=last_value,
-                    gamma=self.agent.config.gamma,
-                    estimator=self.agent.config.advantage_estimator,
-                    gae_lambda=self.agent.config.gae_lambda,
+                    gamma=self.gamma,
+                    estimator=self.advantage_estimator,
+                    gae_lambda=self.gae_lambda,
                 )
                 returns_flat = returns.reshape(T * N, 1)
                 advantages_flat = advantages.reshape(T * N, 1)
@@ -332,7 +365,7 @@ class VMPOTrainer:
                     agent=self.agent,
                     env_id=self.env_id,
                     seed=self.seed + 1000,
-                    gamma=self.agent.config.gamma,
+                    gamma=self.gamma,
                     capture_video=self.capture_video,
                     run_name=self.run_name,
                 )

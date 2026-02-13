@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Literal
 
 import numpy as np
@@ -11,41 +10,51 @@ import torch.nn.functional as F
 from trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
 
 
-@dataclass
-class VMPOConfig:
-    normalize_advantages: bool = True
-    gamma: float = 0.99
-    advantage_estimator: Literal["returns", "dae", "gae"] = "returns"
-    gae_lambda: float = 0.95
-    policy_lr: float = 5e-4
-    value_lr: float = 1e-3
-    topk_fraction: float = 0.5
-    temperature_init: float = 1.0
-    temperature_lr: float = 1e-4
-    epsilon_eta: float = 0.1
-    epsilon_mu: float = 0.01
-    epsilon_sigma: float = 0.01
-    alpha_lr: float = 1e-4
-    max_grad_norm: float = 10.0
-    optimizer_type: str = "adam"
-    sgd_momentum: float = 0.9
-
-
 class VMPOAgent:
 
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
-        config: VMPOConfig,
         action_low: np.ndarray,
         action_high: np.ndarray,
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...] = (256, 256),
         value_layer_sizes: Tuple[int, ...] = (256, 256),
+        normalize_advantages: bool = True,
+        gamma: float = 0.99,
+        advantage_estimator: Literal["returns", "dae", "gae"] = "returns",
+        gae_lambda: float = 0.95,
+        policy_lr: float = 5e-4,
+        value_lr: float = 1e-3,
+        topk_fraction: float = 0.5,
+        temperature_init: float = 1.0,
+        temperature_lr: float = 1e-4,
+        epsilon_eta: float = 0.1,
+        epsilon_mu: float = 0.01,
+        epsilon_sigma: float = 0.01,
+        alpha_lr: float = 1e-4,
+        max_grad_norm: float = 10.0,
+        optimizer_type: str = "adam",
+        sgd_momentum: float = 0.9,
     ):
         self.device = device
-        self.config = config
+        self.normalize_advantages = bool(normalize_advantages)
+        self.gamma = float(gamma)
+        self.advantage_estimator = advantage_estimator
+        self.gae_lambda = float(gae_lambda)
+        self.policy_lr = float(policy_lr)
+        self.value_lr = float(value_lr)
+        self.topk_fraction = float(topk_fraction)
+        self.temperature_init = float(temperature_init)
+        self.temperature_lr = float(temperature_lr)
+        self.epsilon_eta = float(epsilon_eta)
+        self.epsilon_mu = float(epsilon_mu)
+        self.epsilon_sigma = float(epsilon_sigma)
+        self.alpha_lr = float(alpha_lr)
+        self.max_grad_norm = float(max_grad_norm)
+        self.optimizer_type = str(optimizer_type)
+        self.sgd_momentum = float(sgd_momentum)
 
         self.policy = SquashedGaussianPolicy(
             obs_dim=obs_dim,
@@ -62,24 +71,24 @@ class VMPOAgent:
             [
                 {
                     "params": self.policy.policy_encoder.parameters(),
-                    "lr": self.config.policy_lr,
+                    "lr": self.policy_lr,
                 },
                 {
                     "params": self.policy.policy_mean.parameters(),
-                    "lr": self.config.policy_lr,
+                    "lr": self.policy_lr,
                 },
                 {
                     "params": self.policy.policy_logstd.parameters(),
-                    "lr": self.config.policy_lr,
+                    "lr": self.policy_lr,
                 },
                 # Value function (Encoder + Head)
                 {
                     "params": self.policy.value_encoder.parameters(),
-                    "lr": self.config.value_lr,
+                    "lr": self.value_lr,
                 },
                 {
                     "params": self.policy.value_head.parameters(),
-                    "lr": self.config.value_lr,
+                    "lr": self.value_lr,
                 },
             ],
         )
@@ -88,10 +97,10 @@ class VMPOAgent:
 
         # Temperature (eta) for advantage weighting
         self.log_temperature = nn.Parameter(
-            torch.log(torch.tensor(self.config.temperature_init, device=device))
+            torch.log(torch.tensor(self.temperature_init, device=device))
         )
         self.eta_opt = self._build_optimizer(
-            [self.log_temperature], lr=self.config.temperature_lr
+            [self.log_temperature], lr=self.temperature_lr
         )
 
         # KL Penalties (alpha) for trust region
@@ -100,11 +109,11 @@ class VMPOAgent:
         self.log_alpha_sigma = nn.Parameter(torch.tensor(np.log(1.0), device=device))
 
         self.alpha_opt = self._build_optimizer(
-            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.config.alpha_lr
+            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.alpha_lr
         )
 
     def _build_optimizer(self, params, lr: float | None = None) -> torch.optim.Optimizer:
-        optimizer_type = self.config.optimizer_type.strip().lower()
+        optimizer_type = self.optimizer_type.strip().lower()
         kwargs: dict[str, float] = {}
         if lr is not None:
             kwargs["lr"] = float(lr)
@@ -113,11 +122,11 @@ class VMPOAgent:
             kwargs["eps"] = 1e-5
             return torch.optim.Adam(params, **kwargs)
         if optimizer_type == "sgd":
-            kwargs["momentum"] = float(self.config.sgd_momentum)
+            kwargs["momentum"] = float(self.sgd_momentum)
             return torch.optim.SGD(params, **kwargs)
 
         raise ValueError(
-            f"Unsupported VMPO optimizer_type '{self.config.optimizer_type}'. "
+            f"Unsupported VMPO optimizer_type '{self.optimizer_type}'. "
             "Expected one of: adam, sgd."
         )
 
@@ -193,7 +202,7 @@ class VMPOAgent:
         advantages = batch["advantages"].squeeze(-1)
 
         # Advantage normalization
-        if self.config.normalize_advantages:
+        if self.normalize_advantages:
             advantages = (advantages - advantages.mean()) / (
                 advantages.std(unbiased=False) + 1e-8
             )
@@ -209,7 +218,7 @@ class VMPOAgent:
         # ================================================================
         with torch.no_grad():
             # Select Top-K Advantages
-            k = max(1, int(self.config.topk_fraction * advantages.numel()))
+            k = max(1, int(self.topk_fraction * advantages.numel()))
             topk_vals, _ = torch.topk(advantages, k)
             threshold = topk_vals.min()
 
@@ -229,7 +238,7 @@ class VMPOAgent:
             + (A_max / eta)
         )
 
-        dual_loss = eta * self.config.epsilon_eta + eta * log_mean_exp
+        dual_loss = eta * self.epsilon_eta + eta * log_mean_exp
 
         self.eta_opt.zero_grad()
         dual_loss.backward()
@@ -311,8 +320,8 @@ class VMPOAgent:
 
         # We minimize: alpha * (epsilon - KL)
         alpha_loss = alpha_mu * (
-            self.config.epsilon_mu - kl_mu_sel.detach()
-        ) + alpha_sigma * (self.config.epsilon_sigma - kl_sigma_sel.detach())
+            self.epsilon_mu - kl_mu_sel.detach()
+        ) + alpha_sigma * (self.epsilon_sigma - kl_sigma_sel.detach())
 
         self.alpha_opt.zero_grad()
         alpha_loss.backward()
@@ -338,7 +347,7 @@ class VMPOAgent:
         total_loss.backward()
 
         grad_norm = nn.utils.clip_grad_norm_(
-            self.policy.parameters(), self.config.max_grad_norm
+            self.policy.parameters(), self.max_grad_norm
         )
         self.opt.step()
 
@@ -385,7 +394,7 @@ class VMPOAgent:
             "vmpo/alpha_mu": float(alpha_mu_det.item()),
             "vmpo/alpha_sigma": float(alpha_sigma_det.item()),
             "vmpo/dual_loss": float(dual_loss.item()),
-            "vmpo/epsilon_eta": float(self.config.epsilon_eta),
+            "vmpo/epsilon_eta": float(self.epsilon_eta),
             "vmpo/temperature_raw": float(eta_final.item()),
             "vmpo/adv_std_over_temperature": float(adv_std_over_temperature),
             # Selection Stats
