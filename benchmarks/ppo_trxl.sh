@@ -5,9 +5,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 environments=(
-    "ProofofMemory-v0",
-    "MortarMayhem-Grid-v0",
-    "MysteryPath-Grid-v0",
+    "ProofofMemory-v0"
+    "MortarMayhem-Grid-v0"
+    "MysteryPath-Grid-v0"
     "MysteryPath-v0"
 )
 
