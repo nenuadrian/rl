@@ -4,6 +4,7 @@
 
 [See the latest report here.](reports/latest/README.md)
 
+![Minerva Logo](assets/cover.png)
 
 - [Minerva - Reinforcement Learning Algorithms in PyTorch](#minerva---reinforcement-learning-algorithms-in-pytorch)
 	- [Installation](#installation)
