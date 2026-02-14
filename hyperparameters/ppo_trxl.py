@@ -7,7 +7,7 @@ from hyperparameters._common import get_preset
 
 _CLEANRL_MEMORY_GYM_PPO_TRXL_DEFAULTS: dict[str, Any] = {
     # Train/eval/checkpoint control
-    "num_envs": 32,
+    "num_envs": 1,
     "total_steps": 200_000_000,
     "eval_interval": 1_000_000,
     "save_interval": 10_000_000,
@@ -41,7 +41,7 @@ _CLEANRL_MEMORY_GYM_PPO_TRXL_DEFAULTS: dict[str, Any] = {
 PRESETS: dict[str, dict[str, Any]] = {
     "ProofofMemory-v0": {
         # Train/eval/checkpoint control
-        "num_envs": 16,
+        "num_envs": 1,
         "total_steps": 25_000,
         "eval_interval": 2_048,
         "save_interval": 8_192,
