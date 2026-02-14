@@ -1,277 +1,638 @@
-import wandb
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import hashlib
+import math
 import os
+import re
 import shutil
 import subprocess
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+import time
+
+if "MPLCONFIGDIR" not in os.environ:
+    _mpl_cache_dir = Path(".mplconfig")
+    _mpl_cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MPLCONFIGDIR"] = str(_mpl_cache_dir.resolve())
+if "XDG_CACHE_HOME" not in os.environ:
+    _xdg_cache_dir = Path(".cache")
+    _xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["XDG_CACHE_HOME"] = str(_xdg_cache_dir.resolve())
+
 import matplotlib
+import numpy as np
+import wandb
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import argparse
-from datetime import datetime
 
-PREFIX = "env-"
-ALGORITHMS = ["ppo", "vmpo", "mpo", "vmpo_sgd"]
-ENTITY = "adrian-research"
-MIN_STEPS = 50_000
+DEFAULT_PROJECT = "minerva-rl-benchmark-1"
+DEFAULT_ENTITY = "adrian-research"
+DEFAULT_MIN_STEPS = 10_000
+DEFAULT_STEP_KEY = "_step"
+DEFAULT_METRIC_KEY = "eval/return_mean"
+DEFAULT_POINTS = 200
+DEFAULT_OUTPUT_DIR = "reports"
+DEFAULT_HISTORY_SAMPLES = 600
+DEFAULT_WORKERS = 8
+DEFAULT_CACHE_DIR = ".report_cache"
+CACHE_VERSION = "v1"
 
 
-def get_runs_for_algorithm(
-    algorithm, prefix=PREFIX, entity=ENTITY, min_steps=MIN_STEPS
-):
-    project = f"{prefix}{algorithm}"
+@dataclass
+class RunRecord:
+    run: Any
+    run_id: str
+    name: str
+    url: str
+    step: float
+    algorithm: str
+    env: str
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(out):
+        return None
+    return out
+
+
+def _extract_first_config_value(
+    config: dict[str, Any], keys: tuple[str, ...]
+) -> str | None:
+    for key in keys:
+        value = config.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _parse_run_name(run_name: str) -> tuple[str | None, str | None]:
+    name = (run_name or "").strip()
+    if "-" not in name:
+        return None, None
+    algorithm, env_part = name.split("-", 1)
+    if not algorithm:
+        return None, None
+    env = re.sub(r"-seed\d+$", "", env_part).strip("-")
+    return algorithm, env if env else None
+
+
+def _extract_algorithm_and_env(
+    run_name: str, config: dict[str, Any]
+) -> tuple[str | None, str | None]:
+    algorithm = _extract_first_config_value(
+        config, ("command", "algo", "algorithm", "algorithm_name")
+    )
+    env = _extract_first_config_value(config, ("env", "env_id", "environment"))
+
+    if algorithm is None or env is None:
+        fallback_algorithm, fallback_env = _parse_run_name(run_name)
+        if algorithm is None:
+            algorithm = fallback_algorithm
+        if env is None:
+            env = fallback_env
+
+    if algorithm is not None:
+        algorithm = algorithm.lower().strip()
+    if env is not None:
+        env = env.strip()
+    return algorithm, env
+
+
+def collect_runs(entity: str, project: str, min_steps: int) -> list[RunRecord]:
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project}")
-    filtered = []
-    try:
-        for run in runs:
-            steps = run.summary.get("_step", 0)
-            if steps >= min_steps:
-                filtered.append(run)
-    except Exception as e:
-        print(f"Error fetching runs for {project}: {e}")
-    return filtered
+    selected: list[RunRecord] = []
+    skipped_missing_step = 0
+    skipped_short = 0
+    skipped_missing_config = 0
 
+    for run in runs:
+        summary = run.summary or {}
+        step = _as_float(summary.get("_step"))
+        if step is None:
+            skipped_missing_step += 1
+            continue
+        if step <= min_steps:
+            skipped_short += 1
+            continue
 
-def parse_run_name(run_name):
-    # Expected: prefix-env-... (e.g., ppo-Humanoid-v5-...)
-    parts = run_name.split("-")
-    if len(parts) < 2:
-        return None
-    environment = parts[1]
-    return environment
+        config = dict(run.config or {})
+        algorithm, env = _extract_algorithm_and_env(run.name, config)
+        if not algorithm or not env:
+            skipped_missing_config += 1
+            continue
 
-
-def collect_results(
-    algorithms=ALGORITHMS, prefix=PREFIX, entity=ENTITY, min_steps=MIN_STEPS
-):
-    results = {}
-    environments = set()
-    runs_by_algo = {algo: [] for algo in algorithms}
-    for algo in algorithms:
-        runs = get_runs_for_algorithm(
-            algo, prefix=prefix, entity=entity, min_steps=min_steps
+        selected.append(
+            RunRecord(
+                run=run,
+                run_id=run.id,
+                name=run.name,
+                url=run.url,
+                step=step,
+                algorithm=algorithm,
+                env=env,
+            )
         )
-        print(f"Found {len(runs)} runs for algorithm '{algo}' with prefix '{prefix}'")
-        for run in runs:
-            environment = parse_run_name(run.name)
-            if environment:
-                key = environment
-                environments.add(key)
 
-                steps = run.summary.get("_step", 0)
-                val = run.summary.get("eval/return_max", None)
-
-                # collect all runs for per-algorithm tables
-                runs_by_algo[algo].append(
-                    {
-                        "name": run.name,
-                        "url": run.url,
-                        "environment": environment,
-                        "steps": steps,
-                        "val": val,
-                        "run_obj": run,
-                    }
-                )
-
-                # keep best value per environment for the main table
-                if val is not None:
-                    if key not in results:
-                        results[key] = {}
-                    existing = results[key].get(algo)
-                    if existing is None:
-                        results[key][algo] = {"val": val, "url": run.url, "run": run}
-                    else:
-                        if val > existing["val"]:
-                            results[key][algo] = {
-                                "val": val,
-                                "url": run.url,
-                                "run": run,
-                            }
-    return results, environments, runs_by_algo
-
-
-def generate_report(
-    algorithms=ALGORITHMS,
-    prefix=PREFIX,
-    entity=ENTITY,
-    min_steps=MIN_STEPS,
-    output_dir="reports",
-):
-    results, environments, runs_by_algo = collect_results(
-        algorithms=algorithms, prefix=prefix, entity=entity, min_steps=min_steps
+    print(
+        "Collected runs:",
+        f"selected={len(selected)},",
+        f"skipped_missing_step={skipped_missing_step},",
+        f"skipped_below_threshold={skipped_short},",
+        f"skipped_missing_algorithm_or_env={skipped_missing_config}",
     )
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs(output_dir, exist_ok=True)
-    report_dir = os.path.join(output_dir, f"report_{timestamp}")
-    os.makedirs(report_dir, exist_ok=True)
-    report_path = os.path.join(report_dir, "README.md")
-    header = "| Environment | " + " | ".join(algorithms) + " |\n"
-    # separator: one `---` per column (Environment and each algorithm)
-    sep_cols = 1 + len(algorithms)
-    header += "|" + "---|" * sep_cols + "\n"
-    rows = []
-    # Keep ordered list of environments that we will plot
-    plotted_envs = []
-    for environment in sorted(environments):
-        # only include rows where at least two algorithms have eval/return_max > 100
-        entry_map = results.get(environment, {})
-        row = [environment]
-        for algo in algorithms:
-            entry = entry_map.get(algo)
-            if entry:
-                display = f"[{int(entry['val'])}]({entry['url']})"
-            else:
-                display = "-"
-            row.append(display)
-        rows.append("| " + " | ".join(row) + " |\n")
-        plotted_envs.append(environment)
+    return selected
 
-    # Helper: fetch series from a wandb run for given keys
-    def _get_series_from_run(run_obj, step_key="_step", val_key="eval/return_max"):
-        # Try pandas=True first (if pandas is available), otherwise fallback
-        steps = []
-        vals = []
-        df = run_obj.history(keys=[step_key, val_key], pandas=True)
-        if df is not None and len(df) > 0:
-            if step_key in df.columns and val_key in df.columns:
-                steps = df[step_key].tolist()
-                vals = df[val_key].tolist()
-            else:
-                # fallback to scanning
-                for row in df.to_dict(orient="records"):
-                    s = row.get(step_key)
-                    v = row.get(val_key)
-                    if s is not None and v is not None:
-                        steps.append(s)
-                        vals.append(v)
-        # Ensure lists are sorted by step
-        if len(steps) != len(vals):
-            # align by index up to min length
-            n = min(len(steps), len(vals))
-            steps = steps[:n]
-            vals = vals[:n]
+
+def group_runs_by_env_and_algorithm(
+    runs: list[RunRecord],
+) -> dict[str, dict[str, list[RunRecord]]]:
+    grouped: dict[str, dict[str, list[RunRecord]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for record in runs:
+        grouped[record.env][record.algorithm].append(record)
+    return grouped
+
+
+def _rows_to_step_value_arrays(
+    rows: Any, *, step_key: str, metric_key: str
+) -> tuple[np.ndarray, np.ndarray]:
+    steps: list[float] = []
+    values: list[float] = []
+
+    if rows is None:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+
+    if isinstance(rows, dict):
+        row_iterable = [rows]
+    elif hasattr(rows, "to_dict"):
         try:
-            paired = sorted(zip(steps, vals), key=lambda x: x[0])
-            steps, vals = zip(*paired) if paired else ([], [])
-            return list(steps), list(vals)
+            row_iterable = rows.to_dict(orient="records")
         except Exception:
-            return steps, vals
+            row_iterable = rows
+    else:
+        row_iterable = rows
 
-    # Helper: create time-series plot for an environment using the best run per algorithm
-    def save_time_series_plot(environment, results_map, algs, out_dir):
-        fig, ax = plt.subplots(figsize=(8, 4.5))
-        colors = {algs[i]: c for i, c in enumerate(["#4C72B0", "#55A868", "#C44E52"])}
-        any_plotted = False
-        for a in algs:
-            entry = results_map.get(environment, {}).get(a)
-            if not entry or entry.get("run") is None:
-                continue
-            run_obj = entry.get("run")
-            steps, vals = _get_series_from_run(run_obj)
-            if not steps or not vals:
-                continue
-            # Normalize x so each algorithm spans the full chart width, regardless of step count.
-            n = len(vals)
-            if n == 1:
-                x = [0.0, 1.0]
-                y = [vals[0], vals[0]]
-            else:
-                x = [i / (n - 1) for i in range(n)]
-                y = vals
-            ax.plot(x, y, label=a, color=colors.get(a))
-            any_plotted = True
-        if not any_plotted:
-            plt.close(fig)
-            return None
-        ax.set_xlim(0.0, 1.0)
-        ax.set_xlabel("training progress")
-        ax.set_ylabel("eval/return_max")
-        ax.set_title(f"{environment}")
-        ax.legend()
-        fname = f"{environment.lower()}.png".replace("/", "_")
-        path = os.path.join(out_dir, fname)
-        fig.tight_layout()
-        fig.savefig(path)
-        plt.close(fig)
-        return fname
+    for row in row_iterable:
+        if not isinstance(row, dict):
+            continue
+        step = _as_float(row.get(step_key))
+        value = _as_float(row.get(metric_key))
+        if step is None or value is None:
+            continue
+        steps.append(step)
+        values.append(value)
 
-    # Generate plots for each included environment
-    images = {}
-    for environment in plotted_envs:
-        img_name = save_time_series_plot(environment, results, algorithms, report_dir)
-        if img_name:
-            images[environment] = img_name
+    if not steps:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
 
-    with open(report_path, "w") as f:
-        f.write(f"# Report\n\n")
-        f.write(header)
-        for r in rows:
-            f.write(r)
-        f.write("\n")
+    paired = sorted(zip(steps, values), key=lambda item: item[0])
+    dedup_steps: list[float] = []
+    dedup_values: list[float] = []
+    for step, value in paired:
+        if dedup_steps and step == dedup_steps[-1]:
+            dedup_values[-1] = value
+        else:
+            dedup_steps.append(step)
+            dedup_values.append(value)
 
-        # Insert per-environment image sections and a table of runs for that environment
-        for environment in plotted_envs:
-            img = images.get(environment)
-            f.write(f"## {environment}\n\n")
-            if img:
-                f.write(f"![{environment}]({img.lower()})\n\n")
-            else:
-                f.write("No data available for plot.\n\n")
+    return np.asarray(dedup_steps, dtype=float), np.asarray(dedup_values, dtype=float)
 
-            # Insert wandb config JSON markdown for each best run per algorithm
-            entry_map = results.get(environment, {})
-            for algo in algorithms:
-                entry = entry_map.get(algo)
-                if entry and entry.get("run") is not None:
-                    config = dict(entry["run"].config)
-                    import json
 
-                    config_json = json.dumps(config, indent=2, sort_keys=True)
-                    f.write(f"**{algo} config:**\n\n")
-                    f.write("```json\n" + config_json + "\n```\n\n")
-
-            # Gather runs for this environment across all algorithms
-            env_runs = []
-            for algo in algorithms:
-                for run_entry in runs_by_algo.get(algo, []):
-                    if run_entry.get("environment") == environment:
-                        # include algorithm label for clarity
-                        r = run_entry.copy()
-                        r["algorithm"] = algo
-                        env_runs.append(r)
-
-            if env_runs:
-                # sort by value (descending), missing values go last
-                env_runs.sort(
-                    key=lambda r: (
-                        r["algorithm"],
-                        -(r["val"] if r.get("val") is not None else float("-inf")),
-                    )
-                )
-                f.write("| Run | Algorithm | _step | eval/return_max |\n")
-                f.write("|---|---|---:|---:|\n")
-                for run_entry in env_runs:
-                    name_link = f"[{run_entry['name']}]({run_entry['url']})"
-                    algo = run_entry.get("algorithm")
-                    steps = run_entry.get("steps", 0)
-                    val = run_entry.get("val")
-                    val_display = str(int(val)) if val is not None else "-"
-                    f.write(f"| {name_link} | {algo} | {steps} | {val_display} |\n")
-                f.write("\n")
-            else:
-                f.write("No runs available for this environment.\n\n")
-    print(f"Report generated: {report_path}")
-    # Create or replace a 'latest' copy of the report folder
-    latest_dir = os.path.join(output_dir, "latest")
+def _load_full_history_series(
+    run: Any, *, step_key: str, metric_key: str
+) -> tuple[np.ndarray, np.ndarray]:
+    rows: list[dict[str, Any]] = []
     try:
-        if os.path.exists(latest_dir):
-            shutil.rmtree(latest_dir)
-        shutil.copytree(report_dir, latest_dir)
-        print(f"Copied report to latest: {latest_dir}")
+        for row in run.scan_history(keys=[step_key, metric_key], page_size=1000):
+            if isinstance(row, dict):
+                rows.append(row)
+    except Exception as exc:
+        print(
+            f"Warning: failed to scan full history for run '{run.name}' ({run.id}): {exc}"
+        )
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    return _rows_to_step_value_arrays(rows, step_key=step_key, metric_key=metric_key)
 
-        # Also generate a PDF inside reports/latest from the copied README.
-        latest_readme = "README.md"
-        latest_pdf = "report.pdf"
+
+def load_run_series(
+    run: Any,
+    *,
+    step_key: str,
+    metric_key: str,
+    history_samples: int,
+    full_history: bool,
+    fallback_scan_history: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    if full_history:
+        return _load_full_history_series(run, step_key=step_key, metric_key=metric_key)
+
+    try:
+        sampled_rows = run.history(
+            keys=[step_key, metric_key],
+            samples=history_samples,
+            pandas=False,
+        )
+    except Exception as exc:
+        print(f"Warning: failed to sample history for run '{run.name}' ({run.id}): {exc}")
+        if fallback_scan_history:
+            return _load_full_history_series(
+                run, step_key=step_key, metric_key=metric_key
+            )
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+
+    sampled_steps, sampled_values = _rows_to_step_value_arrays(
+        sampled_rows, step_key=step_key, metric_key=metric_key
+    )
+    if sampled_steps.size > 0:
+        return sampled_steps, sampled_values
+
+    if fallback_scan_history:
+        return _load_full_history_series(run, step_key=step_key, metric_key=metric_key)
+    return np.asarray([], dtype=float), np.asarray([], dtype=float)
+
+
+def normalize_and_resample(
+    steps: np.ndarray, values: np.ndarray, x_grid: np.ndarray
+) -> np.ndarray | None:
+    if steps.size == 0 or values.size == 0:
+        return None
+    if steps.size == 1:
+        return np.full_like(x_grid, float(values[0]), dtype=float)
+
+    span = float(steps[-1] - steps[0])
+    if span <= 0:
+        return np.full_like(x_grid, float(values[-1]), dtype=float)
+
+    x = (steps - steps[0]) / span
+    x_unique, unique_indices = np.unique(x, return_index=True)
+    y_unique = values[unique_indices]
+    if x_unique.size == 1:
+        return np.full_like(x_grid, float(y_unique[0]), dtype=float)
+
+    return np.interp(x_grid, x_unique, y_unique, left=y_unique[0], right=y_unique[-1])
+
+
+def _curve_cache_path(
+    cache_dir: Path,
+    record: RunRecord,
+    *,
+    step_key: str,
+    metric_key: str,
+    points: int,
+    history_samples: int,
+    full_history: bool,
+) -> Path:
+    payload = (
+        f"{CACHE_VERSION}|{record.run_id}|{int(record.step)}|{step_key}|{metric_key}|"
+        f"{points}|{history_samples}|{int(full_history)}"
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return cache_dir / f"{digest}.npy"
+
+
+def _load_or_compute_curve(
+    record: RunRecord,
+    *,
+    x_grid: np.ndarray,
+    step_key: str,
+    metric_key: str,
+    history_samples: int,
+    full_history: bool,
+    fallback_scan_history: bool,
+    cache_dir: Path | None,
+) -> tuple[np.ndarray | None, bool]:
+    if cache_dir is not None:
+        cache_path = _curve_cache_path(
+            cache_dir,
+            record,
+            step_key=step_key,
+            metric_key=metric_key,
+            points=int(x_grid.size),
+            history_samples=history_samples,
+            full_history=full_history,
+        )
+        if cache_path.exists():
+            try:
+                cached_curve = np.load(cache_path, allow_pickle=False)
+                if cached_curve.shape == x_grid.shape:
+                    return cached_curve, True
+            except Exception:
+                pass
+    else:
+        cache_path = None
+
+    steps, values = load_run_series(
+        record.run,
+        step_key=step_key,
+        metric_key=metric_key,
+        history_samples=history_samples,
+        full_history=full_history,
+        fallback_scan_history=fallback_scan_history,
+    )
+    curve = normalize_and_resample(steps, values, x_grid)
+    if curve is not None and cache_path is not None:
+        try:
+            np.save(cache_path, curve, allow_pickle=False)
+        except Exception:
+            pass
+    return curve, False
+
+
+def compute_weighted_curves(
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+    *,
+    step_key: str,
+    metric_key: str,
+    points: int,
+    history_samples: int,
+    full_history: bool,
+    fallback_scan_history: bool,
+    workers: int,
+    cache_dir: Path | None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    x_grid = np.linspace(0.0, 1.0, points)
+    run_records: list[RunRecord] = []
+    for by_algorithm in grouped_runs.values():
+        for records in by_algorithm.values():
+            run_records.extend(records)
+
+    if not run_records:
+        return {}
+
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+    started_at = time.perf_counter()
+    grouped_curves: dict[tuple[str, str], list[tuple[np.ndarray, float]]] = defaultdict(
+        list
+    )
+    cached_hits = 0
+    computed = 0
+    processed = 0
+    total = len(run_records)
+
+    def process_record(record: RunRecord) -> tuple[str, str, np.ndarray, float, bool] | None:
+        curve, from_cache = _load_or_compute_curve(
+            record,
+            x_grid=x_grid,
+            step_key=step_key,
+            metric_key=metric_key,
+            history_samples=history_samples,
+            full_history=full_history,
+            fallback_scan_history=fallback_scan_history,
+            cache_dir=cache_dir,
+        )
+        if curve is None:
+            return None
+        weight = max(float(record.step), 1.0)
+        return record.env, record.algorithm, curve, weight, from_cache
+
+    if workers <= 1:
+        results = map(process_record, run_records)
+        for result in results:
+            processed += 1
+            if result is None:
+                continue
+            env, algorithm, curve, weight, from_cache = result
+            grouped_curves[(env, algorithm)].append((curve, weight))
+            if from_cache:
+                cached_hits += 1
+            else:
+                computed += 1
+            if processed % 20 == 0 or processed == total:
+                print(
+                    f"Loaded curves: {processed}/{total} "
+                    f"(cache_hits={cached_hits}, fetched={computed})"
+                )
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(process_record, record) for record in run_records]
+            for future in concurrent.futures.as_completed(futures):
+                processed += 1
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    print(f"Warning: curve worker failed: {exc}")
+                    continue
+                if result is None:
+                    continue
+                env, algorithm, curve, weight, from_cache = result
+                grouped_curves[(env, algorithm)].append((curve, weight))
+                if from_cache:
+                    cached_hits += 1
+                else:
+                    computed += 1
+                if processed % 20 == 0 or processed == total:
+                    print(
+                        f"Loaded curves: {processed}/{total} "
+                        f"(cache_hits={cached_hits}, fetched={computed})"
+                    )
+
+    aggregated: dict[str, dict[str, dict[str, Any]]] = {}
+    for (env, algorithm), items in grouped_curves.items():
+        curves = [curve for curve, _ in items]
+        if not curves:
+            continue
+        weights = np.asarray([weight for _, weight in items], dtype=float)
+        curve_stack = np.vstack(curves)
+        weighted_mean = np.average(curve_stack, axis=0, weights=weights)
+        aggregated.setdefault(env, {})[algorithm] = {
+            "x": x_grid,
+            "y": weighted_mean,
+            "num_runs": len(curves),
+            "total_weight_steps": float(np.sum(weights)),
+        }
+
+    elapsed = time.perf_counter() - started_at
+    print(
+        f"Curve loading finished in {elapsed:.1f}s "
+        f"(runs={total}, cache_hits={cached_hits}, fetched={computed}, workers={workers})"
+    )
+    return aggregated
+
+
+def save_overview_plot(
+    aggregated: dict[str, dict[str, dict[str, Any]]],
+    *,
+    metric_key: str,
+    output_path: Path,
+) -> str | None:
+    envs = sorted(aggregated.keys())
+    if not envs:
+        return None
+
+    algorithms = sorted(
+        {
+            algorithm
+            for env in envs
+            for algorithm in aggregated.get(env, {}).keys()
+        }
+    )
+    color_map = plt.get_cmap("tab10")
+    colors = {algorithm: color_map(i % 10) for i, algorithm in enumerate(algorithms)}
+
+    n_envs = len(envs)
+    n_cols = min(3, max(1, math.ceil(math.sqrt(n_envs))))
+    n_rows = math.ceil(n_envs / n_cols)
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(6.0 * n_cols, 3.8 * n_rows),
+        squeeze=False,
+        sharex=True,
+    )
+
+    for idx, env in enumerate(envs):
+        row, col = divmod(idx, n_cols)
+        ax = axes[row][col]
+        env_curves = aggregated[env]
+        for algorithm in sorted(env_curves.keys()):
+            curve = env_curves[algorithm]
+            x_vals = curve["x"]
+            y_vals = curve["y"]
+            n_runs = int(curve["num_runs"])
+            ax.plot(
+                x_vals,
+                y_vals,
+                label=f"{algorithm} (n={n_runs})",
+                color=colors[algorithm],
+                linewidth=2.0,
+            )
+
+        ax.set_title(env)
+        ax.set_xlim(0.0, 1.0)
+        ax.grid(alpha=0.25)
+        if col == 0:
+            ax.set_ylabel(metric_key)
+        if row == n_rows - 1:
+            ax.set_xlabel("normalized training progress")
+        ax.legend(fontsize=8, frameon=False)
+
+    for idx in range(n_envs, n_rows * n_cols):
+        row, col = divmod(idx, n_cols)
+        axes[row][col].axis("off")
+
+    fig.suptitle("Environment Curves (time-weighted averages across runs)")
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.97])
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+    return output_path.name
+
+
+def _format_step(step: float) -> str:
+    if float(step).is_integer():
+        return str(int(step))
+    return f"{step:.1f}"
+
+
+def _format_metric(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.3f}"
+
+
+def write_readme(
+    readme_path: Path,
+    *,
+    entity: str,
+    project: str,
+    min_steps: int,
+    metric_key: str,
+    runs: list[RunRecord],
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+    aggregated: dict[str, dict[str, dict[str, Any]]],
+    overview_image_name: str | None,
+) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with readme_path.open("w", encoding="utf-8") as handle:
+        handle.write(f"# Report: `{entity}/{project}`\n\n")
+        handle.write(f"- Generated: {timestamp}\n")
+        handle.write(f"- Included runs: {len(runs)} (`_step` > {min_steps})\n")
+        handle.write("- Algorithm key source: run config `command`\n")
+        handle.write("- Environment key source: run config `env`\n")
+        handle.write(f"- Metric: `{metric_key}`\n\n")
+
+        if overview_image_name:
+            handle.write(f"![overview]({overview_image_name})\n\n")
+            handle.write(
+                "Each line is a time-weighted average across runs for a single "
+                "environment and algorithm. Every run timeline is normalized to `[0, 1]`.\n\n"
+            )
+        else:
+            handle.write(
+                "No plottable metric history was found for the selected runs.\n\n"
+            )
+
+        handle.write("## Summary\n\n")
+        handle.write("| Environment | Algorithms | Runs |\n")
+        handle.write("|---|---|---:|\n")
+        for env in sorted(grouped_runs.keys()):
+            algorithms = sorted(grouped_runs[env].keys())
+            run_count = sum(len(grouped_runs[env][algo]) for algo in algorithms)
+            algo_display = ", ".join(f"`{algo}`" for algo in algorithms)
+            handle.write(f"| `{env}` | {algo_display} | {run_count} |\n")
+        handle.write("\n")
+
+        for env in sorted(grouped_runs.keys()):
+            handle.write(f"## {env}\n\n")
+            env_aggregated = aggregated.get(env, {})
+            if env_aggregated:
+                handle.write("| Algorithm | Averaged Runs | Total Weight (_step) |\n")
+                handle.write("|---|---:|---:|\n")
+                for algorithm in sorted(env_aggregated.keys()):
+                    curve = env_aggregated[algorithm]
+                    handle.write(
+                        f"| `{algorithm}` | {int(curve['num_runs'])} | {int(curve['total_weight_steps'])} |\n"
+                    )
+                handle.write("\n")
+
+            handle.write(f"| Run | Algorithm | _step | {metric_key} |\n")
+            handle.write("|---|---|---:|---:|\n")
+            env_records: list[RunRecord] = []
+            for algorithm in sorted(grouped_runs[env].keys()):
+                env_records.extend(grouped_runs[env][algorithm])
+            env_records.sort(key=lambda rec: (rec.algorithm, rec.name))
+
+            for record in env_records:
+                metric_value = _as_float((record.run.summary or {}).get(metric_key))
+                handle.write(
+                    f"| [{record.name}]({record.url}) | `{record.algorithm}` | "
+                    f"{_format_step(record.step)} | {_format_metric(metric_value)} |\n"
+                )
+            handle.write("\n")
+
+
+def create_report_folder(output_dir: Path) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_dir = output_dir / f"report_{timestamp}"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    return report_dir
+
+
+def copy_latest_and_build_pdf(output_dir: Path, report_dir: Path) -> None:
+    latest_dir = output_dir / "latest"
+    if latest_dir.exists():
+        shutil.rmtree(latest_dir)
+    shutil.copytree(report_dir, latest_dir)
+    print(f"Copied report to latest: {latest_dir}")
+
+    try:
         pandoc_cmd = [
             "pandoc",
             "--from=gfm",
@@ -283,40 +644,172 @@ def generate_report(
             "geometry:margin=1.5cm",
             "--pdf-engine=xelatex",
             "-o",
-            latest_pdf,
-            latest_readme,
+            "report.pdf",
+            "README.md",
         ]
         subprocess.run(pandoc_cmd, check=True, cwd=latest_dir)
-        print(f"Generated PDF report: {os.path.join(latest_dir, latest_pdf)}")
-    except Exception as e:
-        print(f"Warning: failed to create latest copy/pdf: {e}")
+        print(f"Generated PDF report: {latest_dir / 'report.pdf'}")
+    except Exception as exc:
+        print(f"Warning: failed to build PDF report: {exc}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate WandB evaluation report")
-    parser.add_argument(
-        "--prefix", default=PREFIX, help="Project prefix (default: %(default)s)"
+def generate_report(
+    *,
+    project: str,
+    entity: str,
+    min_steps: int,
+    metric_key: str,
+    step_key: str,
+    output_dir: str,
+    points: int,
+    history_samples: int,
+    full_history: bool,
+    fallback_scan_history: bool,
+    workers: int,
+    cache_dir: str | None,
+) -> Path:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    cache_path = Path(cache_dir) if cache_dir else None
+
+    print(
+        "History loading mode:",
+        "full_history" if full_history else f"sampled(history_samples={history_samples})",
+        f"workers={workers}",
+        f"cache_dir={cache_path if cache_path is not None else 'disabled'}",
+        f"fallback_scan_history={fallback_scan_history}",
+    )
+
+    runs = collect_runs(entity=entity, project=project, min_steps=min_steps)
+    grouped_runs = group_runs_by_env_and_algorithm(runs)
+    aggregated = compute_weighted_curves(
+        grouped_runs,
+        step_key=step_key,
+        metric_key=metric_key,
+        points=points,
+        history_samples=history_samples,
+        full_history=full_history,
+        fallback_scan_history=fallback_scan_history,
+        workers=workers,
+        cache_dir=cache_path,
+    )
+
+    report_dir = create_report_folder(output_path)
+    overview_image_name = save_overview_plot(
+        aggregated,
+        metric_key=metric_key,
+        output_path=report_dir / "overview.png",
+    )
+
+    write_readme(
+        report_dir / "README.md",
+        entity=entity,
+        project=project,
+        min_steps=min_steps,
+        metric_key=metric_key,
+        runs=runs,
+        grouped_runs=grouped_runs,
+        aggregated=aggregated,
+        overview_image_name=overview_image_name,
+    )
+    print(f"Report generated: {report_dir / 'README.md'}")
+
+    copy_latest_and_build_pdf(output_path, report_dir)
+    return report_dir
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate a W&B report by averaging runs per environment and algorithm."
     )
     parser.add_argument(
-        "--entity", default=ENTITY, help="WandB entity (default: %(default)s)"
+        "--project",
+        default=DEFAULT_PROJECT,
+        help="W&B project name (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--entity",
+        default=DEFAULT_ENTITY,
+        help="W&B entity name (default: %(default)s)",
     )
     parser.add_argument(
         "--min-steps",
         type=int,
-        default=MIN_STEPS,
-        help="Minimum global steps to include run",
+        default=DEFAULT_MIN_STEPS,
+        help="Minimum `_step` to include a run (strictly greater than this value).",
     )
     parser.add_argument(
-        "--output-dir", default="reports", help="Directory for generated report"
+        "--metric",
+        default=DEFAULT_METRIC_KEY,
+        help="Metric key used for plotting and report tables.",
+    )
+    parser.add_argument(
+        "--step-key",
+        default=DEFAULT_STEP_KEY,
+        help="Step key used for reading run history.",
+    )
+    parser.add_argument(
+        "--points",
+        type=int,
+        default=DEFAULT_POINTS,
+        help="Number of points used for normalized interpolation.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory where report folders are created.",
+    )
+    parser.add_argument(
+        "--history-samples",
+        type=int,
+        default=DEFAULT_HISTORY_SAMPLES,
+        help="Number of sampled history points per run (ignored with --full-history).",
+    )
+    parser.add_argument(
+        "--full-history",
+        action="store_true",
+        help="Use full run history via scan_history (slower, highest fidelity).",
+    )
+    parser.add_argument(
+        "--fallback-scan-history",
+        action="store_true",
+        help="If sampled history is empty/failed, fallback to full scan_history for that run.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help="Number of parallel workers for loading run histories.",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=DEFAULT_CACHE_DIR,
+        help="Directory for cached resampled curves. Set to empty string to disable.",
     )
     args = parser.parse_args()
 
+    if args.points < 2:
+        parser.error("--points must be >= 2")
+    if args.min_steps < 0:
+        parser.error("--min-steps must be >= 0")
+    if args.history_samples < 2:
+        parser.error("--history-samples must be >= 2")
+    if args.workers < 1:
+        parser.error("--workers must be >= 1")
+
     generate_report(
-        algorithms=ALGORITHMS,
-        prefix=args.prefix,
+        project=args.project,
         entity=args.entity,
         min_steps=args.min_steps,
+        metric_key=args.metric,
+        step_key=args.step_key,
         output_dir=args.output_dir,
+        points=args.points,
+        history_samples=args.history_samples,
+        full_history=bool(args.full_history),
+        fallback_scan_history=bool(args.fallback_scan_history),
+        workers=args.workers,
+        cache_dir=(args.cache_dir.strip() if args.cache_dir else None),
     )
 
 

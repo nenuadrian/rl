@@ -66,8 +66,8 @@ class VMPOAgent:
             shared_encoder=False,  # Explicitly using separate encoders
         ).to(device)
 
-        # We group parameters by network to apply specific LRs
-        self.opt = self._build_optimizer(
+        # Policy optimizer (actor only).
+        self.policy_opt = self._build_optimizer(
             [
                 {
                     "params": self.policy.policy_encoder.parameters(),
@@ -81,7 +81,12 @@ class VMPOAgent:
                     "params": self.policy.policy_logstd.parameters(),
                     "lr": self.policy_lr,
                 },
-                # Value function (Encoder + Head)
+            ],
+        )
+
+        # Value optimizer (critic only).
+        self.value_opt = self._build_optimizer(
+            [
                 {
                     "params": self.policy.value_encoder.parameters(),
                     "lr": self.value_lr,
@@ -92,6 +97,20 @@ class VMPOAgent:
                 },
             ],
         )
+        # Backward-compatibility alias for tests/external callers that still
+        # reference `opt` as the primary optimizer handle.
+        self.opt = self.policy_opt
+
+        # Cache explicit parameter lists for per-network gradient clipping.
+        self._policy_params = [
+            *self.policy.policy_encoder.parameters(),
+            *self.policy.policy_mean.parameters(),
+            *self.policy.policy_logstd.parameters(),
+        ]
+        self._value_params = [
+            *self.policy.value_encoder.parameters(),
+            *self.policy.value_head.parameters(),
+        ]
 
         # Lagrange Multipliers (Dual Variables)
 
@@ -202,6 +221,16 @@ class VMPOAgent:
 
         returns_raw = batch["returns"].squeeze(-1)
         advantages = batch["advantages"].squeeze(-1)
+        restarting_weights = batch.get("restarting_weights", None)
+        importance_weights = batch.get("importance_weights", None)
+        if restarting_weights is None:
+            restarting_weights = torch.ones_like(advantages)
+        else:
+            restarting_weights = restarting_weights.squeeze(-1)
+        if importance_weights is None:
+            importance_weights = torch.ones_like(advantages)
+        else:
+            importance_weights = importance_weights.squeeze(-1)
 
         # Advantage normalization
         if self.normalize_advantages:
@@ -216,31 +245,64 @@ class VMPOAgent:
             ).detach()
 
         # ================================================================
-        # E-Step: Re-weighting Advantages
+        # E-Step: Re-weighting advantages (DeepMind-style semantics)
         # ================================================================
-        with torch.no_grad():
-            # Select Top-K Advantages
-            k = max(1, int(self.topk_fraction * advantages.numel()))
-            topk_vals, _ = torch.topk(advantages, k)
-            threshold = topk_vals.min()
-
-            # Mask for top-k samples
-            mask_bool = advantages >= threshold
-            A_sel = advantages[mask_bool]
-            K_scalar = float(A_sel.numel())
-
-        # -- Temperature (Eta) Optimization --
         eta = F.softplus(self.log_temperature) + 1e-8
+        scaled_advantages = (restarting_weights * advantages) / eta
 
-        # Numerical stability: subtract max(A) before exp
-        A_max = A_sel.max().detach()
-        log_mean_exp = (
-            torch.logsumexp((A_sel - A_max) / eta, dim=0)
-            - np.log(K_scalar)
-            + (A_max / eta)
+        # Numerical stability: subtract global max before exponentiation.
+        max_scaled_advantage = scaled_advantages.max().detach()
+
+        with torch.no_grad():
+            if not 0.0 < self.topk_fraction <= 1.0:
+                raise ValueError(
+                    f"`topk_fraction` must be in (0, 1], got {self.topk_fraction}"
+                )
+
+            if self.topk_fraction < 1.0:
+                # Exclude restarting states from top-k selection.
+                valid_scaled_advantages = scaled_advantages.detach().clone()
+                valid_scaled_advantages[restarting_weights <= 0.0] = -torch.inf
+                k = int(self.topk_fraction * valid_scaled_advantages.numel())
+                if k <= 0:
+                    raise ValueError(
+                        "topk_fraction too low to select any scaled advantages."
+                    )
+                topk_vals, _ = torch.topk(valid_scaled_advantages, k)
+                threshold = topk_vals.min()
+                topk_weights = (valid_scaled_advantages >= threshold).to(
+                    restarting_weights.dtype
+                )
+                topk_restarting_weights = restarting_weights * topk_weights
+            else:
+                threshold = scaled_advantages.detach().min()
+                topk_restarting_weights = restarting_weights
+
+            # Mask for selected samples (used for KL terms and diagnostics).
+            mask_bool = topk_restarting_weights > 0.0
+            if not bool(mask_bool.any()):
+                # Fallback to avoid empty reductions on tiny rollouts.
+                mask_bool = torch.ones_like(mask_bool, dtype=torch.bool)
+                topk_restarting_weights = torch.ones_like(topk_restarting_weights)
+
+        # Use stop-gradient semantics for importance weights.
+        importance_weights_sg = importance_weights.detach()
+        unnormalized_weights = (
+            topk_restarting_weights
+            * importance_weights_sg
+            * torch.exp(scaled_advantages - max_scaled_advantage)
         )
+        sum_weights = unnormalized_weights.sum() + 1e-8
+        num_samples = topk_restarting_weights.sum() + 1e-8
+        weights = unnormalized_weights / sum_weights
+        weights_detached = weights.detach()
 
-        dual_loss = eta * self.epsilon_eta + eta * log_mean_exp
+        log_mean_weights = (
+            torch.log(sum_weights)
+            + max_scaled_advantage
+            - torch.log(num_samples)
+        )
+        dual_loss = eta * (self.epsilon_eta + log_mean_weights)
 
         self.eta_opt.zero_grad()
         dual_loss.backward()
@@ -249,13 +311,12 @@ class VMPOAgent:
         # Compute Final Weights for Policy
         with torch.no_grad():
             eta_final = F.softplus(self.log_temperature) + 1e-8
-            log_weights = A_sel / eta_final
-            weights = torch.softmax(log_weights, dim=0)
-
-            # Logging: Effective Sample Size
-            ess = 1.0 / (weights.pow(2).sum() + 1e-12)
-            selected_frac = float(K_scalar) / float(advantages.numel())
-            adv_std_over_temperature = (advantages.std() / (eta_final + 1e-12)).item()
+            # Logging: effective sample size and selection stats.
+            ess = 1.0 / (weights_detached.pow(2).sum() + 1e-12)
+            selected_frac = float(mask_bool.float().mean().item())
+            adv_std_over_temperature = (
+                advantages.std(unbiased=False) / (eta_final + 1e-12)
+            ).item()
 
         # ================================================================
         # M-Step: Policy & Value Update
@@ -268,8 +329,7 @@ class VMPOAgent:
         log_prob = self.policy.log_prob(current_mean, current_log_std, actions).squeeze(
             -1
         )
-        log_prob_sel = log_prob[mask_bool]
-        weighted_nll = -(weights.detach() * log_prob_sel).sum()
+        weighted_nll = -(weights_detached * log_prob).sum()
 
         # -- KL Divergence (Full Batch Diagnostics) --
         # We compute this for logging purposes to see global drift
@@ -344,14 +404,32 @@ class VMPOAgent:
 
         total_loss = policy_loss + value_loss
 
-        # -- Update Weights --
-        self.opt.zero_grad()
-        total_loss.backward()
-
-        grad_norm = nn.utils.clip_grad_norm_(
-            self.policy.parameters(), self.max_grad_norm
+        # -- Update Actor Weights --
+        self.policy_opt.zero_grad()
+        policy_loss.backward()
+        policy_grad_norm = nn.utils.clip_grad_norm_(
+            self._policy_params, self.max_grad_norm
         )
-        self.opt.step()
+        self.policy_opt.step()
+
+        # -- Update Critic Weights --
+        self.value_opt.zero_grad()
+        value_loss.backward()
+        value_grad_norm = nn.utils.clip_grad_norm_(
+            self._value_params, self.max_grad_norm
+        )
+        self.value_opt.step()
+
+        policy_grad_norm_f = float(
+            policy_grad_norm.item()
+            if torch.is_tensor(policy_grad_norm)
+            else policy_grad_norm
+        )
+        value_grad_norm_f = float(
+            value_grad_norm.item()
+            if torch.is_tensor(value_grad_norm)
+            else value_grad_norm
+        )
 
         # ================================================================
         # Post-Update Diagnostics
@@ -403,13 +481,16 @@ class VMPOAgent:
             "vmpo/selected_frac": float(selected_frac),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
+            "vmpo/restarting_frac": float(
+                (restarting_weights <= 0.0).float().mean().item()
+            ),
+            "vmpo/importance_mean": float(importance_weights_sg.mean().item()),
             # Training Dynamics
             "train/entropy": float(entropy.item()),
             "train/param_delta": float(param_delta),
             "train/mean_abs_action": float(mean_abs_action),
-            "grad/norm": float(
-                grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm
-            ),
+            "grad/norm": policy_grad_norm_f,
+            "grad/norm_value": value_grad_norm_f,
             # Data Stats
             "adv/raw_mean": float(advantages.mean().item()),
             "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Dict, Mapping, Tuple
 
 import gymnasium as gym
@@ -160,10 +161,15 @@ class MPOTrainer:
 
         interval_metric_sums: Dict[str, float] = {}
         interval_update_count = 0
+        total_update_count = 0
         interval_episode_count = 0
         interval_episode_sum = 0.0
         interval_episode_min = float("inf")
         interval_episode_max = float("-inf")
+        start_time = time.perf_counter()
+        last_progress_time = start_time
+        last_progress_step = 0
+        last_progress_updates = 0
 
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
@@ -210,6 +216,8 @@ class MPOTrainer:
                 self.episode_return = 0.0
 
             if step >= update_after and self.replay.size >= batch_size:
+                step_metric_sums: Dict[str, float] = {}
+                step_update_count = 0
                 for _ in range(int(updates_per_step)):
                     seq_len = self.retrace_steps
                     if self.use_retrace and seq_len > 1:
@@ -223,12 +231,24 @@ class MPOTrainer:
                         batch = self.replay.sample(batch_size)
 
                     metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step, silent=True)
+                    for key, value in metrics.items():
+                        step_metric_sums[key] = step_metric_sums.get(key, 0.0) + float(
+                            value
+                        )
+                    step_update_count += 1
                     for key, value in metrics.items():
                         interval_metric_sums[key] = (
                             interval_metric_sums.get(key, 0.0) + float(value)
                         )
                     interval_update_count += 1
+                    total_update_count += 1
+
+                if step_update_count > 0:
+                    step_mean_metrics = {
+                        key: value / float(step_update_count)
+                        for key, value in step_metric_sums.items()
+                    }
+                    log_wandb(step_mean_metrics, step=step, silent=True)
 
                 if eval_interval > 0 and step % eval_interval == 0:
                     metrics = _evaluate_vectorized(
@@ -258,12 +278,25 @@ class MPOTrainer:
                 or step % console_log_interval == 0
             )
             if should_print_progress:
+                now = time.perf_counter()
+                elapsed_total = max(now - start_time, 1e-9)
+                elapsed_window = max(now - last_progress_time, 1e-9)
+                steps_window = step - last_progress_step
+                updates_window = total_update_count - last_progress_updates
+
                 progress = 100.0 * float(step) / float(total_steps)
                 print(
                     "[MPO][progress] "
                     f"step={step}/{total_steps} ({progress:.2f}%), "
-                    f"replay={self.replay.size}/{self.replay.capacity}"
+                    f"replay={self.replay.size}/{self.replay.capacity}, "
+                    f"updates={total_update_count}, "
+                    f"sps={steps_window / elapsed_window:.2f}, "
+                    f"ups={updates_window / elapsed_window:.2f}, "
+                    f"sps_total={step / elapsed_total:.2f}"
                 )
+                last_progress_time = now
+                last_progress_step = step
+                last_progress_updates = total_update_count
 
                 if interval_episode_count > 0:
                     print(

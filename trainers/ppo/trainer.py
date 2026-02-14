@@ -270,11 +270,6 @@ class PPOTrainer:
                 action_for_buffer = action.copy()
                 logp = logp_t.cpu().numpy().squeeze(-1)
                 value = value_t.cpu().numpy().squeeze(-1)
-                action = np.clip(
-                    action,
-                    self.env.single_action_space.low,
-                    self.env.single_action_space.high,
-                )
 
                 next_obs, reward, terminated, truncated, infos = self.env.step(action)
                 next_obs = np.asarray(next_obs, dtype=np.float32)
@@ -346,7 +341,6 @@ class PPOTrainer:
             ret_f = torch.tensor(ret_f, dtype=torch.float32, device=self.agent.device)
             adv_f = torch.tensor(adv_f, dtype=torch.float32, device=self.agent.device)
 
-            early_stop = False
             for _ in range(self.update_epochs):
                 for idx in self.buffer.minibatches(self.minibatch_size):
                     batch = {
@@ -370,11 +364,8 @@ class PPOTrainer:
                         and self.target_kl > 0.0
                         and approx_kl > self.target_kl
                     ):
-                        # Stop PPO updates early to preserve trust region.
-                        early_stop = True
+                        # Stop the current minibatch pass early to preserve trust region.
                         break
-                if early_stop:
-                    break
 
             self.buffer.reset()
 
@@ -485,11 +476,6 @@ def _evaluate_vectorized(
 
         obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
         action = agent.policy.sample_action(obs_t, deterministic=True).cpu().numpy()
-        action = np.clip(
-            action,
-            eval_envs.single_action_space.low,
-            eval_envs.single_action_space.high,
-        )
 
         next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
         episode_returns += np.asarray(reward, dtype=np.float32)

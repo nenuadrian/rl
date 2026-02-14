@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Mapping, Sequence, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -33,6 +33,135 @@ def _transform_reward(env: gym.Env, fn):
         return gym.wrappers.TransformReward(env, fn)
     except TypeError:
         return gym.wrappers.TransformReward(env, fn, env.reward_range)
+
+
+def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]:
+    """Extract per-env terminal observations from vector-env info dict."""
+    finals: list[np.ndarray | None] = [None] * int(num_envs)
+    if not isinstance(infos, dict):
+        return finals
+
+    # Gymnasium vector envs expose one of these key pairs.
+    key_pairs = (
+        ("final_obs", "_final_obs"),
+        ("final_observation", "_final_observation"),
+    )
+    for obs_key, mask_key in key_pairs:
+        if obs_key not in infos:
+            continue
+        obs_values = infos.get(obs_key)
+        mask_values = infos.get(mask_key)
+        for i in range(int(num_envs)):
+            has_final = True
+            if mask_values is not None:
+                has_final = bool(mask_values[i])
+            if not has_final:
+                continue
+            obs_i = obs_values[i]
+            if obs_i is None:
+                continue
+            finals[i] = np.asarray(obs_i, dtype=np.float32)
+        break
+
+    return finals
+
+
+def _find_wrapper(env: gym.Env, wrapper_type: type[gym.Wrapper]):
+    """Return the first wrapper of type `wrapper_type` in an env wrapper chain."""
+    current = env
+    while current is not None:
+        if isinstance(current, wrapper_type):
+            return current
+        current = getattr(current, "env", None)
+    return None
+
+
+def _merge_obs_rms_stats(
+    stats_seq: Sequence[tuple[np.ndarray, np.ndarray, float]],
+) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Merge per-env running mean/var stats into a single aggregate RMS state."""
+    if len(stats_seq) == 0:
+        return None
+
+    mean_acc = np.array(stats_seq[0][0], dtype=np.float64, copy=True)
+    var_acc = np.array(stats_seq[0][1], dtype=np.float64, copy=True)
+    count_acc = float(stats_seq[0][2])
+
+    for mean_i, var_i, count_i in stats_seq[1:]:
+        count_i = float(count_i)
+        if count_i <= 0.0:
+            continue
+        mean_i = np.array(mean_i, dtype=np.float64, copy=False)
+        var_i = np.array(var_i, dtype=np.float64, copy=False)
+        if count_acc <= 0.0:
+            mean_acc = mean_i.copy()
+            var_acc = var_i.copy()
+            count_acc = count_i
+            continue
+
+        total = count_acc + count_i
+        delta = mean_i - mean_acc
+        mean_new = mean_acc + delta * (count_i / total)
+        m2_acc = var_acc * count_acc
+        m2_i = var_i * count_i
+        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
+
+        mean_acc = mean_new
+        var_acc = m2_total / total
+        count_acc = total
+
+    return mean_acc, var_acc, count_acc
+
+
+def _collect_vector_obs_rms_stats(
+    vec_env: gym.vector.VectorEnv,
+) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Collect merged NormalizeObservation running stats from a vector env."""
+    envs = getattr(vec_env, "envs", None)
+    if envs is None:
+        return None
+
+    stats_seq: list[tuple[np.ndarray, np.ndarray, float]] = []
+    for env in envs:
+        obs_norm = _find_wrapper(env, gym.wrappers.NormalizeObservation)
+        if obs_norm is None or not hasattr(obs_norm, "obs_rms"):
+            continue
+        obs_rms = obs_norm.obs_rms
+        stats_seq.append(
+            (
+                np.array(obs_rms.mean, dtype=np.float64, copy=True),
+                np.array(obs_rms.var, dtype=np.float64, copy=True),
+                float(obs_rms.count),
+            )
+        )
+    return _merge_obs_rms_stats(stats_seq)
+
+
+def _apply_obs_rms_stats(
+    vec_env: gym.vector.VectorEnv,
+    obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None,
+) -> None:
+    """Copy provided observation running stats into all eval envs."""
+    if obs_rms_stats is None:
+        return
+
+    envs = getattr(vec_env, "envs", None)
+    if envs is None:
+        return
+
+    mean, var, count = obs_rms_stats
+    for env in envs:
+        obs_norm = _find_wrapper(env, gym.wrappers.NormalizeObservation)
+        if obs_norm is None or not hasattr(obs_norm, "obs_rms"):
+            continue
+        obs_norm.obs_rms.mean = np.array(mean, dtype=np.float64, copy=True)
+        obs_norm.obs_rms.var = np.array(var, dtype=np.float64, copy=True)
+        obs_norm.obs_rms.count = float(count)
+        if hasattr(obs_norm, "update_running_mean"):
+            try:
+                obs_norm.update_running_mean = False
+            except Exception:
+                pass
 
 
 def _make_env(
@@ -184,12 +313,17 @@ class VMPOTrainer:
         self.actions_buf: list[np.ndarray] = []
         self.rewards_buf: list[np.ndarray] = []
         self.dones_buf: list[np.ndarray] = []
+        self.restarting_weights_buf: list[np.ndarray] = []
+        self.importance_weights_buf: list[np.ndarray] = []
+        self.timeout_bootstrap_buf: list[np.ndarray] = []
         self.values_buf: list[np.ndarray] = []
         self.means_buf: list[np.ndarray] = []
         self.log_stds_buf: list[np.ndarray] = []
 
         # episode returns per environment
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
+        # Current observation is episode start until the first action is taken.
+        self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
 
     def _make_train_env(
         self,
@@ -211,6 +345,9 @@ class VMPOTrainer:
         self.actions_buf.clear()
         self.rewards_buf.clear()
         self.dones_buf.clear()
+        self.restarting_weights_buf.clear()
+        self.importance_weights_buf.clear()
+        self.timeout_bootstrap_buf.clear()
         self.values_buf.clear()
         self.means_buf.clear()
         self.log_stds_buf.clear()
@@ -247,25 +384,60 @@ class VMPOTrainer:
 
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
+        self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
 
         for step in range(1, total_steps + 1):
+            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
+            importance_weights = np.ones(self.num_envs, dtype=np.float32)
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
-            next_obs, reward, terminated, truncated, _ = self.env.step(action)
+            next_obs, reward, terminated, truncated, infos = self.env.step(action)
             next_obs = np.asarray(next_obs, dtype=np.float32)
-            done = np.asarray(terminated) | np.asarray(truncated)
+            terminated = np.asarray(terminated, dtype=bool)
+            truncated = np.asarray(truncated, dtype=bool)
+            done = terminated | truncated
             reward = np.asarray(reward, dtype=np.float32)
+
+            # Time-limit fix:
+            # Keep truncation as an episode boundary in target recursion, but for
+            # truncated/non-terminated transitions bootstrap from V(final_obs).
+            timeout_bootstrap = np.zeros(self.num_envs, dtype=np.float32)
+            timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
+            if np.any(timeout_mask):
+                final_obs = _extract_final_observations(infos, self.num_envs)
+                timeout_indices = np.flatnonzero(timeout_mask)
+                timeout_obs_batch = []
+                timeout_obs_env_idx = []
+                for env_i in timeout_indices:
+                    obs_i = final_obs[int(env_i)]
+                    if obs_i is None:
+                        # Fallback for older wrappers without final_obs metadata.
+                        obs_i = np.asarray(next_obs[int(env_i)], dtype=np.float32)
+                    timeout_obs_batch.append(obs_i)
+                    timeout_obs_env_idx.append(int(env_i))
+
+                if timeout_obs_batch:
+                    timeout_values = np.asarray(
+                        self.agent.value(np.stack(timeout_obs_batch, axis=0)),
+                        dtype=np.float32,
+                    ).reshape(-1)
+                    for env_i, v_i in zip(timeout_obs_env_idx, timeout_values):
+                        timeout_bootstrap[env_i] = float(v_i)
 
             # Store step data (works for single- and multi-env)
             self.obs_buf.append(obs)
             self.actions_buf.append(action)
             self.rewards_buf.append(reward)
             self.dones_buf.append(done)
+            self.restarting_weights_buf.append(restarting_weights)
+            self.importance_weights_buf.append(importance_weights)
+            self.timeout_bootstrap_buf.append(timeout_bootstrap)
             self.values_buf.append(value)
             self.means_buf.append(mean)
             self.log_stds_buf.append(log_std)
 
             obs = next_obs
+            self.episode_start_flags = done.astype(bool)
 
             self.episode_return += reward
 
@@ -296,9 +468,21 @@ class VMPOTrainer:
                 actions_arr = np.stack(self.actions_buf)
                 rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32)
                 dones_arr = np.asarray(self.dones_buf, dtype=np.float32)
+                restarting_weights_arr = np.asarray(
+                    self.restarting_weights_buf, dtype=np.float32
+                )
+                importance_weights_arr = np.asarray(
+                    self.importance_weights_buf, dtype=np.float32
+                )
+                timeout_bootstrap_arr = np.asarray(
+                    self.timeout_bootstrap_buf, dtype=np.float32
+                )
                 values_arr = np.asarray(self.values_buf, dtype=np.float32)
                 means_arr = np.stack(self.means_buf)
                 log_stds_arr = np.stack(self.log_stds_buf)
+
+                # Apply time-limit bootstrap correction per truncated transition.
+                rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
 
                 last_value = self.agent.value(obs)
                 last_value = last_value * (1.0 - dones_arr[-1])
@@ -309,6 +493,8 @@ class VMPOTrainer:
                 actions_flat = actions_arr.reshape(T * N, -1)
                 rewards_flat = rewards_arr.reshape(T, N)
                 dones_flat = dones_arr.reshape(T, N)
+                restarting_weights_flat = restarting_weights_arr.reshape(T * N, 1)
+                importance_weights_flat = importance_weights_arr.reshape(T * N, 1)
                 values_flat = values_arr.reshape(T, N)
                 means_flat = means_arr.reshape(T * N, -1)
                 log_stds_flat = log_stds_arr.reshape(T * N, -1)
@@ -338,6 +524,16 @@ class VMPOTrainer:
                     "advantages": torch.tensor(
                         advantages_flat, dtype=torch.float32, device=self.agent.device
                     ),
+                    "restarting_weights": torch.tensor(
+                        restarting_weights_flat,
+                        dtype=torch.float32,
+                        device=self.agent.device,
+                    ),
+                    "importance_weights": torch.tensor(
+                        importance_weights_flat,
+                        dtype=torch.float32,
+                        device=self.agent.device,
+                    ),
                     "old_means": torch.tensor(
                         means_flat, dtype=torch.float32, device=self.agent.device
                     ),
@@ -365,6 +561,7 @@ class VMPOTrainer:
                     env_id=self.env_id,
                     seed=self.seed + 1000,
                     gamma=self.gamma,
+                    obs_rms_stats=_collect_vector_obs_rms_stats(self.env),
                     capture_video=self.capture_video,
                     run_name=self.run_name,
                 )
@@ -423,7 +620,7 @@ def _evaluate_vectorized(
     n_episodes: int = 10,
     seed: int = 42,
     gamma: float = 0.99,
-    obs_normalizer=None,
+    obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
     capture_video: bool = False,
     run_name: str | None = None,
 ) -> Dict[str, float]:
@@ -437,6 +634,9 @@ def _evaluate_vectorized(
                 env_id,
                 seed=seed + i,
                 gamma=gamma,
+                # Evaluate on raw environment reward so returns are comparable
+                # across checkpoints/runs. Training can still use reward norm.
+                normalize_reward=False,
                 capture_video=capture_video,
                 render_mode="rgb_array" if capture_video else None,
                 run_name=run_name,
@@ -445,6 +645,7 @@ def _evaluate_vectorized(
             for i in range(n_episodes)
         ]
     )
+    _apply_obs_rms_stats(eval_envs, obs_rms_stats)
 
     agent.policy.eval()
     obs, _ = eval_envs.reset(seed=seed)
@@ -458,8 +659,6 @@ def _evaluate_vectorized(
     while len(final_returns) < n_episodes:
         # Pre-process observations
         obs = np.asarray(obs, dtype=np.float32)
-        if obs_normalizer is not None:
-            obs = obs_normalizer.normalize(obs)
 
         # Deterministic Action Selection
         # We call act() with deterministic=True to use the mean of the Gaussian

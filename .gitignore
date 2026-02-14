@@ -12,3 +12,4 @@ videos/
 **/.DS_Store
 cleanrl
 VinePPO
+.report_cache

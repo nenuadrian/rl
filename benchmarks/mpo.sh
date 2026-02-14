@@ -5,9 +5,10 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 environments=(
-   # "HalfCheetah-v5"
-   # "Walker2d-v5"
-    #  "Humanoid-v5"
+    "HalfCheetah-v5"
+    "Walker2d-v5"
+    "Humanoid-v5"
+    "Ant-v5"
     "dm_control/cheetah/run"
     "dm_control/humanoid/walk"
     "dm_control/humanoid/run"
@@ -15,7 +16,7 @@ environments=(
     "dm_control/walker/run"
 )
 
-WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-1}"
+WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-2}"
 SEEDS="${SEEDS:-1}"
 SEED_START="${SEED_START:-42}"
 EXTRA_ARGS=("$@")
