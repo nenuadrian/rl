@@ -326,9 +326,7 @@ class PPOTrainer:
         self.vf_coef = float(vf_coef)
         self.max_grad_norm = float(max_grad_norm)
         self.target_kl = (
-            None
-            if target_kl is None or float(target_kl) <= 0.0
-            else float(target_kl)
+            None if target_kl is None or float(target_kl) <= 0.0 else float(target_kl)
         )
         self.anneal_lr = bool(anneal_lr)
 
@@ -468,7 +466,9 @@ class PPOTrainer:
                 dones[step] = next_done
 
                 with torch.no_grad():
-                    action, logprob, _, value = self.agent.get_action_and_value(next_obs)
+                    action, logprob, _, value = self.agent.get_action_and_value(
+                        next_obs
+                    )
                     values[step] = value.flatten()
                 actions[step] = action
                 logprobs[step] = logprob
@@ -484,7 +484,9 @@ class PPOTrainer:
                 next_obs = torch.as_tensor(
                     next_obs_np, dtype=torch.float32, device=self.device
                 )
-                next_done = torch.as_tensor(done, dtype=torch.float32, device=self.device)
+                next_done = torch.as_tensor(
+                    done, dtype=torch.float32, device=self.device
+                )
 
                 log_episode_stats(infos, global_step)
 
@@ -522,7 +524,9 @@ class PPOTrainer:
                         else:
                             nextnonterminal = 1.0 - dones[t + 1]
                             next_return = returns[t + 1]
-                        returns[t] = rewards[t] + self.gamma * nextnonterminal * next_return
+                        returns[t] = (
+                            rewards[t] + self.gamma * nextnonterminal * next_return
+                        )
                     advantages = returns - values
 
             b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
@@ -564,9 +568,9 @@ class PPOTrainer:
 
                     mb_advantages = b_advantages[mb_inds]
                     if self.norm_adv:
-                        mb_advantages = (
-                            mb_advantages - mb_advantages.mean()
-                        ) / (mb_advantages.std() + 1e-8)
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                            mb_advantages.std() + 1e-8
+                        )
 
                     pg_loss1 = -mb_advantages * ratio
                     pg_loss2 = -mb_advantages * torch.clamp(
@@ -590,14 +594,14 @@ class PPOTrainer:
 
                     entropy_loss = entropy.mean()
                     loss = (
-                        pg_loss
-                        - self.ent_coef * entropy_loss
-                        + v_loss * self.vf_coef
+                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
                     )
 
                     self.optimizer.zero_grad()
                     loss.backward()
-                    nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad_norm)
+                    nn.utils.clip_grad_norm_(
+                        self.agent.parameters(), self.max_grad_norm
+                    )
                     self.optimizer.step()
 
                 if self.target_kl is not None:
@@ -606,7 +610,9 @@ class PPOTrainer:
 
             y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
             var_y = np.var(y_true)
-            explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            explained_var = (
+                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            )
 
             sps = int(global_step / max(time.time() - start_time, 1e-8))
             log_wandb(
@@ -626,7 +632,11 @@ class PPOTrainer:
             )
             print("SPS:", sps)
 
-            if eval_env is not None and next_eval_step is not None and global_step >= next_eval_step:
+            if (
+                eval_env is not None
+                and next_eval_step is not None
+                and global_step >= next_eval_step
+            ):
                 sync_obs_rms(self.envs.envs[0], eval_env)
                 eval_returns, eval_lengths = evaluate(
                     self.agent,
@@ -635,27 +645,24 @@ class PPOTrainer:
                     self.eval_episodes,
                     deterministic=self.eval_deterministic,
                 )
-                eval_return_mean = float(np.mean(eval_returns))
-                eval_return_std = float(np.std(eval_returns))
-                eval_length_mean = float(np.mean(eval_lengths))
-                print(
-                    f"eval global_step={global_step}, "
-                    f"episodic_return_mean={eval_return_mean:.2f}, "
-                    f"episodic_return_std={eval_return_std:.2f}, "
-                    f"episodic_length_mean={eval_length_mean:.1f}"
-                )
+                metrics = {
+                    "eval/return_mean": float(np.mean(eval_returns)),
+                    "eval/return_std": float(np.std(eval_returns)),
+                    "eval/length_mean": float(np.mean(eval_lengths)),
+                    "eval/return_min": float(np.min(eval_lengths)),
+                }
+                print(f"eval global_step={global_step}, " f"{metrics}")
                 log_wandb(
-                    {
-                        "eval/episodic_return_mean": eval_return_mean,
-                        "eval/episodic_return_std": eval_return_std,
-                        "eval/episodic_length_mean": eval_length_mean,
-                    },
+                    metrics,
                     step=global_step,
                     silent=True,
                 )
                 next_eval_step += eval_interval
 
-            if save_interval > 0 and self.last_checkpoint < global_step // save_interval:
+            if (
+                save_interval > 0
+                and self.last_checkpoint < global_step // save_interval
+            ):
                 self.last_checkpoint = global_step // save_interval
                 os.makedirs(out_dir, exist_ok=True)
                 ckpt_path = os.path.join(out_dir, "ppo.pt")
@@ -668,7 +675,9 @@ class PPOTrainer:
                     },
                     ckpt_path,
                 )
-                print(f"[PPO][checkpoint] step={global_step}/{total_steps}: saved {ckpt_path}")
+                print(
+                    f"[PPO][checkpoint] step={global_step}/{total_steps}: saved {ckpt_path}"
+                )
 
         self.envs.close()
         if eval_env is not None:
