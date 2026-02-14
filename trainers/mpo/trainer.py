@@ -148,7 +148,7 @@ class MPOTrainer:
         total_steps = int(total_steps)
         update_after = int(update_after)
         batch_size = int(batch_size)
-        eval_interval = max(1, total_steps // 10_000)
+        eval_interval = max(1, total_steps // 150)
         console_log_interval = max(
             1, min(1_000, eval_interval)
         )

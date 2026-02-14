@@ -409,7 +409,7 @@ class PPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 10_000)
+        eval_interval = max(1, total_steps // 150)
 
         num_updates = total_steps // self.batch_size
         if num_updates <= 0:

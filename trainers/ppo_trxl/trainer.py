@@ -538,7 +538,7 @@ class PPOTRxLTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 10_000)
+        eval_interval = max(1, total_steps // 150)
         best_eval_score = float("-inf")
         os.makedirs(out_dir, exist_ok=True)
 
