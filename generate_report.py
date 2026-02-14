@@ -44,6 +44,7 @@ DEFAULT_HISTORY_SAMPLES = 600
 DEFAULT_WORKERS = 8
 DEFAULT_CACHE_DIR = ".report_cache"
 CACHE_VERSION = "v1"
+_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "trpo")
 
 
 @dataclass
@@ -55,6 +56,9 @@ class RunRecord:
     step: float
     algorithm: str
     env: str
+    env_id: str
+    optimizer: str
+    adv_type: str
 
 
 def _as_float(value: Any) -> float | None:
@@ -80,37 +84,147 @@ def _extract_first_config_value(
     return None
 
 
-def _parse_run_name(run_name: str) -> tuple[str | None, str | None]:
+def _normalize_env_fallback(env_text: str) -> str:
+    text = (env_text or "").strip("-").strip()
+    if not text:
+        return text
+    if text.startswith("dm_control-"):
+        parts = text.split("-")
+        if len(parts) >= 3:
+            domain = parts[1]
+            task = "-".join(parts[2:])
+            return f"dm_control/{domain}/{task}"
+    return text
+
+
+def _default_optimizer_for_algorithm(algorithm: str | None) -> str:
+    algo = (algorithm or "").strip().lower()
+    if algo in {"ppo", "vmpo", "mpo", "trpo"}:
+        return "adam"
+    return "unknown"
+
+
+def _default_adv_type_for_algorithm(algorithm: str | None) -> str:
+    algo = (algorithm or "").strip().lower()
+    if algo == "vmpo":
+        return "returns"
+    if algo in {"ppo", "trpo"}:
+        return "gae"
+    if algo == "mpo":
+        return "none"
+    return "unknown"
+
+
+def _normalize_meta_value(value: str | None, *, fallback: str) -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip().lower()
+    if not text or text == "none":
+        return fallback
+    return text
+
+
+def _make_env_key(env_id: str, optimizer: str, adv_type: str) -> str:
+    return f"{env_id} || opt={optimizer} || adv={adv_type}"
+
+
+def _split_env_key(env_key: str) -> tuple[str, str, str]:
+    env = (env_key or "").strip()
+    marker_opt = " || opt="
+    marker_adv = " || adv="
+    if marker_opt in env and marker_adv in env:
+        env_id, rest = env.split(marker_opt, 1)
+        optimizer, adv_type = rest.split(marker_adv, 1)
+        return env_id.strip(), optimizer.strip(), adv_type.strip()
+    return env, "unknown", "unknown"
+
+
+def _parse_run_name(
+    run_name: str,
+) -> tuple[str | None, str | None, str | None, str | None]:
     name = (run_name or "").strip()
+    if not name:
+        return None, None, None, None
+
+    prefix, sep, suffix = name.rpartition("_")
+    if sep and re.fullmatch(r"\d{8}-\d{6}", suffix):
+        algorithm = None
+        body = None
+        for algo in _KNOWN_ALGOS_FOR_NAME_PARSE:
+            algo_prefix = f"{algo}_"
+            if prefix.startswith(algo_prefix):
+                algorithm = algo
+                body = prefix[len(algo_prefix) :]
+                break
+        if algorithm is None and "_" in prefix:
+            algorithm, body = prefix.split("_", 1)
+
+        if algorithm is not None and body is not None:
+            algorithm = algorithm.strip()
+            body = body.strip("-")
+            if not algorithm:
+                return None, None, None, None
+            parts = body.rsplit("-", 2)
+            if len(parts) == 3:
+                env_part, optimizer, adv_type = parts
+                env = _normalize_env_fallback(env_part)
+                return (
+                    algorithm,
+                    env if env else None,
+                    optimizer.strip() or None,
+                    adv_type.strip() or None,
+                )
+            env = _normalize_env_fallback(body)
+            return algorithm, env if env else None, None, None
+
     if "-" not in name:
-        return None, None
+        return None, None, None, None
     algorithm, env_part = name.split("-", 1)
     if not algorithm:
-        return None, None
+        return None, None, None, None
     env = re.sub(r"-seed\d+$", "", env_part).strip("-")
-    return algorithm, env if env else None
+    env = _normalize_env_fallback(env)
+    return algorithm, env if env else None, None, None
 
 
-def _extract_algorithm_and_env(
+def _extract_run_axes(
     run_name: str, config: dict[str, Any]
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str, str]:
     algorithm = _extract_first_config_value(
         config, ("command", "algo", "algorithm", "algorithm_name")
     )
     env = _extract_first_config_value(config, ("env", "env_id", "environment"))
+    optimizer = _extract_first_config_value(config, ("optimizer_type", "optimizer"))
+    adv_type = _extract_first_config_value(
+        config, ("advantage_estimator", "adv_type", "advantage_type")
+    )
 
-    if algorithm is None or env is None:
-        fallback_algorithm, fallback_env = _parse_run_name(run_name)
+    if algorithm is None or env is None or optimizer is None or adv_type is None:
+        fallback_algorithm, fallback_env, fallback_optimizer, fallback_adv_type = (
+            _parse_run_name(run_name)
+        )
         if algorithm is None:
             algorithm = fallback_algorithm
         if env is None:
             env = fallback_env
+        if optimizer is None:
+            optimizer = fallback_optimizer
+        if adv_type is None:
+            adv_type = fallback_adv_type
 
     if algorithm is not None:
         algorithm = algorithm.lower().strip()
     if env is not None:
         env = env.strip()
-    return algorithm, env
+    optimizer = _normalize_meta_value(
+        optimizer,
+        fallback=_default_optimizer_for_algorithm(algorithm),
+    )
+    adv_type = _normalize_meta_value(
+        adv_type,
+        fallback=_default_adv_type_for_algorithm(algorithm),
+    )
+    return algorithm, env, optimizer, adv_type
 
 
 def collect_runs(entity: str, project: str, min_steps: int) -> list[RunRecord]:
@@ -132,8 +246,13 @@ def collect_runs(entity: str, project: str, min_steps: int) -> list[RunRecord]:
             continue
 
         config = dict(run.config or {})
-        algorithm, env = _extract_algorithm_and_env(run.name, config)
-        if not algorithm or not env:
+        algorithm, env_id, optimizer, adv_type = _extract_run_axes(run.name, config)
+        env_key = (
+            _make_env_key(env_id, optimizer, adv_type)
+            if env_id is not None
+            else None
+        )
+        if not algorithm or not env_key or not env_id:
             skipped_missing_config += 1
             continue
 
@@ -145,7 +264,10 @@ def collect_runs(entity: str, project: str, min_steps: int) -> list[RunRecord]:
                 url=run.url,
                 step=step,
                 algorithm=algorithm,
-                env=env,
+                env=env_key,
+                env_id=env_id,
+                optimizer=optimizer,
+                adv_type=adv_type,
             )
         )
 
@@ -623,12 +745,13 @@ def _format_metric(value: float | None) -> str:
 
 
 def _display_env_name(env: str) -> str:
-    name = env.strip()
+    env_id, optimizer, adv_type = _split_env_key(env)
+    name = env_id.strip()
     if name.startswith("dm_control/"):
         name = name[len("dm_control/") :]
     if name.endswith("-v5"):
         name = name[: -len("-v5")]
-    return name
+    return f"{name} [opt={optimizer}, adv={adv_type}]"
 
 
 _CONFIG_EXCLUDED_KEYS = {
@@ -788,14 +911,17 @@ def write_readme(
         handle.write(f"- Generated: {timestamp}\n")
         handle.write(f"- Included runs: {len(runs)} (`_step` > {min_steps})\n")
         handle.write("- Algorithm key source: run config `command`\n")
-        handle.write("- Environment key source: run config `env`\n")
+        handle.write(
+            "- Environment key source: run config `env` + `optimizer_type` + `advantage_estimator`\n"
+        )
         handle.write(f"- Metric: `{metric_key}`\n\n")
 
         if overview_image_name:
             handle.write(f"![overview]({overview_image_name})\n\n")
             handle.write(
                 "Each line is a time-weighted average across runs for a single "
-                "environment and algorithm. Every run timeline is normalized to `[0, 1]`.\n\n"
+                "environment/optimizer/advantage-type and algorithm. "
+                "Every run timeline is normalized to `[0, 1]`.\n\n"
             )
             top_table_lines = _build_max_achieved_table(
                 grouped_runs,
@@ -816,7 +942,7 @@ def write_readme(
             )
 
         handle.write("## Summary\n\n")
-        handle.write("| Environment | Algorithms | Runs |\n")
+        handle.write("| Environment / Optimizer / Adv Type | Algorithms | Runs |\n")
         handle.write("|---|---|---:|\n")
         for env in sorted(grouped_runs.keys()):
             algorithms = sorted(grouped_runs[env].keys())
@@ -958,7 +1084,10 @@ def generate_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate a W&B report by averaging runs per environment and algorithm."
+        description=(
+            "Generate a W&B report by averaging runs per "
+            "environment-optimizer-adv-type combination and algorithm."
+        )
     )
     parser.add_argument(
         "--project",

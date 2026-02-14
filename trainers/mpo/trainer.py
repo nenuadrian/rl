@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from trainers.mpo.agent import MPOAgent
-from utils.env import infer_obs_dim, wrap_record_video
+from utils.env import infer_obs_dim
 from utils.wandb_utils import log_wandb
 from trainers.mpo.replay_buffer import MPOReplayBuffer
 
@@ -24,13 +24,12 @@ def _make_env(
     env_id: str,
     *,
     seed: int | None = None,
-    render_mode: str | None = None,
 ) -> gym.Env:
     if env_id.startswith("dm_control/"):
         _, domain, task = env_id.split("/")
-        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+        env = gym.make(f"dm_control/{domain}-{task}-v0")
     else:
-        env = gym.make(env_id, render_mode=render_mode)
+        env = gym.make(env_id)
 
     if seed is not None:
         env.reset(seed=seed)
@@ -72,24 +71,14 @@ class MPOTrainer:
         retrace_lambda: float = 0.95,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
-        capture_video: bool = False,
-        run_name: str | None = None,
     ):
         self.seed = seed
-        self.capture_video = bool(capture_video)
         self.use_retrace = bool(use_retrace)
         self.retrace_steps = int(retrace_steps)
-        safe_run_name = (
-            run_name if run_name is not None else f"mpo-{env_id}-seed{seed}"
-        ).replace("/", "-")
-        self.video_dir = os.path.join("videos", safe_run_name)
         self.env = _make_env(
             env_id,
             seed=seed,
-            render_mode="rgb_array" if self.capture_video else None,
         )
-        if self.capture_video:
-            self.env = wrap_record_video(self.env, self.video_dir)
         self.env_id = env_id
 
         obs_dim = infer_obs_dim(self.env.observation_space)

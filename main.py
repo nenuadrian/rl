@@ -1,6 +1,7 @@
 import argparse
 import os
 import importlib
+import re
 from datetime import datetime
 from pprint import pformat
 
@@ -12,7 +13,6 @@ from utils.wandb_utils import finish_wandb, init_wandb
 from trainers.vmpo.trainer import VMPOTrainer
 from trainers.mpo.trainer import MPOTrainer
 from trainers.ppo.trainer import PPOTrainer
-from trainers.ppo_trxl.trainer import PPOTRxLTrainer
 
 
 def _print_banner() -> None:
@@ -94,6 +94,37 @@ def _resolve_device(device_arg: str | None) -> torch.device:
     return device
 
 
+def _slug_component(value: object) -> str:
+    text = str(value).strip().replace("/", "-")
+    text = re.sub(r"[^A-Za-z0-9._-]+", "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or "unknown"
+
+
+def _resolve_run_optimizer(algo: str, args: argparse.Namespace) -> str:
+    optimizer = getattr(args, "optimizer_type", None)
+    if optimizer is not None:
+        text = str(optimizer).strip().lower()
+        if text and text != "none":
+            return text
+    return "unknown"
+
+
+def _resolve_run_adv_type(algo: str, args: argparse.Namespace) -> str:
+    if algo == "vmpo":
+        estimator = getattr(args, "advantage_estimator", None)
+        if estimator is not None:
+            text = str(estimator).strip().lower()
+            if text and text != "none":
+                return text
+        return "returns"
+    if algo in {"ppo", "trpo"}:
+        return "gae"
+    if algo == "mpo":
+        return "none"
+    return "unknown"
+
+
 if __name__ == "__main__":
     _print_banner()
     parser = argparse.ArgumentParser()
@@ -102,7 +133,6 @@ if __name__ == "__main__":
         nargs="?",
         choices=[
             "ppo",
-            "ppo_trxl",
             "vmpo",
             "mpo",
         ],
@@ -141,11 +171,6 @@ if __name__ == "__main__":
         default=None,
         help="SGD momentum override when --optimizer_type=sgd",
     )
-    parser.add_argument(
-        "--generate_video",
-        action="store_true",
-        help="Capture training videos with RecordVideo on env 0 and upload via wandb.",
-    )
     args = parser.parse_args()
 
     cli_device_override = args.device
@@ -172,9 +197,11 @@ if __name__ == "__main__":
     device = _resolve_device(args.device)
     print(f"Using device: {device}")
 
-    env_slug = args.env.replace("/", "-")
+    env_slug = _slug_component(args.env)
+    run_optimizer = _slug_component(_resolve_run_optimizer(algo, args))
+    run_adv_type = _slug_component(_resolve_run_adv_type(algo, args))
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_name = f"{algo}-{env_slug}-{timestamp}"
+    run_name = f"{algo}_{env_slug}-{run_optimizer}-{run_adv_type}_{timestamp}"
     args.out_dir = os.path.join(args.out_dir, algo, run_name)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -186,7 +213,7 @@ if __name__ == "__main__":
         group=group,
         name=run_name,
         config=vars(args),
-        monitor_gym=bool(args.generate_video),
+        monitor_gym=False,
         save_code=True,
     )
 
@@ -239,74 +266,9 @@ if __name__ == "__main__":
             num_envs=int(args.num_envs),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
-            capture_video=bool(args.generate_video),
-            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,
-            out_dir=args.out_dir,
-        )
-    elif algo == "ppo_trxl":
-        target_kl = getattr(args, "target_kl", None)
-        trxl_params = {
-            "num_envs": int(args.num_envs),
-            "num_steps": int(args.num_steps),
-            "num_minibatches": int(args.num_minibatches),
-            "update_epochs": int(args.update_epochs),
-            "init_lr": float(args.init_lr),
-            "final_lr": float(args.final_lr),
-            "anneal_steps": int(args.anneal_steps),
-            "gamma": float(args.gamma),
-            "gae_lambda": float(args.gae_lambda),
-            "norm_adv": bool(args.norm_adv),
-            "clip_coef": float(args.clip_coef),
-            "clip_vloss": bool(args.clip_vloss),
-            "init_ent_coef": float(args.init_ent_coef),
-            "final_ent_coef": float(args.final_ent_coef),
-            "vf_coef": float(args.vf_coef),
-            "max_grad_norm": float(args.max_grad_norm),
-            "target_kl": None if target_kl is None else float(target_kl),
-            "trxl_num_layers": int(args.trxl_num_layers),
-            "trxl_num_heads": int(args.trxl_num_heads),
-            "trxl_dim": int(args.trxl_dim),
-            "trxl_memory_length": int(args.trxl_memory_length),
-            "trxl_positional_encoding": str(args.trxl_positional_encoding),
-            "reconstruction_coef": float(args.reconstruction_coef),
-        }
-        _print_config("PPO-TRxL config", trxl_params)
-
-        trainer = PPOTRxLTrainer(
-            env_id=args.env,
-            seed=args.seed,
-            device=device,
-            num_envs=int(args.num_envs),
-            num_steps=int(args.num_steps),
-            num_minibatches=int(args.num_minibatches),
-            update_epochs=int(args.update_epochs),
-            init_lr=float(args.init_lr),
-            final_lr=float(args.final_lr),
-            anneal_steps=int(args.anneal_steps),
-            gamma=float(args.gamma),
-            gae_lambda=float(args.gae_lambda),
-            norm_adv=bool(args.norm_adv),
-            clip_coef=float(args.clip_coef),
-            clip_vloss=bool(args.clip_vloss),
-            init_ent_coef=float(args.init_ent_coef),
-            final_ent_coef=float(args.final_ent_coef),
-            vf_coef=float(args.vf_coef),
-            max_grad_norm=float(args.max_grad_norm),
-            target_kl=None if target_kl is None else float(target_kl),
-            trxl_num_layers=int(args.trxl_num_layers),
-            trxl_num_heads=int(args.trxl_num_heads),
-            trxl_dim=int(args.trxl_dim),
-            trxl_memory_length=int(args.trxl_memory_length),
-            trxl_positional_encoding=str(args.trxl_positional_encoding),
-            reconstruction_coef=float(args.reconstruction_coef),
-            capture_video=bool(args.generate_video),
-            run_name=run_name,
-        )
-        trainer.train(
-            total_steps=int(args.total_steps),
             out_dir=args.out_dir,
         )
     elif algo == "vmpo":
@@ -355,8 +317,6 @@ if __name__ == "__main__":
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
             num_envs=int(args.num_envs),
-            capture_video=bool(args.generate_video),
-            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,
@@ -420,8 +380,6 @@ if __name__ == "__main__":
             use_retrace=bool(args.use_retrace),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
-            capture_video=bool(args.generate_video),
-            run_name=run_name,
         )
         trainer.train(
             total_steps=args.total_steps,

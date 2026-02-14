@@ -9,7 +9,7 @@ import torch
 
 from trainers.vmpo.agent import VMPOAgent
 from trainers.vmpo.targets import compute_rollout_targets
-from utils.env import infer_obs_dim, wrap_record_video
+from utils.env import infer_obs_dim
 from utils.wandb_utils import log_wandb
 
 
@@ -274,28 +274,21 @@ def _make_env(
     env_id: str,
     *,
     seed: int | None = None,
-    render_mode: str | None = None,
     gamma: float = 0.99,
     normalize_observation: bool = True,
     clip_observation: float | None = 10.0,
     normalize_reward: bool = True,
     clip_reward: float | None = 10.0,
-    capture_video: bool = False,
-    run_name: str | None = None,
-    idx: int = 0,
 ) -> gym.Env:
     if env_id.startswith("dm_control/"):
         _, domain, task = env_id.split("/")
-        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
+        env = gym.make(f"dm_control/{domain}-{task}-v0")
     else:
-        env = gym.make(env_id, render_mode=render_mode)
+        env = gym.make(env_id)
 
     if seed is not None:
         env.reset(seed=seed)
         env.action_space.seed(seed)
-
-    if capture_video and run_name is not None and idx == 0:
-        env = wrap_record_video(env, f"videos/{run_name}")
 
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -344,15 +337,10 @@ class VMPOTrainer:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
-        capture_video: bool = False,
-        run_name: str | None = None,
     ):
-        self.run_name = run_name
         self.num_envs = int(num_envs)
         self.env_id = env_id
         self.seed = seed
-        self.capture_video = bool(capture_video)
-        self.video_dir = f"videos/{run_name}"
         self.gamma = float(gamma)
         self.advantage_estimator = str(advantage_estimator)
         self.gae_lambda = float(gae_lambda)
@@ -698,8 +686,6 @@ class VMPOTrainer:
                     seed=self.seed + 1000,
                     gamma=self.gamma,
                     obs_rms_stats=_collect_vector_obs_rms_stats(self.env),
-                    capture_video=self.capture_video,
-                    run_name=self.run_name,
                 )
                 log_wandb(metrics, step=global_step, silent=True)
                 print(
@@ -767,8 +753,6 @@ def _evaluate_vectorized(
     seed: int = 42,
     gamma: float = 0.99,
     obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
-    capture_video: bool = False,
-    run_name: str | None = None,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
@@ -783,10 +767,6 @@ def _evaluate_vectorized(
                 # Evaluate on raw environment reward so returns are comparable
                 # across checkpoints/runs. Training can still use reward norm.
                 normalize_reward=False,
-                capture_video=capture_video,
-                render_mode="rgb_array" if capture_video else None,
-                run_name=run_name,
-                idx=i,
             )
             for i in range(n_episodes)
         ]

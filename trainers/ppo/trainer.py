@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.normal import Normal
 
-from utils.env import wrap_record_video
 from utils.wandb_utils import log_wandb
 
 
@@ -48,24 +47,15 @@ def _resolve_env_id(env_id: str) -> str:
 def make_env(
     gym_id: str,
     seed: int,
-    idx: int,
-    capture_video: bool,
-    run_name: str,
     normalize_observation: bool = True,
 ):
     def thunk():
         resolved_env_id = _resolve_env_id(gym_id)
-        should_record_video = bool(capture_video and idx == 0)
-        if should_record_video:
-            env = gym.make(resolved_env_id, render_mode="rgb_array")
-        else:
-            env = gym.make(resolved_env_id)
+        env = gym.make(resolved_env_id)
 
         # Keep dm_control compatibility while preserving implementation-details PPO logic.
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        if should_record_video:
-            env = wrap_record_video(env, os.path.join("videos", run_name))
         env = gym.wrappers.ClipAction(env)
         if normalize_observation:
             env = gym.wrappers.NormalizeObservation(env)
@@ -302,8 +292,6 @@ class PPOTrainer:
         num_envs: int = 1,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
-        capture_video: bool = False,
-        run_name: str | None = None,
     ):
         self.env_id = str(env_id)
         self.seed = int(seed)
@@ -335,10 +323,6 @@ class PPOTrainer:
         self.sgd_momentum = float(sgd_momentum)
 
         self.normalize_obs = bool(normalize_obs)
-        self.capture_video = bool(capture_video)
-        self.run_name = (
-            run_name if run_name is not None else f"ppo-{self.env_id}-seed{self.seed}"
-        ).replace("/", "-")
 
         self.eval_episodes = 50
         self.eval_deterministic = True
@@ -354,9 +338,6 @@ class PPOTrainer:
                 make_env(
                     self.env_id,
                     self.seed + i,
-                    i,
-                    self.capture_video,
-                    self.run_name,
                     normalize_observation=self.normalize_obs,
                 )
                 for i in range(self.num_envs)
