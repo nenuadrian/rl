@@ -9,8 +9,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -32,8 +30,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/humanoid/run": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -55,8 +51,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/humanoid/walk": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -78,8 +72,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/walker/walk": {
         "num_envs": 4,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -101,8 +93,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/walker/run": {
         "num_envs": 4,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -124,8 +114,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cartpole/swingup": {
         "num_envs": 2,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -147,8 +135,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Humanoid-v5": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -170,8 +156,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "HalfCheetah-v5": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -193,8 +177,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Ant-v5": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -216,8 +198,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Walker2d-v5": {
         "num_envs": 1,
         "total_steps": 500_000,
-        "eval_interval": 10_000,
-        "save_interval": 500_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,

@@ -142,13 +142,15 @@ class MPOTrainer:
         total_steps: int,
         update_after: int,
         batch_size: int,
-        eval_interval: int,
-        save_interval: int,
         out_dir: str,
         updates_per_step: int = 1,
     ):
+        total_steps = int(total_steps)
+        update_after = int(update_after)
+        batch_size = int(batch_size)
+        eval_interval = max(1, total_steps // 10_000)
         console_log_interval = max(
-            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
+            1, min(1_000, eval_interval)
         )
         print(
             "[MPO] training started: "
@@ -156,6 +158,7 @@ class MPOTrainer:
             f"update_after={update_after}, "
             f"batch_size={batch_size}, "
             f"updates_per_step={int(updates_per_step)}, "
+            f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
 
@@ -170,6 +173,8 @@ class MPOTrainer:
         last_progress_time = start_time
         last_progress_step = 0
         last_progress_updates = 0
+        best_eval_score = float("-inf")
+        os.makedirs(out_dir, exist_ok=True)
 
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
@@ -250,27 +255,33 @@ class MPOTrainer:
                     }
                     log_wandb(step_mean_metrics, step=step, silent=True)
 
-                if eval_interval > 0 and step % eval_interval == 0:
-                    metrics = _evaluate_vectorized(
-                        agent=self.agent,
-                        env_id=self.env_id,
-                        seed=self.seed + 1000,
-                    )
-                    log_wandb(metrics, step=step)
-                    print(
-                        f"[MPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
-                    )
+            if step % eval_interval == 0:
+                metrics = _evaluate_vectorized(
+                    agent=self.agent,
+                    env_id=self.env_id,
+                    seed=self.seed + 1000,
+                )
+                log_wandb(metrics, step=step)
+                print(
+                    f"[MPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
+                )
+                ckpt_payload = {
+                    "policy": self.agent.policy.state_dict(),
+                    "q": self.agent.q.state_dict(),
+                }
+                ckpt_last_path = os.path.join(out_dir, "mpo_last.pt")
+                torch.save(ckpt_payload, ckpt_last_path)
+                print(f"[MPO][checkpoint] step={step}: saved {ckpt_last_path}")
 
-                if save_interval > 0 and step % save_interval == 0:
-                    ckpt_path = os.path.join(out_dir, f"mpo.pt")
-                    torch.save(
-                        {
-                            "policy": self.agent.policy.state_dict(),
-                            "q": self.agent.q.state_dict(),
-                        },
-                        ckpt_path,
+                eval_score = float(metrics["eval/return_mean"])
+                if eval_score > best_eval_score:
+                    best_eval_score = eval_score
+                    ckpt_best_path = os.path.join(out_dir, "mpo_best.pt")
+                    torch.save(ckpt_payload, ckpt_best_path)
+                    print(
+                        f"[MPO][checkpoint-best] step={step}: "
+                        f"score={eval_score:.6f}, saved {ckpt_best_path}"
                     )
-                    print(f"[MPO][checkpoint] step={step}: saved {ckpt_path}")
 
             should_print_progress = (
                 step == total_steps

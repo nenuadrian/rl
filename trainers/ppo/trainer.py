@@ -342,7 +342,6 @@ class PPOTrainer:
 
         self.eval_episodes = 50
         self.eval_deterministic = True
-        self.last_checkpoint = 0
 
         # Keep ppo-implementation-details behavior deterministic.
         random.seed(self.seed)
@@ -407,13 +406,10 @@ class PPOTrainer:
     def train(
         self,
         total_steps: int,
-        eval_interval: int,
-        save_interval: int,
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = int(eval_interval)
-        save_interval = int(save_interval)
+        eval_interval = max(1, total_steps // 10_000)
 
         num_updates = total_steps // self.batch_size
         if num_updates <= 0:
@@ -444,15 +440,14 @@ class PPOTrainer:
         next_obs = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)
         next_done = torch.zeros(self.num_envs, device=self.device)
 
-        eval_env = None
-        next_eval_step = None
-        if eval_interval > 0:
-            eval_env = make_eval_env(
-                self.env_id,
-                self.seed + 10_000,
-                normalize_observation=self.normalize_obs,
-            )
-            next_eval_step = eval_interval
+        eval_env = make_eval_env(
+            self.env_id,
+            self.seed + 10_000,
+            normalize_observation=self.normalize_obs,
+        )
+        last_eval = 0
+        best_eval_score = float("-inf")
+        os.makedirs(out_dir, exist_ok=True)
 
         for update in range(1, num_updates + 1):
             if self.anneal_lr:
@@ -489,6 +484,53 @@ class PPOTrainer:
                 )
 
                 log_episode_stats(infos, global_step)
+
+                if global_step // eval_interval > last_eval:
+                    last_eval = global_step // eval_interval
+                    sync_obs_rms(self.envs.envs[0], eval_env)
+                    eval_returns, eval_lengths = evaluate(
+                        self.agent,
+                        eval_env,
+                        self.device,
+                        self.eval_episodes,
+                        deterministic=self.eval_deterministic,
+                    )
+                    metrics = {
+                        "eval/return_max": float(np.max(eval_returns)),
+                        "eval/return_std": float(np.std(eval_returns)),
+                        "eval/return_mean": float(np.mean(eval_returns)),
+                        "eval/length_mean": float(np.mean(eval_lengths)),
+                        "eval/return_min": float(np.min(eval_returns)),
+                    }
+                    print(f"eval global_step={global_step}, " f"{metrics}")
+                    log_wandb(
+                        metrics,
+                        step=global_step,
+                        silent=True,
+                    )
+
+                    ckpt_payload = {
+                        "actor_mean": self.agent.actor_mean.state_dict(),
+                        "actor_logstd": self.agent.actor_logstd.detach().cpu(),
+                        "critic": self.agent.critic.state_dict(),
+                        "optimizer": self.optimizer.state_dict(),
+                    }
+                    ckpt_last_path = os.path.join(out_dir, "ppo_last.pt")
+                    torch.save(ckpt_payload, ckpt_last_path)
+                    print(
+                        f"[PPO][checkpoint] step={global_step}/{total_steps}: "
+                        f"saved {ckpt_last_path}"
+                    )
+
+                    eval_score = float(metrics["eval/return_mean"])
+                    if eval_score > best_eval_score:
+                        best_eval_score = eval_score
+                        ckpt_best_path = os.path.join(out_dir, "ppo_best.pt")
+                        torch.save(ckpt_payload, ckpt_best_path)
+                        print(
+                            f"[PPO][checkpoint-best] step={global_step}/{total_steps}: "
+                            f"score={eval_score:.6f}, saved {ckpt_best_path}"
+                        )
 
             with torch.no_grad():
                 next_value = self.agent.get_value(next_obs).reshape(1, -1)
@@ -632,54 +674,5 @@ class PPOTrainer:
             )
             print("SPS:", sps)
 
-            if (
-                eval_env is not None
-                and next_eval_step is not None
-                and global_step >= next_eval_step
-            ):
-                sync_obs_rms(self.envs.envs[0], eval_env)
-                eval_returns, eval_lengths = evaluate(
-                    self.agent,
-                    eval_env,
-                    self.device,
-                    self.eval_episodes,
-                    deterministic=self.eval_deterministic,
-                )
-                metrics = {
-                    "eval/return_max": float(np.max(eval_returns)),
-                    "eval/return_std": float(np.std(eval_returns)),
-                    "eval/return_mean": float(np.mean(eval_returns)),
-                    "eval/length_mean": float(np.mean(eval_lengths)),
-                    "eval/return_min": float(np.min(eval_returns)),
-                }
-                print(f"eval global_step={global_step}, " f"{metrics}")
-                log_wandb(
-                    metrics,
-                    step=global_step,
-                    silent=True,
-                )
-                next_eval_step += eval_interval
-
-            if (
-                save_interval > 0
-                and self.last_checkpoint < global_step // save_interval
-            ):
-                self.last_checkpoint = global_step // save_interval
-                os.makedirs(out_dir, exist_ok=True)
-                ckpt_path = os.path.join(out_dir, "ppo.pt")
-                torch.save(
-                    {
-                        "actor_mean": self.agent.actor_mean.state_dict(),
-                        "actor_logstd": self.agent.actor_logstd.detach().cpu(),
-                        "critic": self.agent.critic.state_dict(),
-                        "optimizer": self.optimizer.state_dict(),
-                    },
-                    ckpt_path,
-                )
-                print(
-                    f"[PPO][checkpoint] step={global_step}/{total_steps}: saved {ckpt_path}"
-                )
-
         self.envs.close()
-        if eval_env is not None:
-            eval_env.close()
+        eval_env.close()

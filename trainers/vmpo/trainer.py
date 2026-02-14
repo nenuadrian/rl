@@ -431,7 +431,6 @@ class VMPOTrainer:
         # Current observation is episode start until the first action is taken.
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         self.last_eval = 0
-        self.last_checkpoint = 0
 
     def _make_train_env(
         self,
@@ -466,13 +465,13 @@ class VMPOTrainer:
     def train(
         self,
         total_steps: int,
-        eval_interval: int,
-        save_interval: int,
         out_dir: str,
         updates_per_step: int = 1,
     ):
+        total_steps = int(total_steps)
+        eval_interval = max(1, total_steps // 10_000)
         console_log_interval = max(
-            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
+            1, min(1_000, eval_interval)
         )
         print(
             "[VMPO] training started: "
@@ -480,6 +479,7 @@ class VMPOTrainer:
             f"rollout_steps={self.rollout_steps}, "
             f"num_envs={self.num_envs}, "
             f"updates_per_step={int(updates_per_step)}, "
+            f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
         interval_metric_sums: Dict[str, float] = {}
@@ -489,10 +489,8 @@ class VMPOTrainer:
         interval_episode_min = float("inf")
         interval_episode_max = float("-inf")
         total_update_count = 0
-
-        total_steps = int(total_steps)
-        eval_interval = int(eval_interval)
-        save_interval = int(save_interval)
+        best_eval_score = float("-inf")
+        os.makedirs(out_dir, exist_ok=True)
 
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
@@ -692,7 +690,7 @@ class VMPOTrainer:
 
                 self._reset_rollout()
 
-            if eval_interval > 0 and self.last_eval < global_step // eval_interval:
+            if self.last_eval < global_step // eval_interval:
                 self.last_eval = global_step // eval_interval
                 metrics = _evaluate_vectorized(
                     agent=self.agent,
@@ -707,16 +705,20 @@ class VMPOTrainer:
                 print(
                     f"[VMPO][eval] step={global_step}/{total_steps}: {_format_metrics(metrics)}"
                 )
+                ckpt_payload = {"policy": self.agent.policy.state_dict()}
+                ckpt_last_path = os.path.join(out_dir, "vmpo_last.pt")
+                torch.save(ckpt_payload, ckpt_last_path)
+                print(f"[VMPO][checkpoint] step={global_step}: saved {ckpt_last_path}")
 
-            if (
-                save_interval > 0
-                and self.last_checkpoint < global_step // save_interval
-            ):
-                self.last_checkpoint = global_step // save_interval
-                ckpt_path = os.path.join(out_dir, f"vmpo.pt")
-                os.makedirs(out_dir, exist_ok=True)
-                torch.save({"policy": self.agent.policy.state_dict()}, ckpt_path)
-                print(f"[VMPO][checkpoint] step={global_step}: saved {ckpt_path}")
+                eval_score = float(metrics["eval/return_mean"])
+                if eval_score > best_eval_score:
+                    best_eval_score = eval_score
+                    ckpt_best_path = os.path.join(out_dir, "vmpo_best.pt")
+                    torch.save(ckpt_payload, ckpt_best_path)
+                    print(
+                        f"[VMPO][checkpoint-best] step={global_step}: "
+                        f"score={eval_score:.6f}, saved {ckpt_best_path}"
+                    )
 
             should_print_progress = (
                 global_step >= total_steps or global_step % console_log_interval == 0

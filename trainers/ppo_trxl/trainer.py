@@ -447,7 +447,6 @@ class PPOTRxLTrainer:
         self.recent_returns: deque[float] = deque(maxlen=100)
         self.recent_lengths: deque[float] = deque(maxlen=100)
         self.last_eval = 0
-        self.last_checkpoint = 0
         self._eval_env: gym.Env | None = None
 
     def _resolve_max_episode_steps(self, env: gym.Env) -> int:
@@ -536,13 +535,12 @@ class PPOTRxLTrainer:
         self,
         *,
         total_steps: int,
-        eval_interval: int,
-        save_interval: int,
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = int(eval_interval)
-        save_interval = int(save_interval)
+        eval_interval = max(1, total_steps // 10_000)
+        best_eval_score = float("-inf")
+        os.makedirs(out_dir, exist_ok=True)
 
         batch_size = self.num_steps * self.num_envs
         if batch_size % self.num_minibatches != 0:
@@ -562,7 +560,8 @@ class PPOTRxLTrainer:
             f"batch_size={batch_size}, "
             f"num_minibatches={self.num_minibatches}, "
             f"minibatch_size={minibatch_size}, "
-            f"update_epochs={self.update_epochs}"
+            f"update_epochs={self.update_epochs}, "
+            f"eval_interval={eval_interval}"
         )
 
         rewards = torch.zeros((self.num_steps, self.num_envs), device=self.device)
@@ -699,6 +698,46 @@ class PPOTRxLTrainer:
                         env_current_episode_step[env_i] = min(
                             int(env_current_episode_step[env_i].item()) + 1,
                             self.max_episode_steps - 1,
+                        )
+
+                if self.last_eval < global_step // eval_interval:
+                    self.last_eval = global_step // eval_interval
+                    eval_metrics = self.evaluate(
+                        n_episodes=10,
+                        seed=self.seed + 10_000 + self.last_eval,
+                    )
+                    log_wandb(eval_metrics, step=global_step, silent=True)
+                    print(
+                        f"[PPO-TRXL][eval] step={global_step}: {_format_metrics(eval_metrics)}"
+                    )
+                    ckpt_payload = {
+                        "model": self.agent.state_dict(),
+                        "config": {
+                            "env_id": self.env_id,
+                            "trxl_num_layers": self.trxl_num_layers,
+                            "trxl_num_heads": self.trxl_num_heads,
+                            "trxl_dim": self.trxl_dim,
+                            "trxl_memory_length": self.trxl_memory_length,
+                            "trxl_positional_encoding": self.trxl_positional_encoding,
+                            "max_episode_steps": self.max_episode_steps,
+                            "action_space_shape": tuple(self.action_space_shape),
+                            "obs_shape": tuple(self.obs_shape),
+                        },
+                    }
+                    ckpt_last_path = os.path.join(out_dir, "ppo_trxl_last.pt")
+                    torch.save(ckpt_payload, ckpt_last_path)
+                    print(
+                        f"[PPO-TRXL][checkpoint] step={global_step}: saved {ckpt_last_path}"
+                    )
+
+                    eval_score = float(eval_metrics["eval/return_mean"])
+                    if eval_score > best_eval_score:
+                        best_eval_score = eval_score
+                        ckpt_best_path = os.path.join(out_dir, "ppo_trxl_best.pt")
+                        torch.save(ckpt_payload, ckpt_best_path)
+                        print(
+                            f"[PPO-TRXL][checkpoint-best] step={global_step}: "
+                            f"score={eval_score:.6f}, saved {ckpt_best_path}"
                         )
 
             with torch.no_grad():
@@ -900,40 +939,6 @@ class PPOTRxLTrainer:
                     f"v_loss={v_loss.item():.3f}, "
                     f"entropy={entropy_loss.item():.3f}"
                 )
-
-            if eval_interval > 0 and self.last_eval < global_step // eval_interval:
-                self.last_eval = global_step // eval_interval
-                eval_metrics = self.evaluate(
-                    n_episodes=10,
-                    seed=self.seed + 10_000 + self.last_eval,
-                )
-                log_wandb(eval_metrics, step=global_step, silent=True)
-                print(
-                    f"[PPO-TRXL][eval] step={global_step}: {_format_metrics(eval_metrics)}"
-                )
-
-            if save_interval > 0 and self.last_checkpoint < global_step // save_interval:
-                self.last_checkpoint = global_step // save_interval
-                os.makedirs(out_dir, exist_ok=True)
-                ckpt_path = os.path.join(out_dir, "ppo_trxl.pt")
-                torch.save(
-                    {
-                        "model": self.agent.state_dict(),
-                        "config": {
-                            "env_id": self.env_id,
-                            "trxl_num_layers": self.trxl_num_layers,
-                            "trxl_num_heads": self.trxl_num_heads,
-                            "trxl_dim": self.trxl_dim,
-                            "trxl_memory_length": self.trxl_memory_length,
-                            "trxl_positional_encoding": self.trxl_positional_encoding,
-                            "max_episode_steps": self.max_episode_steps,
-                            "action_space_shape": tuple(self.action_space_shape),
-                            "obs_shape": tuple(self.obs_shape),
-                        },
-                    },
-                    ckpt_path,
-                )
-                print(f"[PPO-TRXL][checkpoint] step={global_step}: saved {ckpt_path}")
 
         self._close_env(self.env)
         self._close_env(self._eval_env)

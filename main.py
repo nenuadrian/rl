@@ -1,6 +1,7 @@
 import argparse
 import os
 import importlib
+from datetime import datetime
 from pprint import pformat
 
 import torch
@@ -171,12 +172,14 @@ if __name__ == "__main__":
     device = _resolve_device(args.device)
     print(f"Using device: {device}")
 
-    args.out_dir = os.path.join(args.out_dir, algo, args.env.replace("/", "-"))
+    env_slug = args.env.replace("/", "-")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = f"{algo}-{env_slug}-{timestamp}"
+    args.out_dir = os.path.join(args.out_dir, algo, run_name)
 
     os.makedirs(args.out_dir, exist_ok=True)
 
     group = args.wandb_group or f"{algo}-{args.env}"
-    run_name = f"{algo}-{args.env}-seed{args.seed}"
     init_wandb(
         project=args.wandb_project,
         entity=args.wandb_entity,
@@ -241,8 +244,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
             out_dir=args.out_dir,
         )
     elif algo == "ppo_trxl":
@@ -306,8 +307,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=int(args.total_steps),
-            eval_interval=int(args.eval_interval),
-            save_interval=int(args.save_interval),
             out_dir=args.out_dir,
         )
     elif algo == "vmpo":
@@ -362,8 +361,6 @@ if __name__ == "__main__":
         trainer.train(
             total_steps=args.total_steps,
             updates_per_step=int(args.updates_per_step),
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
@@ -430,8 +427,6 @@ if __name__ == "__main__":
             total_steps=args.total_steps,
             update_after=args.update_after,
             batch_size=args.batch_size,
-            eval_interval=args.eval_interval,
-            save_interval=args.save_interval,
             out_dir=args.out_dir,
             updates_per_step=int(args.updates_per_step),
         )
