@@ -190,7 +190,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "epsilon_mu": 0.05,
         "epsilon_sigma": 1e-3,
         "max_grad_norm": 1.0,
-        "normalize_advantages": False,
+        "normalize_advantages": True,
         "optimizer_type": "adam",
     },
     "Ant-v5": {
