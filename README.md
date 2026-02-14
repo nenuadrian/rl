@@ -54,6 +54,8 @@ Hyperparameters are defined in the `hyperparameters/*.py` files for each algorit
 
 ## Benchmarks
 
+![Benchmark Results](reports/latest/overview.png)
+
 ```bash
 bash benchmarks/mpo.sh
 ```
