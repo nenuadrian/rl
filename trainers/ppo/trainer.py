@@ -646,7 +646,7 @@ class PPOTrainer:
                     deterministic=self.eval_deterministic,
                 )
                 metrics = {
-                    "eval/return_mean": float(np.mean(eval_returns)),
+                    "eval/return_max": float(np.max(eval_returns)),
                     "eval/return_std": float(np.std(eval_returns)),
                     "eval/length_mean": float(np.mean(eval_lengths)),
                     "eval/return_min": float(np.min(eval_returns)),
