@@ -11,7 +11,7 @@ environments=(
     "MysteryPath-v0"
 )
 
-WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-2}"
+WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-3}"
 SEEDS="${SEEDS:-1}"
 SEED_START="${SEED_START:-42}"
 EXTRA_ARGS=("$@")
