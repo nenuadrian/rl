@@ -448,6 +448,7 @@ class PPOTRxLTrainer:
         self.recent_lengths: deque[float] = deque(maxlen=100)
         self.last_eval = 0
         self.last_checkpoint = 0
+        self._eval_env: gym.Env | None = None
 
     def _resolve_max_episode_steps(self, env: gym.Env) -> int:
         max_episode_steps = None
@@ -934,7 +935,24 @@ class PPOTRxLTrainer:
                 )
                 print(f"[PPO-TRXL][checkpoint] step={global_step}: saved {ckpt_path}")
 
-        self.env.close()
+        self._close_env(self.env)
+        self._close_env(self._eval_env)
+        self._eval_env = None
+
+    @staticmethod
+    def _close_env(env: gym.Env | None) -> None:
+        if env is None:
+            return
+        try:
+            env.close()
+        except Exception:
+            # Some env wrappers may already be partially torn down.
+            pass
+
+    def _get_eval_env(self, seed: int) -> gym.Env:
+        if self._eval_env is None:
+            self._eval_env = self._make_env(seed=seed, env_index=0, record_video=False)
+        return self._eval_env
 
     @torch.no_grad()
     def evaluate(self, n_episodes: int = 10, seed: int = 42) -> Dict[str, float]:
@@ -942,7 +960,7 @@ class PPOTRxLTrainer:
 
         self.agent.eval()
 
-        eval_env = self._make_env(seed=seed, env_index=0, record_video=False)
+        eval_env = self._get_eval_env(seed=seed)
         for ep in range(int(n_episodes)):
             obs, _ = eval_env.reset(seed=seed + ep)
             done = False
@@ -984,7 +1002,6 @@ class PPOTRxLTrainer:
 
             returns.append(ep_return)
 
-        eval_env.close()
         self.agent.train()
 
         returns_arr = np.asarray(returns, dtype=np.float32)

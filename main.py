@@ -15,6 +15,22 @@ from trainers.ppo_trxl.trainer import PPOTRxLTrainer
 from trainers.trpo.trainer import TRPOTrainer
 
 
+def _print_banner() -> None:
+    print(
+        "\n".join(
+            [
+                "=" * 79,
+                "M   M  IIIII  N   N  EEEEE  RRRR   V   V   AAA   L          RRRR   L",
+                "MM MM    I    NN  N  E      R   R  V   V  A   A  L          R   R  L",
+                "M M M    I    N N N  EEE    RRRR   V   V  AAAAA  L          RRRR   L",
+                "M   M    I    N  NN  E      R R     V V   A   A  L          R R    L",
+                "M   M  IIIII  N   N  EEEEE  R  RR    V    A   A  LLLLL      R  RR  LLLLL",
+                "=" * 79,
+            ]
+        )
+    )
+
+
 def _load_preset(algo: str, env_id: str) -> dict:
     module = importlib.import_module(f"hyperparameters.{algo}")
     get_fn = getattr(module, "get", None)
@@ -75,6 +91,7 @@ def _resolve_device(device_arg: str | None) -> torch.device:
 
 
 if __name__ == "__main__":
+    _print_banner()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
