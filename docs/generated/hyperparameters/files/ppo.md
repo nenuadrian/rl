@@ -1,3 +1,6 @@
+# `hyperparameters/ppo.py`
+
+```python
 from __future__ import annotations
 
 from typing import Any
@@ -181,17 +184,17 @@ PRESETS: dict[str, dict[str, Any]] = {
         "save_interval": 1_000_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
-        "rollout_steps": 512,
-        "update_epochs": 20,
+        "rollout_steps": 1024,
+        "update_epochs": 10,
         "minibatch_size": 64,
         "policy_lr": 2e-4,
         "value_lr": 1e-4,
-        "clip_ratio": 0.1,
+        "clip_ratio": 0.2,
         "ent_coef": 0,
-        "gamma": 0.98,
-        "gae_lambda": 0.92,
-        "vf_coef": 0.58096,
-        "max_grad_norm": 0.8,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "vf_coef": 0.5,
+        "max_grad_norm": 1.0,
         "target_kl": 0,
         "norm_adv": True,
         "clip_vloss": True,
@@ -256,3 +259,4 @@ def get(env_id: str) -> dict[str, Any]:
         algorithm_name="PPO",
         defaults={"optimizer_type": "adam", "sgd_momentum": 0.9},
     )
+```

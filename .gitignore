@@ -15,4 +15,3 @@ VinePPO
 .report_cache
 stable-baselines3
 site/
-docs/generated/

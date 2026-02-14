@@ -410,7 +410,7 @@ class TRPOTrainer:
 def _evaluate_vectorized(
     agent: TRPOAgent,
     env_id: str,
-    n_episodes: int = 10,
+    n_episodes: int = 150,
     seed: int = 42,
     gamma: float = 0.99,
     normalize_observation: bool = True,

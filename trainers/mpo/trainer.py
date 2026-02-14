@@ -334,7 +334,7 @@ class MPOTrainer:
 def _evaluate_vectorized(
     agent: MPOAgent,
     env_id: str,
-    n_episodes: int = 10,
+    n_episodes: int = 150,
     seed: int = 42,
 ) -> Dict[str, float]:
     """

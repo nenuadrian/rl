@@ -617,7 +617,7 @@ class VMPOTrainer:
 def _evaluate_vectorized(
     agent: VMPOAgent,
     env_id: str,
-    n_episodes: int = 10,
+    n_episodes: int = 150,
     seed: int = 42,
     gamma: float = 0.99,
     obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
