@@ -13,3 +13,4 @@ videos/
 cleanrl
 VinePPO
 .report_cache
+stable-baselines3

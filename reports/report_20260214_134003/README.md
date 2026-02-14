@@ -1,7 +1,7 @@
 # Report: `adrian-research/minerva-rl`
 
-- Generated: 2026-02-14 14:03:24
-- Included runs: 87 (`_step` > 10000)
+- Generated: 2026-02-14 13:40:03
+- Included runs: 84 (`_step` > 10000)
 - Algorithm key source: run config `command`
 - Environment key source: run config `env`
 - Metric: `eval/return_mean`
@@ -14,136 +14,29 @@ Max achieved table (`eval/return_max`, fallback to selected metric), reported as
 
 | Environment | `ppo` | `ppo_trxl` | `vmpo` |
 |---|---|---|---|
-| `Ant` | - | - | 969.4 +/- 75.6 |
-| `HalfCheetah` | 74.3 +/- 38.3 | - | 1913.0 +/- 521.2 |
-| `Humanoid` | - | - | 758.3 +/- 135.6 |
+| `Ant-v5` | - | - | 969.4 +/- 75.6 |
+| `HalfCheetah-v5` | 74.3 +/- 40.0 | - | 1913.0 +/- 521.2 |
+| `Humanoid-v5` | - | - | 758.3 +/- 135.6 |
 | `ProofofMemory-v0` | - | 1.4 +/- 0.0 | - |
-| `Walker2d` | 67.5 +/- 15.2 | - | 1990.7 +/- 387.3 |
-| `cheetah/run` | 55.9 +/- 2.0 | - | 245.9 +/- 72.4 |
-| `humanoid/run` | - | - | 3.1 +/- 0.4 |
-| `humanoid/walk` | - | - | 8.9 +/- 2.6 |
-
-## Hyperparameters by Algorithm
-
-Rows are hyperparameters and columns are environments. If multiple runs differ for a cell, values are listed together.
-
-### `ppo`
-
-| Hyperparameter | `HalfCheetah` | `Walker2d` | `cheetah/run` |
-|---|---|---|---|
-| `anneal_lr` | True | True | True |
-| `clip_ratio` | 0.15 / 0.2 | 0.15 | 0.25 |
-| `clip_vloss` | True | True | True |
-| `critic_layer_sizes` | [512,256] / [512,512,256] / [526,526,256] | [526,526,256] | [526,526,256] |
-| `device` | None | None | None |
-| `ent_coef` | 0 / 0.0001 / 0.0003 | 0.0003 | 0.0001 |
-| `eval_interval` | 10000 | 10000 | 10000 |
-| `gae_lambda` | 0.95 | 0.95 | 0.95 |
-| `gamma` | 0.99 | 0.99 | 0.99 |
-| `generate_video` | False | - | False |
-| `max_grad_norm` | 0.5 / 1 / 1.5 | 0.5 | 0.5 |
-| `minibatch_size` | 128 / 256 / 512 / 64 | 512 | 256 |
-| `norm_adv` | True | True | True |
-| `normalize_obs` | True | True | True |
-| `num_envs` | 1 | 1 / 16 | 1 |
-| `optimizer_type` | adam | adam | adam |
-| `policy_layer_sizes` | [256,256,256] / [256,256] | [256,256,256] | [256,256,256] |
-| `policy_lr` | 0.0001 / 0.0002 / 0.0003 | 0.0001 | 0.0002 |
-| `rollout_steps` | 1024 / 2048 / 512 / 8192 | 8192 | 2048 |
-| `save_interval` | 1000000 | 1000000 | 1000000 |
-| `seed` | 42 | 42 | 42 |
-| `sgd_momentum` | 0.9 | 0.9 | 0.9 |
-| `target_kl` | 0 / 0.02 | 0.02 | 0.02 |
-| `total_steps` | 1000000 / 2000000 | 30000000 | 3000000 |
-| `update_epochs` | 10 / 12 / 5 / 6 | 12 | 4 |
-| `value_lr` | 0.0001 / 0.0003 / 2e-05 / 3e-05 | 2e-05 | 0.0003 |
-| `vf_coef` | 0.5 | 0.5 | 1 |
-
-### `ppo_trxl`
-
-| Hyperparameter | `ProofofMemory-v0` |
-|---|---|
-| `anneal_steps` | 163840000 |
-| `clip_coef` | 0.2 |
-| `clip_vloss` | True |
-| `device` | None |
-| `eval_interval` | 2048 |
-| `final_ent_coef` | 1e-06 |
-| `final_lr` | 1e-05 |
-| `gae_lambda` | 0.95 |
-| `gamma` | 0.995 |
-| `generate_video` | False |
-| `init_ent_coef` | 0.001 |
-| `init_lr` | 0.0003 |
-| `max_grad_norm` | 0.5 |
-| `norm_adv` | False |
-| `num_envs` | 16 |
-| `num_minibatches` | 8 |
-| `num_steps` | 128 |
-| `optimizer_type` | None |
-| `reconstruction_coef` | 0 |
-| `save_interval` | 8192 |
-| `seed` | 42 |
-| `sgd_momentum` | None |
-| `target_kl` | None |
-| `total_steps` | 25000 |
-| `trxl_dim` | 64 |
-| `trxl_memory_length` | 16 |
-| `trxl_num_heads` | 1 |
-| `trxl_num_layers` | 4 |
-| `trxl_positional_encoding` | none |
-| `update_epochs` | 4 |
-| `vf_coef` | 0.1 |
-
-### `vmpo`
-
-| Hyperparameter | `Ant` | `HalfCheetah` | `Humanoid` | `Walker2d` | `cheetah/run` | `humanoid/run` | `humanoid/walk` |
-|---|---|---|---|---|---|---|---|
-| `advantage_estimator` | returns | gae / returns | returns | returns | returns | returns | returns |
-| `alpha_lr` | 0.0001 | 0.0001 / 0.0003 | 0.0001 / 0.0003 | 0.0001 | 0.0001 | 0.0001 | 5e-05 |
-| `device` | None | None | None | None | None | None | None |
-| `epsilon_eta` | 0.25 / 0.7 | 0.25 / 0.7 | 0.05 / 0.25 | 0.25 / 0.7 | 0.1 | 0.1 / 0.3 | 0.1 |
-| `epsilon_mu` | 0.05 | 0.05 | 0.05 | 0.05 | 0.05 | 0.05 | 0.01 / 0.05 |
-| `epsilon_sigma` | 0.001 | 0.001 | 0.0003 | 0.001 | 0.0001 / 0.0006 | 0.0003 | 0.02 |
-| `eval_interval` | 10000 | 10000 / 20000 | 10000 | 10000 / 20000 | 10000 / 25000 | 10000 | 10000 |
-| `gae_lambda` | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 | 0.97 |
-| `gamma` | 0.99 | 0.99 | 0.995 | 0.99 | 0.99 | 0.995 | 0.99 / 0.995 |
-| `generate_video` | False | False | False | False / True | False | False | False |
-| `max_grad_norm` | 0.5 / 1 | 0.5 / 1 / 1.5 | 0.5 / 1 | 0.5 / 1 | 1 / 2 | 0.5 / 1 | 0.5 / 1 |
-| `normalize_advantages` | True | False / True | False / True | True | True | True | True |
-| `num_envs` | 1 | 1 / 16 | 1 | 1 | 1 / 16 | 1 | 1 |
-| `optimizer_type` | adam | adam | adam | adam | adam | adam | adam |
-| `policy_layer_sizes` | [256,256,256] | [256,256,256] | [256,256,256] | [256,256,256] | [256,256,256] | [256,256,256] | [256,256,256] |
-| `policy_lr` | 0.0001 | 0.0001 / 0.0002 | 0.0001 / 5e-05 | 0.0001 | 0.0002 | 5e-05 | 0.0001 |
-| `popart_beta` | - | 0.0001 | - | 0.0001 | - | - | - |
-| `popart_eps` | - | 1e-08 | - | 1e-08 | - | - | - |
-| `popart_min_sigma` | - | 0.001 | - | 0.001 | - | - | - |
-| `rollout_steps` | 1024 / 2048 | 1024 / 512 / 8192 | 1024 / 2048 / 4096 | 2048 / 4096 | 1024 / 2048 / 8192 | 8192 | 1024 / 4096 / 8192 |
-| `save_interval` | 200000 | 200000 | 100000 | 200000 | 500000 | 100000 | 200000 |
-| `seed` | 42 | 42 | 42 | 42 | 42 | 42 | 42 |
-| `sgd_momentum` | 0.9 | 0.9 | 0.9 | 0.9 | 0.9 | 0.9 | 0.9 |
-| `temperature_init` | 1 / 2 | 2 | 1 / 2 | 1 / 2 | 1 / 2 | 1 / 4 | 1 |
-| `temperature_lr` | 0.001 | 0.001 | 0.0002 / 0.0005 | 0.001 | 0.0003 | 0.0005 | 0.0001 |
-| `topk_fraction` | 0.2 / 0.4 | 0.2 / 0.25 / 0.4 / 0.45 | 0.1 / 0.3 / 0.4 | 0.4 | 0.25 / 0.4 | 0.4 | 0.3 / 0.4 / 0.5 |
-| `total_steps` | 1000000 | 1000000 / 30000000 | 1000000 / 3000000 | 1000000 / 30000000 | 1000000 / 10000000 / 4000000 | 1000000 / 4000000 | 1000000 / 1500000 |
-| `updates_per_step` | 1 / 2 | 1 / 2 | 1 / 2 / 4 | 1 | 2 | 1 / 12 / 6 | 1 / 3 / 4 / 6 |
-| `value_layer_sizes` | [526,526,256] | [526,526,256] | [526,526,256] | [526,526,256] | [526,526,256] | [526,526,256] | [526,526,256] |
-| `value_lr` | 0.0003 | 0.0003 | 0.0001 | 0.0003 | 0.0003 / 5e-05 | 0.0001 | 0.0003 |
+| `Walker2d-v5` | 67.5 +/- 15.2 | - | 1990.7 +/- 387.3 |
+| `dm_control/cheetah/run` | 55.9 +/- 2.0 | - | 245.9 +/- 72.4 |
+| `dm_control/humanoid/run` | - | - | 3.1 +/- 0.4 |
+| `dm_control/humanoid/walk` | - | - | 8.9 +/- 2.6 |
 
 ## Summary
 
 | Environment | Algorithms | Runs |
 |---|---|---:|
-| `Ant` | `vmpo` | 2 |
-| `HalfCheetah` | `ppo`, `vmpo` | 34 |
-| `Humanoid` | `vmpo` | 6 |
+| `Ant-v5` | `vmpo` | 2 |
+| `HalfCheetah-v5` | `ppo`, `vmpo` | 31 |
+| `Humanoid-v5` | `vmpo` | 6 |
 | `ProofofMemory-v0` | `ppo_trxl` | 1 |
-| `Walker2d` | `ppo`, `vmpo` | 26 |
-| `cheetah/run` | `ppo`, `vmpo` | 8 |
-| `humanoid/run` | `vmpo` | 3 |
-| `humanoid/walk` | `vmpo` | 7 |
+| `Walker2d-v5` | `ppo`, `vmpo` | 26 |
+| `dm_control/cheetah/run` | `ppo`, `vmpo` | 8 |
+| `dm_control/humanoid/run` | `vmpo` | 3 |
+| `dm_control/humanoid/walk` | `vmpo` | 7 |
 
-## Ant
+## Ant-v5
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
@@ -154,11 +47,11 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [vmpo-Ant-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/acih2ynl) | `vmpo` | 53248 | 533.019 |
 | [vmpo-Ant-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/o3lqy1za) | `vmpo` | 651323 | 842.343 |
 
-## HalfCheetah
+## HalfCheetah-v5
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
-| `ppo` | 18 | 6724505 |
+| `ppo` | 15 | 6591398 |
 | `vmpo` | 14 | 9124016 |
 
 | Run | Algorithm | _step | eval/return_mean |
@@ -179,9 +72,6 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/cvctyirk) | `ppo` | 501760 | 15.796 |
 | [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/qubtoaud) | `ppo` | 64063 | 48.222 |
 | [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/4hv3605n) | `ppo` | 40039 | 42.405 |
-| [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/r8zi22zt) | `ppo` | 19018 | 25.879 |
-| [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/wroit0qr) | `ppo` | 88064 | 28.107 |
-| [ppo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/216a70t1) | `ppo` | 26025 | 44.274 |
 | [vmpo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/go9sgart) | `vmpo` | 163840 | 1536.114 |
 | [vmpo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/2t04gfka) | `vmpo` | 18000 | - |
 | [vmpo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/yuuzhp20) | `vmpo` | 711000 | 320.989 |
@@ -198,7 +88,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [vmpo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/fe35zebo) | `vmpo` | 831000 | -217.872 |
 | [vmpo-HalfCheetah-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/wxri5km8) | `vmpo` | 1000000 | -255.045 |
 
-## Humanoid
+## Humanoid-v5
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
@@ -223,7 +113,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 |---|---|---:|---:|
 | [ppo_trxl-ProofofMemory-v0-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/q58ib1jb) | `ppo_trxl` | 24576 | 1.190 |
 
-## Walker2d
+## Walker2d-v5
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
@@ -259,7 +149,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [vmpo-Walker2d-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/6dithgkv) | `vmpo` | 349709 | 388.438 |
 | [vmpo-Walker2d-v5-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/jwg2hw9j) | `vmpo` | 1000000 | 1647.857 |
 
-## cheetah/run
+## dm_control/cheetah/run
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
@@ -277,7 +167,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [vmpo-dm_control/cheetah/run-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/3ethdcmd) | `vmpo` | 259072 | 26.290 |
 | [vmpo-dm_control/cheetah/run-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/39r7z09l) | `vmpo` | 1593000 | 143.589 |
 
-## humanoid/run
+## dm_control/humanoid/run
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|
@@ -289,7 +179,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | [vmpo-dm_control/humanoid/run-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/bb28nvc7) | `vmpo` | 489000 | 1.527 |
 | [vmpo-dm_control/humanoid/run-seed42](https://wandb.ai/adrian-research/minerva-rl/runs/o65wqvcl) | `vmpo` | 422000 | 1.498 |
 
-## humanoid/walk
+## dm_control/humanoid/walk
 
 | Algorithm | Averaged Runs | Total Weight (_step) |
 |---|---:|---:|

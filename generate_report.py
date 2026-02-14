@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import json
 import math
 import os
 import re
@@ -27,6 +28,7 @@ if "XDG_CACHE_HOME" not in os.environ:
 import matplotlib
 import numpy as np
 import wandb
+from matplotlib.ticker import AutoMinorLocator
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -483,53 +485,127 @@ def save_overview_plot(
             for algorithm in aggregated.get(env, {}).keys()
         }
     )
-    color_map = plt.get_cmap("tab10")
-    colors = {algorithm: color_map(i % 10) for i, algorithm in enumerate(algorithms)}
+    palette = [
+        "#d39a37",  # warm gold
+        "#5f3b7a",  # deep purple
+        "#d8bf72",  # light gold
+        "#8c6ea6",  # soft purple
+        "#b8722f",  # amber
+        "#4f6d8f",  # muted blue
+    ]
+    colors = {algorithm: palette[i % len(palette)] for i, algorithm in enumerate(algorithms)}
 
     n_envs = len(envs)
-    n_cols = min(3, max(1, math.ceil(math.sqrt(n_envs))))
+    n_cols = 2 if n_envs > 1 else 1
     n_rows = math.ceil(n_envs / n_cols)
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(6.0 * n_cols, 3.8 * n_rows),
+        figsize=(7.2 * n_cols, 4.2 * n_rows),
         squeeze=False,
         sharex=True,
+        facecolor="#d9d9d9",
     )
+    fig.patch.set_facecolor("#d9d9d9")
 
     for idx, env in enumerate(envs):
         row, col = divmod(idx, n_cols)
         ax = axes[row][col]
+        ax.set_facecolor("#d9d9d9")
         env_curves = aggregated[env]
+        final_points: list[tuple[float, str]] = []
         for algorithm in sorted(env_curves.keys()):
             curve = env_curves[algorithm]
             x_vals = curve["x"]
             y_vals = curve["y"]
             n_runs = int(curve["num_runs"])
+            color = colors[algorithm]
             ax.plot(
                 x_vals,
                 y_vals,
                 label=f"{algorithm} (n={n_runs})",
-                color=colors[algorithm],
-                linewidth=2.0,
+                color=color,
+                linewidth=2.8,
             )
+            if len(x_vals) > 0 and len(y_vals) > 0:
+                final_points.append((float(y_vals[-1]), color))
+                ax.scatter(
+                    [float(x_vals[-1])],
+                    [float(y_vals[-1])],
+                    color=color,
+                    s=26,
+                    edgecolors="#1e1e1e",
+                    linewidths=0.6,
+                    zorder=3,
+                )
 
-        ax.set_title(env)
+        if len(final_points) <= 4:
+            for final_y, color in final_points:
+                ax.text(
+                    0.985,
+                    final_y,
+                    f"{final_y:.1f}",
+                    ha="right",
+                    va="bottom",
+                    fontsize=9.5,
+                    color="#111111",
+                    fontweight="semibold",
+                    bbox={
+                        "facecolor": "#d9d9d9",
+                        "alpha": 0.9,
+                        "edgecolor": "none",
+                        "pad": 0.1,
+                    },
+                    zorder=4,
+                )
+
+        for spine in ax.spines.values():
+            spine.set_color("#222222")
+            spine.set_linewidth(1.2)
+
+        ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+        ax.grid(axis="y", which="major", color="#9e9e9e", linewidth=1.2, alpha=1.0)
+        ax.grid(axis="y", which="minor", color="#9e9e9e", linewidth=0.8, alpha=1.0)
+        ax.grid(axis="x", which="both", linewidth=0.0)
+        ax.tick_params(axis="both", labelsize=10, colors="#1c1c1c")
+
+        y_min, y_max = ax.get_ylim()
+        y_span = y_max - y_min
+        if y_span > 0:
+            ax.set_ylim(y_min - y_span * 0.03, y_max + y_span * 0.08)
+
+        ax.set_title(_display_env_name(env), fontsize=16, fontweight="bold", pad=8)
         ax.set_xlim(0.0, 1.0)
-        ax.grid(alpha=0.25)
-        if col == 0:
-            ax.set_ylabel(metric_key)
         if row == n_rows - 1:
-            ax.set_xlabel("normalized training progress")
-        ax.legend(fontsize=8, frameon=False)
+            ax.set_xlabel("Training Progress →", fontsize=11, fontweight="medium")
+
+        legend = ax.legend(
+            fontsize=9,
+            frameon=True,
+            fancybox=False,
+            loc="upper left",
+        )
+        legend.get_frame().set_facecolor("#d9d9d9")
+        legend.get_frame().set_edgecolor("#444444")
+        legend.get_frame().set_linewidth(0.9)
+
+        if col != 0:
+            ax.set_ylabel("")
+        else:
+            ax.set_ylabel(metric_key, fontsize=11, fontweight="medium")
 
     for idx in range(n_envs, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row][col].axis("off")
 
-    fig.suptitle("Environment Curves (time-weighted averages across runs)")
-    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.97])
-    fig.savefig(output_path, dpi=180)
+    fig.suptitle(
+        "Environment Curves",
+        fontsize=20,
+        fontweight="bold",
+        y=0.995,
+    )
+    fig.tight_layout(rect=[0.02, 0.02, 1.0, 0.96])
+    fig.savefig(output_path, dpi=220, facecolor=fig.get_facecolor())
     plt.close(fig)
     return output_path.name
 
@@ -544,6 +620,153 @@ def _format_metric(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.3f}"
+
+
+def _display_env_name(env: str) -> str:
+    name = env.strip()
+    if name.startswith("dm_control/"):
+        name = name[len("dm_control/") :]
+    if name.endswith("-v5"):
+        name = name[: -len("-v5")]
+    return name
+
+
+_CONFIG_EXCLUDED_KEYS = {
+    "command",
+    "env",
+    "wandb_entity",
+    "wandb_project",
+    "wandb_group",
+    "out_dir",
+}
+
+
+def _stringify_config_value(value: Any, *, max_len: int = 80) -> str:
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            text = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            text = str(value)
+    elif isinstance(value, float):
+        text = f"{value:.6g}"
+    else:
+        text = str(value)
+    if len(text) > max_len:
+        return text[: max_len - 3] + "..."
+    return text
+
+
+def _escape_md_cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", "<br>")
+
+
+def _build_algorithm_hparam_tables(
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+) -> dict[str, dict[str, dict[str, set[str]]]]:
+    tables: dict[str, dict[str, dict[str, set[str]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(set))
+    )
+    for env, by_algorithm in grouped_runs.items():
+        for algorithm, records in by_algorithm.items():
+            for record in records:
+                config = dict(record.run.config or {})
+                for key, value in config.items():
+                    if key in _CONFIG_EXCLUDED_KEYS or key.startswith("_"):
+                        continue
+                    tables[algorithm][env][key].add(
+                        _stringify_config_value(value)
+                    )
+    return tables
+
+
+def _write_algorithm_hparam_tables(
+    handle: Any,
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+) -> None:
+    tables = _build_algorithm_hparam_tables(grouped_runs)
+    if not tables:
+        return
+
+    handle.write("## Hyperparameters by Algorithm\n\n")
+    handle.write(
+        "Rows are hyperparameters and columns are environments. "
+        "If multiple runs differ for a cell, values are listed together.\n\n"
+    )
+
+    for algorithm in sorted(tables.keys()):
+        env_map = tables[algorithm]
+        envs = sorted(env_map.keys())
+        all_hparams = sorted({key for env in envs for key in env_map[env].keys()})
+        if not envs or not all_hparams:
+            continue
+
+        handle.write(f"### `{algorithm}`\n\n")
+        handle.write(
+            "| Hyperparameter | "
+            + " | ".join(
+                f"`{_escape_md_cell(_display_env_name(env))}`" for env in envs
+            )
+            + " |\n"
+        )
+        handle.write("|" + "---|" * (1 + len(envs)) + "\n")
+
+        for hparam in all_hparams:
+            row: list[str] = [f"`{_escape_md_cell(hparam)}`"]
+            for env in envs:
+                values = sorted(env_map[env].get(hparam, set()))
+                if not values:
+                    row.append("-")
+                elif len(values) == 1:
+                    row.append(_escape_md_cell(values[0]))
+                else:
+                    joined = " / ".join(_escape_md_cell(v) for v in values[:4])
+                    if len(values) > 4:
+                        joined += " / ..."
+                    row.append(joined)
+            handle.write("| " + " | ".join(row) + " |\n")
+        handle.write("\n")
+
+
+def _build_max_achieved_table(
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+    *,
+    metric_key: str,
+) -> list[str]:
+    envs = sorted(grouped_runs.keys())
+    algorithms = sorted(
+        {algorithm for env in envs for algorithm in grouped_runs[env].keys()}
+    )
+    if not envs or not algorithms:
+        return []
+
+    lines: list[str] = []
+    header = "| Environment | " + " | ".join(f"`{algo}`" for algo in algorithms) + " |"
+    separator = "|" + "---|" * (1 + len(algorithms))
+    lines.append(header)
+    lines.append(separator)
+
+    for env in envs:
+        row: list[str] = [f"`{_display_env_name(env)}`"]
+        for algorithm in algorithms:
+            records = grouped_runs[env].get(algorithm, [])
+            run_max_values: list[float] = []
+            for record in records:
+                summary = record.run.summary or {}
+                value = _as_float(summary.get("eval/return_max"))
+                if value is None:
+                    value = _as_float(summary.get(metric_key))
+                if value is not None:
+                    run_max_values.append(value)
+
+            if not run_max_values:
+                row.append("-")
+            else:
+                best = float(np.max(run_max_values))
+                spread = float(np.std(run_max_values))
+                row.append(f"{best:.1f} +/- {spread:.1f}")
+
+        lines.append("| " + " | ".join(row) + " |")
+    return lines
 
 
 def write_readme(
@@ -574,6 +797,19 @@ def write_readme(
                 "Each line is a time-weighted average across runs for a single "
                 "environment and algorithm. Every run timeline is normalized to `[0, 1]`.\n\n"
             )
+            top_table_lines = _build_max_achieved_table(
+                grouped_runs,
+                metric_key=metric_key,
+            )
+            if top_table_lines:
+                handle.write(
+                    "Max achieved table (`eval/return_max`, fallback to selected metric), "
+                    "reported as `max +/- std` across runs.\n\n"
+                )
+                for line in top_table_lines:
+                    handle.write(line + "\n")
+                handle.write("\n")
+                _write_algorithm_hparam_tables(handle, grouped_runs)
         else:
             handle.write(
                 "No plottable metric history was found for the selected runs.\n\n"
@@ -586,11 +822,13 @@ def write_readme(
             algorithms = sorted(grouped_runs[env].keys())
             run_count = sum(len(grouped_runs[env][algo]) for algo in algorithms)
             algo_display = ", ".join(f"`{algo}`" for algo in algorithms)
-            handle.write(f"| `{env}` | {algo_display} | {run_count} |\n")
+            handle.write(
+                f"| `{_display_env_name(env)}` | {algo_display} | {run_count} |\n"
+            )
         handle.write("\n")
 
         for env in sorted(grouped_runs.keys()):
-            handle.write(f"## {env}\n\n")
+            handle.write(f"## {_display_env_name(env)}\n\n")
             env_aggregated = aggregated.get(env, {})
             if env_aggregated:
                 handle.write("| Algorithm | Averaged Runs | Total Weight (_step) |\n")

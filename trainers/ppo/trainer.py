@@ -35,6 +35,55 @@ def _transform_reward(env: gym.Env, fn):
         return gym.wrappers.TransformReward(env, fn, env.reward_range)
 
 
+def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]:
+    """Extract per-env terminal observations from vector-env info dict."""
+    finals: list[np.ndarray | None] = [None] * int(num_envs)
+    if not isinstance(infos, dict):
+        return finals
+
+    # Gymnasium vector envs expose one of these key pairs.
+    key_pairs = (
+        ("final_obs", "_final_obs"),
+        ("final_observation", "_final_observation"),
+    )
+    for obs_key, mask_key in key_pairs:
+        if obs_key not in infos:
+            continue
+        obs_values = infos.get(obs_key)
+        mask_values = infos.get(mask_key)
+        for i in range(int(num_envs)):
+            has_final = True
+            if mask_values is not None:
+                has_final = bool(mask_values[i])
+            if not has_final:
+                continue
+            obs_i = obs_values[i]
+            if obs_i is None:
+                continue
+            finals[i] = np.asarray(obs_i, dtype=np.float32)
+        break
+
+    # Fallback for wrappers that only expose terminal observation in final_info.
+    final_infos = infos.get("final_info")
+    if final_infos is not None:
+        for i in range(min(int(num_envs), len(final_infos))):
+            if finals[i] is not None:
+                continue
+            final_info = final_infos[i]
+            if not final_info:
+                continue
+            terminal_obs = final_info.get("terminal_observation")
+            if terminal_obs is None:
+                terminal_obs = final_info.get("final_observation")
+            if terminal_obs is None:
+                terminal_obs = final_info.get("final_obs")
+            if terminal_obs is None:
+                continue
+            finals[i] = np.asarray(terminal_obs, dtype=np.float32)
+
+    return finals
+
+
 def _make_env(
     env_id: str,
     *,
@@ -273,9 +322,44 @@ class PPOTrainer:
 
                 next_obs, reward, terminated, truncated, infos = self.env.step(action)
                 next_obs = np.asarray(next_obs, dtype=np.float32)
-                done = np.asarray(terminated) | np.asarray(truncated)
-                reward = np.asarray(reward)
+                terminated = np.asarray(terminated, dtype=bool)
+                truncated = np.asarray(truncated, dtype=bool)
+                done = terminated | truncated
+                reward = np.asarray(reward, dtype=np.float32)
                 final_infos = infos.get("final_info", None) if isinstance(infos, dict) else None
+
+                # Time-limit fix:
+                # For truncated/non-terminated transitions, bootstrap from V(final_obs)
+                # before storing the transition.
+                timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
+                if np.any(timeout_mask):
+                    final_obs = _extract_final_observations(infos, self.num_envs)
+                    timeout_indices = np.flatnonzero(timeout_mask)
+                    timeout_obs_batch = []
+                    timeout_obs_env_idx = []
+                    for env_i in timeout_indices:
+                        obs_i = final_obs[int(env_i)]
+                        if obs_i is None:
+                            # Fallback for older wrappers without final_obs metadata.
+                            obs_i = np.asarray(next_obs[int(env_i)], dtype=np.float32)
+                        timeout_obs_batch.append(obs_i)
+                        timeout_obs_env_idx.append(int(env_i))
+
+                    if timeout_obs_batch:
+                        timeout_obs_t = torch.as_tensor(
+                            np.stack(timeout_obs_batch, axis=0),
+                            dtype=torch.float32,
+                            device=self.agent.device,
+                        )
+                        with torch.no_grad():
+                            timeout_values = (
+                                self.agent.value(timeout_obs_t)
+                                .cpu()
+                                .numpy()
+                                .reshape(-1)
+                            )
+                        for env_i, v_i in zip(timeout_obs_env_idx, timeout_values):
+                            reward[env_i] += self.gamma * float(v_i)
 
                 # Defensive check
                 if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
@@ -341,6 +425,8 @@ class PPOTrainer:
             ret_f = torch.tensor(ret_f, dtype=torch.float32, device=self.agent.device)
             adv_f = torch.tensor(adv_f, dtype=torch.float32, device=self.agent.device)
 
+            early_stop_due_to_kl = False
+            early_stop_kl = float("nan")
             for _ in range(self.update_epochs):
                 for idx in self.buffer.minibatches(self.minibatch_size):
                     batch = {
@@ -364,8 +450,18 @@ class PPOTrainer:
                         and self.target_kl > 0.0
                         and approx_kl > self.target_kl
                     ):
-                        # Stop the current minibatch pass early to preserve trust region.
+                        # Stop remaining minibatches and epochs to preserve trust region.
+                        early_stop_due_to_kl = True
+                        early_stop_kl = float(approx_kl)
                         break
+                if early_stop_due_to_kl:
+                    break
+
+            if early_stop_due_to_kl:
+                print(
+                    f"[PPO][early-stop] step={step}/{scheduled_steps}: "
+                    f"approx_kl={early_stop_kl:.6f} > target_kl={self.target_kl:.6f}"
+                )
 
             self.buffer.reset()
 
