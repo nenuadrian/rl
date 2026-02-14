@@ -2,51 +2,8 @@ import numpy as np
 import torch
 
 
-from trainers.ppo.agent import PPOAgent
-from trainers.trpo.agent import TRPOAgent
 from trainers.vmpo.agent import VMPOAgent
 from trainers.mpo.agent import MPOAgent
-
-
-def test_ppo_agent_act_and_update():
-    torch.manual_seed(0)
-    np.random.seed(0)
-
-    obs_dim = 4
-    act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
-
-    agent = PPOAgent(
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
-        device=torch.device("cpu"),
-        policy_layer_sizes=(32, 32),
-        critic_layer_sizes=(32, 32),
-    )
-
-    batch_size = 16
-    obs = torch.randn(batch_size, obs_dim)
-    actions, log_probs, values = agent.act(obs, deterministic=False)
-
-    returns = values + torch.randn_like(values) * 0.1
-    advantages = torch.randn_like(values)
-
-    batch = {
-        "obs": obs,
-        "actions": actions.detach(),
-        "log_probs": log_probs.detach(),
-        "returns": returns.detach(),
-        "advantages": advantages.detach(),
-    }
-
-    metrics = agent.update(batch)
-    assert "loss/policy" in metrics
-    assert "loss/value" in metrics
-    assert "entropy" in metrics
-    assert "approx_kl" in metrics
 
 
 def test_vmpo_agent_act_and_update():
@@ -151,9 +108,7 @@ def test_vmpo_temperature_init_maps_to_eta_space():
     )
 
     eta = torch.nn.functional.softplus(agent.log_temperature.detach())
-    assert torch.allclose(
-        eta, torch.tensor(target_temperature), rtol=1e-6, atol=1e-6
-    )
+    assert torch.allclose(eta, torch.tensor(target_temperature), rtol=1e-6, atol=1e-6)
 
 
 def test_mpo_agent_act_and_update():
@@ -234,53 +189,3 @@ def test_mpo_agent_act_and_update():
     # Update should actually modify parameters.
     assert _any_param_changed(q_before, agent.q)
     assert _any_param_changed(policy_before, agent.policy)
-
-
-def test_trpo_agent_act_and_update():
-    torch.manual_seed(0)
-    np.random.seed(0)
-
-    obs_dim = 5
-    act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
-
-    agent = TRPOAgent(
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
-        device=torch.device("cpu"),
-        policy_layer_sizes=(32, 32),
-        critic_layer_sizes=(32, 32),
-        target_kl=0.02,
-        cg_iters=5,
-        backtrack_iters=5,
-        value_epochs=2,
-        value_minibatch_size=16,
-    )
-
-    obs = torch.randn(12, obs_dim)
-    actions, log_probs, values = agent.act(obs, deterministic=False)
-
-    returns = values + torch.randn_like(values) * 0.1
-    advantages = torch.randn_like(values)
-
-    batch = {
-        "obs": obs,
-        "actions": actions.detach(),
-        "log_probs": log_probs.detach(),
-        "returns": returns.detach(),
-        "advantages": advantages.detach(),
-    }
-
-    metrics = agent.update(batch)
-    expected_keys = {
-        "policy/surrogate_before",
-        "policy/surrogate_after",
-        "policy/kl",
-        "policy/line_search_accepted",
-        "loss/value",
-        "value/mae",
-    }
-    assert expected_keys.issubset(metrics.keys())

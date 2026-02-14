@@ -12,7 +12,6 @@ from trainers.vmpo.trainer import VMPOTrainer
 from trainers.mpo.trainer import MPOTrainer
 from trainers.ppo.trainer import PPOTrainer
 from trainers.ppo_trxl.trainer import PPOTRxLTrainer
-from trainers.trpo.trainer import TRPOTrainer
 
 
 def _print_banner() -> None:
@@ -103,7 +102,6 @@ if __name__ == "__main__":
         choices=[
             "ppo",
             "ppo_trxl",
-            "trpo",
             "vmpo",
             "mpo",
         ],
@@ -134,7 +132,7 @@ if __name__ == "__main__":
         type=str.lower,
         choices=["adam", "sgd"],
         default=None,
-        help="Optimizer override for PPO/TRPO/VMPO/MPO (adam or sgd)",
+        help="Optimizer override for PPO/VMPO/MPO (adam or sgd)",
     )
     parser.add_argument(
         "--sgd_momentum",
@@ -200,7 +198,6 @@ if __name__ == "__main__":
                 "update_epochs": int(args.update_epochs),
                 "minibatch_size": int(args.minibatch_size),
                 "policy_lr": float(args.policy_lr),
-                "value_lr": float(args.value_lr),
                 "clip_ratio": float(args.clip_ratio),
                 "ent_coef": float(args.ent_coef),
                 "vf_coef": float(args.vf_coef),
@@ -227,7 +224,6 @@ if __name__ == "__main__":
             update_epochs=int(args.update_epochs),
             minibatch_size=int(args.minibatch_size),
             policy_lr=float(args.policy_lr),
-            value_lr=float(args.value_lr),
             clip_ratio=float(args.clip_ratio),
             ent_coef=float(args.ent_coef),
             vf_coef=float(args.vf_coef),
@@ -305,57 +301,6 @@ if __name__ == "__main__":
             trxl_memory_length=int(args.trxl_memory_length),
             trxl_positional_encoding=str(args.trxl_positional_encoding),
             reconstruction_coef=float(args.reconstruction_coef),
-            capture_video=bool(args.generate_video),
-            run_name=run_name,
-        )
-        trainer.train(
-            total_steps=int(args.total_steps),
-            eval_interval=int(args.eval_interval),
-            save_interval=int(args.save_interval),
-            out_dir=args.out_dir,
-        )
-    elif algo == "trpo":
-        trpo_params = {
-            "gamma": float(args.gamma),
-            "gae_lambda": float(args.gae_lambda),
-            "target_kl": float(args.target_kl),
-            "cg_iters": int(args.cg_iters),
-            "cg_damping": float(args.cg_damping),
-            "backtrack_coeff": float(args.backtrack_coeff),
-            "backtrack_iters": int(args.backtrack_iters),
-            "value_lr": float(args.value_lr),
-            "value_epochs": int(args.value_epochs),
-            "value_minibatch_size": int(args.value_minibatch_size),
-            "max_grad_norm": float(args.max_grad_norm),
-            "normalize_advantages": bool(args.normalize_advantages),
-            "optimizer_type": str(args.optimizer_type),
-            "sgd_momentum": float(args.sgd_momentum),
-        }
-        _print_config("TRPO config", trpo_params)
-
-        trainer = TRPOTrainer(
-            env_id=args.env,
-            seed=args.seed,
-            device=device,
-            policy_layer_sizes=tuple(args.policy_layer_sizes),
-            critic_layer_sizes=tuple(args.critic_layer_sizes),
-            rollout_steps=int(args.rollout_steps),
-            gamma=float(args.gamma),
-            gae_lambda=float(args.gae_lambda),
-            target_kl=float(args.target_kl),
-            cg_iters=int(args.cg_iters),
-            cg_damping=float(args.cg_damping),
-            backtrack_coeff=float(args.backtrack_coeff),
-            backtrack_iters=int(args.backtrack_iters),
-            value_lr=float(args.value_lr),
-            value_epochs=int(args.value_epochs),
-            value_minibatch_size=int(args.value_minibatch_size),
-            max_grad_norm=float(args.max_grad_norm),
-            normalize_advantages=bool(args.normalize_advantages),
-            optimizer_type=str(args.optimizer_type),
-            sgd_momentum=float(args.sgd_momentum),
-            normalize_obs=bool(args.normalize_obs),
-            num_envs=int(args.num_envs),
             capture_video=bool(args.generate_video),
             run_name=run_name,
         )

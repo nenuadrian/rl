@@ -115,7 +115,9 @@ class VMPOAgent:
         # Lagrange Multipliers (Dual Variables)
 
         # Temperature (eta) for advantage weighting
-        temperature_init_t = torch.tensor(self.temperature_init, device=device)
+        temperature_init_t = torch.tensor(
+            self.temperature_init, dtype=torch.float32, device=device
+        )
         temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
         self.log_temperature = nn.Parameter(
             torch.log(torch.expm1(temperature_init_t))
@@ -126,8 +128,12 @@ class VMPOAgent:
 
         # KL Penalties (alpha) for trust region
         # Initializing to 0.1 (log space) for a stronger initial penalty than 0
-        self.log_alpha_mu = nn.Parameter(torch.tensor(np.log(1.0), device=device))
-        self.log_alpha_sigma = nn.Parameter(torch.tensor(np.log(1.0), device=device))
+        self.log_alpha_mu = nn.Parameter(
+            torch.tensor(np.log(1.0), dtype=torch.float32, device=device)
+        )
+        self.log_alpha_sigma = nn.Parameter(
+            torch.tensor(np.log(1.0), dtype=torch.float32, device=device)
+        )
 
         self.alpha_opt = self._build_optimizer(
             [self.log_alpha_mu, self.log_alpha_sigma], lr=self.alpha_lr

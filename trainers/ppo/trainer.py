@@ -220,23 +220,43 @@ class Agent(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
+        policy_layer_sizes: Tuple[int, ...],
+        value_layer_sizes: Tuple[int, ...],
     ):
         super().__init__()
-        self.critic = nn.Sequential(
-            layer_init(nn.Linear(obs_dim, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
+        if len(policy_layer_sizes) == 0:
+            raise ValueError("policy_layer_sizes must contain at least one layer size")
+        if len(value_layer_sizes) == 0:
+            raise ValueError("critic_layer_sizes must contain at least one layer size")
+
+        self.critic = self._build_mlp(
+            input_dim=obs_dim,
+            hidden_layer_sizes=value_layer_sizes,
+            output_dim=1,
+            output_std=1.0,
         )
-        self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(obs_dim, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, act_dim), std=0.01),
+        self.actor_mean = self._build_mlp(
+            input_dim=obs_dim,
+            hidden_layer_sizes=policy_layer_sizes,
+            output_dim=act_dim,
+            output_std=0.01,
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
+
+    @staticmethod
+    def _build_mlp(
+        input_dim: int,
+        hidden_layer_sizes: Tuple[int, ...],
+        output_dim: int,
+        output_std: float,
+    ) -> nn.Sequential:
+        layers = []
+        last_dim = input_dim
+        for hidden_dim in hidden_layer_sizes:
+            layers.extend([layer_init(nn.Linear(last_dim, hidden_dim)), nn.Tanh()])
+            last_dim = hidden_dim
+        layers.append(layer_init(nn.Linear(last_dim, output_dim), std=output_std))
+        return nn.Sequential(*layers)
 
     def get_value(self, x):
         return self.critic(x)
@@ -270,7 +290,6 @@ class PPOTrainer:
         update_epochs: int = 10,
         minibatch_size: int = 64,
         policy_lr: float = 3e-4,
-        value_lr: float = 1e-4,
         clip_ratio: float = 0.2,
         ent_coef: float = 0.0,
         vf_coef: float = 0.5,
@@ -286,15 +305,6 @@ class PPOTrainer:
         capture_video: bool = False,
         run_name: str | None = None,
     ):
-        # Intentionally ignored to match the implementation-details reference behavior.
-        _ = (
-            policy_layer_sizes,
-            critic_layer_sizes,
-            value_lr,
-            optimizer_type,
-            sgd_momentum,
-        )
-
         self.env_id = str(env_id)
         self.seed = int(seed)
         self.device = device
@@ -323,6 +333,8 @@ class PPOTrainer:
         self.anneal_lr = bool(anneal_lr)
 
         self.learning_rate = float(policy_lr)
+        self.optimizer_type = str(optimizer_type).strip().lower()
+        self.sgd_momentum = float(sgd_momentum)
 
         self.normalize_obs = bool(normalize_obs)
         self.capture_video = bool(capture_video)
@@ -330,7 +342,7 @@ class PPOTrainer:
             run_name if run_name is not None else f"ppo-{self.env_id}-seed{self.seed}"
         ).replace("/", "-")
 
-        self.eval_episodes = 5
+        self.eval_episodes = 50
         self.eval_deterministic = True
         self.last_checkpoint = 0
 
@@ -370,12 +382,28 @@ class PPOTrainer:
         self.agent = Agent(
             obs_dim=obs_dim,
             act_dim=act_dim,
+            policy_layer_sizes=tuple(policy_layer_sizes),
+            value_layer_sizes=tuple(critic_layer_sizes),
         ).to(self.device)
 
-        self.optimizer = optim.Adam(
-            self.agent.parameters(),
-            lr=self.learning_rate,
-            eps=1e-5,
+        self.optimizer = self._build_optimizer()
+
+    def _build_optimizer(self) -> torch.optim.Optimizer:
+        if self.optimizer_type == "adam":
+            return optim.Adam(
+                self.agent.parameters(),
+                lr=self.learning_rate,
+                eps=1e-5,
+            )
+        if self.optimizer_type == "sgd":
+            return optim.SGD(
+                self.agent.parameters(),
+                lr=self.learning_rate,
+                momentum=self.sgd_momentum,
+            )
+        raise ValueError(
+            f"Unsupported PPO optimizer_type '{self.optimizer_type}'. "
+            "Expected one of: adam, sgd."
         )
 
     def train(

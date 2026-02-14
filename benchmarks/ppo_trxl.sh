@@ -11,7 +11,13 @@ environments=(
     "MysteryPath-v0"
 )
 
-WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME:-minerva-rl-benchmark-3}"
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <benchmark-suffix> [extra main.py args...]" >&2
+    exit 1
+fi
+BENCHMARK_SUFFIX="$1"
+shift
+WANDB_PROJECT_NAME="minerva-rl-benchmark-${BENCHMARK_SUFFIX}"
 SEEDS="${SEEDS:-1}"
 SEED_START="${SEED_START:-42}"
 EXTRA_ARGS=("$@")

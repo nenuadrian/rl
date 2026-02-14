@@ -35,6 +35,63 @@ def _transform_reward(env: gym.Env, fn):
         return gym.wrappers.TransformReward(env, fn, env.reward_range)
 
 
+def _iter_final_info_entries(infos) -> list[tuple[int, dict]]:
+    """Yield (env_index, final_info_dict) entries across possible final_info layouts."""
+    if not isinstance(infos, dict):
+        return []
+
+    final_infos = infos.get("final_info")
+    if final_infos is None:
+        return []
+
+    entries: list[tuple[int, dict]] = []
+
+    if isinstance(final_infos, (list, tuple)):
+        seq = list(final_infos)
+        mask = infos.get("_final_info")
+        mask_arr = np.asarray(mask).reshape(-1) if mask is not None else None
+        for i, item in enumerate(seq):
+            if mask_arr is not None and i < mask_arr.size and not bool(mask_arr[i]):
+                continue
+            if isinstance(item, dict):
+                entries.append((int(i), item))
+        return entries
+
+    if isinstance(final_infos, np.ndarray):
+        seq = final_infos.tolist()
+        mask = infos.get("_final_info")
+        mask_arr = np.asarray(mask).reshape(-1) if mask is not None else None
+        for i, item in enumerate(seq):
+            if mask_arr is not None and i < mask_arr.size and not bool(mask_arr[i]):
+                continue
+            if isinstance(item, dict):
+                entries.append((int(i), item))
+        return entries
+
+    if isinstance(final_infos, dict):
+        # Single final_info payload.
+        if (
+            "episode" in final_infos
+            or "terminal_observation" in final_infos
+            or "final_observation" in final_infos
+            or "final_obs" in final_infos
+        ):
+            return [(0, final_infos)]
+
+        # Mapping keyed by env indices.
+        for key, item in final_infos.items():
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx = int(key)
+            except Exception:
+                idx = 0
+            entries.append((idx, item))
+        return entries
+
+    return []
+
+
 def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]:
     """Extract per-env terminal observations from vector-env info dict."""
     finals: list[np.ndarray | None] = [None] * int(num_envs)
@@ -63,7 +120,56 @@ def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]
             finals[i] = np.asarray(obs_i, dtype=np.float32)
         break
 
+    # Fallback for wrappers that only expose terminal observation in final_info.
+    for i, final_info in _iter_final_info_entries(infos):
+        if i < 0 or i >= int(num_envs):
+            continue
+        if finals[i] is not None:
+            continue
+        if not final_info:
+            continue
+        terminal_obs = final_info.get("terminal_observation")
+        if terminal_obs is None:
+            terminal_obs = final_info.get("final_observation")
+        if terminal_obs is None:
+            terminal_obs = final_info.get("final_obs")
+        if terminal_obs is None:
+            continue
+        finals[i] = np.asarray(terminal_obs, dtype=np.float32)
+
     return finals
+
+
+def _extract_episode_returns(infos) -> list[tuple[int, float]]:
+    """Extract per-env episode returns from vector-env info dict."""
+    returns: list[tuple[int, float]] = []
+    if not isinstance(infos, dict):
+        return returns
+
+    # Vector envs commonly expose episode stats as infos["episode"] with mask infos["_episode"].
+    if "episode" in infos:
+        episode = infos["episode"]
+        ep_returns = np.asarray(episode["r"]).reshape(-1)
+        ep_mask = np.asarray(
+            infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
+        ).reshape(-1)
+        for idx in np.where(ep_mask)[0]:
+            returns.append((int(idx), float(ep_returns[idx])))
+        return returns
+
+    # Some wrappers/setups expose terminal episode stats via final_info.
+    for idx, item in _iter_final_info_entries(infos):
+        if not item:
+            continue
+        episode = item.get("episode")
+        if not isinstance(episode, dict):
+            continue
+        if "r" not in episode:
+            continue
+        episodic_return = float(np.asarray(episode["r"]).reshape(-1)[0])
+        returns.append((int(idx), episodic_return))
+
+    return returns
 
 
 def _find_wrapper(env: gym.Env, wrapper_type: type[gym.Wrapper]):
@@ -324,6 +430,8 @@ class VMPOTrainer:
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
         # Current observation is episode start until the first action is taken.
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
+        self.last_eval = 0
+        self.last_checkpoint = 0
 
     def _make_train_env(
         self,
@@ -382,11 +490,19 @@ class VMPOTrainer:
         interval_episode_max = float("-inf")
         total_update_count = 0
 
+        total_steps = int(total_steps)
+        eval_interval = int(eval_interval)
+        save_interval = int(save_interval)
+
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
+        global_step = 0
+        env_steps = 0
 
-        for step in range(1, total_steps + 1):
+        while global_step < total_steps:
+            env_steps += 1
+            global_step += self.num_envs
             restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
             importance_weights = np.ones(self.num_envs, dtype=np.float32)
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
@@ -441,26 +557,47 @@ class VMPOTrainer:
 
             self.episode_return += reward
 
+            episode_stats = _extract_episode_returns(infos)
+            logged_envs: set[int] = set()
+            for env_i, episode_return_f in episode_stats:
+                logged_envs.add(int(env_i))
+                log_wandb(
+                    {"train/episode_return": episode_return_f},
+                    step=global_step,
+                    silent=True,
+                )
+                print(
+                    f"[VMPO][episode] step={global_step}/{total_steps}, "
+                    f"env={int(env_i)}, return={episode_return_f:.3f}"
+                )
+                interval_episode_count += 1
+                interval_episode_sum += episode_return_f
+                interval_episode_min = min(interval_episode_min, episode_return_f)
+                interval_episode_max = max(interval_episode_max, episode_return_f)
+
+            # Fallback when wrappers don't expose episode info payload.
             finished_mask = done.astype(bool)
             if np.any(finished_mask):
                 finished_indices = np.flatnonzero(finished_mask)
-                finished_returns = self.episode_return[finished_mask]
-                self.episode_return[finished_mask] = 0.0
-                for env_i, episode_return in zip(finished_indices, finished_returns):
-                    episode_return_f = float(episode_return)
+                for env_i in finished_indices:
+                    if int(env_i) in logged_envs:
+                        self.episode_return[int(env_i)] = 0.0
+                        continue
+                    episode_return_f = float(self.episode_return[int(env_i)])
                     log_wandb(
                         {"train/episode_return": episode_return_f},
-                        step=step,
+                        step=global_step,
                         silent=True,
                     )
                     print(
-                        f"[VMPO][episode] step={step}/{total_steps}, "
+                        f"[VMPO][episode] step={global_step}/{total_steps}, "
                         f"env={int(env_i)}, return={episode_return_f:.3f}"
                     )
                     interval_episode_count += 1
                     interval_episode_sum += episode_return_f
                     interval_episode_min = min(interval_episode_min, episode_return_f)
                     interval_episode_max = max(interval_episode_max, episode_return_f)
+                    self.episode_return[int(env_i)] = 0.0
 
             if self._rollout_full():
                 # Stack collected arrays and reshape for batch processing
@@ -512,32 +649,32 @@ class VMPOTrainer:
                 advantages_flat = advantages.reshape(T * N, 1)
 
                 batch = {
-                    "obs": torch.tensor(
+                    "obs": torch.as_tensor(
                         obs_flat, dtype=torch.float32, device=self.agent.device
                     ),
-                    "actions": torch.tensor(
+                    "actions": torch.as_tensor(
                         actions_flat, dtype=torch.float32, device=self.agent.device
                     ),
-                    "returns": torch.tensor(
+                    "returns": torch.as_tensor(
                         returns_flat, dtype=torch.float32, device=self.agent.device
                     ),
-                    "advantages": torch.tensor(
+                    "advantages": torch.as_tensor(
                         advantages_flat, dtype=torch.float32, device=self.agent.device
                     ),
-                    "restarting_weights": torch.tensor(
+                    "restarting_weights": torch.as_tensor(
                         restarting_weights_flat,
                         dtype=torch.float32,
                         device=self.agent.device,
                     ),
-                    "importance_weights": torch.tensor(
+                    "importance_weights": torch.as_tensor(
                         importance_weights_flat,
                         dtype=torch.float32,
                         device=self.agent.device,
                     ),
-                    "old_means": torch.tensor(
+                    "old_means": torch.as_tensor(
                         means_flat, dtype=torch.float32, device=self.agent.device
                     ),
-                    "old_log_stds": torch.tensor(
+                    "old_log_stds": torch.as_tensor(
                         log_stds_flat, dtype=torch.float32, device=self.agent.device
                     ),
                 }
@@ -545,7 +682,7 @@ class VMPOTrainer:
                 metrics = {}
                 for _ in range(updates_per_step):
                     metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step)
+                    log_wandb(metrics, step=global_step, silent=True)
                     for key, value in metrics.items():
                         interval_metric_sums[key] = interval_metric_sums.get(
                             key, 0.0
@@ -555,7 +692,8 @@ class VMPOTrainer:
 
                 self._reset_rollout()
 
-            if eval_interval > 0 and step % eval_interval == 0:
+            if eval_interval > 0 and self.last_eval < global_step // eval_interval:
+                self.last_eval = global_step // eval_interval
                 metrics = _evaluate_vectorized(
                     agent=self.agent,
                     env_id=self.env_id,
@@ -565,26 +703,32 @@ class VMPOTrainer:
                     capture_video=self.capture_video,
                     run_name=self.run_name,
                 )
-                log_wandb(metrics, step=step)
+                log_wandb(metrics, step=global_step, silent=True)
                 print(
-                    f"[VMPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
+                    f"[VMPO][eval] step={global_step}/{total_steps}: {_format_metrics(metrics)}"
                 )
 
-            if save_interval > 0 and step % save_interval == 0:
+            if (
+                save_interval > 0
+                and self.last_checkpoint < global_step // save_interval
+            ):
+                self.last_checkpoint = global_step // save_interval
                 ckpt_path = os.path.join(out_dir, f"vmpo.pt")
                 os.makedirs(out_dir, exist_ok=True)
                 torch.save({"policy": self.agent.policy.state_dict()}, ckpt_path)
-                print(f"[VMPO][checkpoint] step={step}: saved {ckpt_path}")
+                print(f"[VMPO][checkpoint] step={global_step}: saved {ckpt_path}")
 
             should_print_progress = (
-                step == total_steps or step % console_log_interval == 0
+                global_step >= total_steps or global_step % console_log_interval == 0
             )
             if should_print_progress:
-                progress = 100.0 * float(step) / float(total_steps)
+                progress = (
+                    100.0 * float(min(global_step, total_steps)) / float(total_steps)
+                )
                 print(
                     "[VMPO][progress] "
-                    f"step={step}/{total_steps} ({progress:.2f}%), "
-                    f"updates={total_update_count}"
+                    f"step={global_step}/{total_steps} ({progress:.2f}%), "
+                    f"env_steps={env_steps}, updates={total_update_count}"
                 )
                 if interval_episode_count > 0:
                     print(
@@ -617,7 +761,7 @@ class VMPOTrainer:
 def _evaluate_vectorized(
     agent: VMPOAgent,
     env_id: str,
-    n_episodes: int = 150,
+    n_episodes: int = 50,
     seed: int = 42,
     gamma: float = 0.99,
     obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
