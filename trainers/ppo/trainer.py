@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Mapping, Tuple
+import random
+import time
+from typing import Tuple
 
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions.normal import Normal
 
-from trainers.ppo.agent import PPOAgent
-from utils.env import infer_obs_dim, wrap_record_video
+from utils.env import wrap_record_video
 from utils.wandb_utils import log_wandb
-from trainers.ppo.rollout_buffer import RolloutBuffer
-
-
-def _format_metrics(metrics: Mapping[str, float]) -> str:
-    return ", ".join(
-        f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
-    )
 
 
 def _transform_observation(env: gym.Env, fn):
@@ -35,96 +32,228 @@ def _transform_reward(env: gym.Env, fn):
         return gym.wrappers.TransformReward(env, fn, env.reward_range)
 
 
-def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]:
-    """Extract per-env terminal observations from vector-env info dict."""
-    finals: list[np.ndarray | None] = [None] * int(num_envs)
-    if not isinstance(infos, dict):
-        return finals
-
-    # Gymnasium vector envs expose one of these key pairs.
-    key_pairs = (
-        ("final_obs", "_final_obs"),
-        ("final_observation", "_final_observation"),
-    )
-    for obs_key, mask_key in key_pairs:
-        if obs_key not in infos:
-            continue
-        obs_values = infos.get(obs_key)
-        mask_values = infos.get(mask_key)
-        for i in range(int(num_envs)):
-            has_final = True
-            if mask_values is not None:
-                has_final = bool(mask_values[i])
-            if not has_final:
-                continue
-            obs_i = obs_values[i]
-            if obs_i is None:
-                continue
-            finals[i] = np.asarray(obs_i, dtype=np.float32)
-        break
-
-    # Fallback for wrappers that only expose terminal observation in final_info.
-    final_infos = infos.get("final_info")
-    if final_infos is not None:
-        for i in range(min(int(num_envs), len(final_infos))):
-            if finals[i] is not None:
-                continue
-            final_info = final_infos[i]
-            if not final_info:
-                continue
-            terminal_obs = final_info.get("terminal_observation")
-            if terminal_obs is None:
-                terminal_obs = final_info.get("final_observation")
-            if terminal_obs is None:
-                terminal_obs = final_info.get("final_obs")
-            if terminal_obs is None:
-                continue
-            finals[i] = np.asarray(terminal_obs, dtype=np.float32)
-
-    return finals
-
-
-def _make_env(
-    env_id: str,
-    *,
-    seed: int | None = None,
-    render_mode: str | None = None,
-    gamma: float = 0.99,
-    normalize_observation: bool = True,
-    clip_observation: float | None = 10.0,
-    normalize_reward: bool = True,
-    clip_reward: float | None = 10.0,
-) -> gym.Env:
+def _resolve_env_id(env_id: str) -> str:
     if env_id.startswith("dm_control/"):
-        _, domain, task = env_id.split("/")
-        env = gym.make(f"dm_control/{domain}-{task}-v0", render_mode=render_mode)
-    else:
-        env = gym.make(env_id, render_mode=render_mode)
+        parts = env_id.split("/")
+        if len(parts) != 3:
+            raise ValueError(
+                "Expected dm_control env id format 'dm_control/<domain>/<task>', "
+                f"got '{env_id}'"
+            )
+        _, domain, task = parts
+        return f"dm_control/{domain}-{task}-v0"
+    return env_id
 
-    if seed is not None:
+
+def make_env(
+    gym_id: str,
+    seed: int,
+    idx: int,
+    capture_video: bool,
+    run_name: str,
+    normalize_observation: bool = True,
+):
+    def thunk():
+        resolved_env_id = _resolve_env_id(gym_id)
+        should_record_video = bool(capture_video and idx == 0)
+        if should_record_video:
+            env = gym.make(resolved_env_id, render_mode="rgb_array")
+        else:
+            env = gym.make(resolved_env_id)
+
+        # Keep dm_control compatibility while preserving implementation-details PPO logic.
+        env = gym.wrappers.FlattenObservation(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        if should_record_video:
+            env = wrap_record_video(env, os.path.join("videos", run_name))
+        env = gym.wrappers.ClipAction(env)
+        if normalize_observation:
+            env = gym.wrappers.NormalizeObservation(env)
+            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
+        env = gym.wrappers.NormalizeReward(env)
+        env = _transform_reward(env, lambda reward: np.clip(reward, -10, 10))
+
         env.reset(seed=seed)
         env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
 
+    return thunk
+
+
+def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True):
+    resolved_env_id = _resolve_env_id(gym_id)
+    env = gym.make(resolved_env_id)
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = gym.wrappers.ClipAction(env)
-
     if normalize_observation:
         env = gym.wrappers.NormalizeObservation(env)
-        if clip_observation is not None:
-            env = _transform_observation(
-                env,
-                lambda obs: np.clip(obs, -clip_observation, clip_observation),
-            )
-    if normalize_reward:
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        if clip_reward is not None:
-            env = _transform_reward(
-                env,
-                lambda reward: np.clip(reward, -clip_reward, clip_reward),
+        env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
+
+    env.reset(seed=seed)
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+    return env
+
+
+def find_wrapper(env, wrapper_type):
+    current = env
+    while current is not None:
+        if isinstance(current, wrapper_type):
+            return current
+        current = getattr(current, "env", None)
+    return None
+
+
+def sync_obs_rms(train_env, eval_env):
+    train_obs_norm = find_wrapper(train_env, gym.wrappers.NormalizeObservation)
+    eval_obs_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
+    if train_obs_norm is None or eval_obs_norm is None:
+        return
+    eval_obs_norm.obs_rms.mean = np.copy(train_obs_norm.obs_rms.mean)
+    eval_obs_norm.obs_rms.var = np.copy(train_obs_norm.obs_rms.var)
+    eval_obs_norm.obs_rms.count = train_obs_norm.obs_rms.count
+
+
+def evaluate(
+    agent: "Agent",
+    eval_env: gym.Env,
+    device: torch.device,
+    num_episodes: int,
+    deterministic: bool = True,
+):
+    was_training = agent.training
+    agent.eval()
+    episode_returns = []
+    episode_lengths = []
+
+    eval_obs_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
+    old_update_running_mean = None
+    if eval_obs_norm is not None and hasattr(eval_obs_norm, "update_running_mean"):
+        old_update_running_mean = eval_obs_norm.update_running_mean
+        eval_obs_norm.update_running_mean = False
+
+    with torch.no_grad():
+        for _ in range(num_episodes):
+            obs, _ = eval_env.reset()
+            done = False
+            episodic_return = 0.0
+            episodic_length = 0
+            while not done:
+                obs_tensor = torch.as_tensor(
+                    obs, dtype=torch.float32, device=device
+                ).unsqueeze(0)
+                action_mean = agent.actor_mean(obs_tensor)
+                if deterministic:
+                    action = action_mean
+                else:
+                    action_std = torch.exp(agent.actor_logstd.expand_as(action_mean))
+                    action = Normal(action_mean, action_std).sample()
+                obs, reward, terminated, truncated, _ = eval_env.step(
+                    action.squeeze(0).cpu().numpy()
+                )
+                done = terminated or truncated
+                episodic_return += float(reward)
+                episodic_length += 1
+            episode_returns.append(episodic_return)
+            episode_lengths.append(episodic_length)
+
+    if old_update_running_mean is not None:
+        eval_obs_norm.update_running_mean = old_update_running_mean
+    if was_training:
+        agent.train()
+
+    return np.array(episode_returns), np.array(episode_lengths)
+
+
+def log_episode_stats(infos, global_step: int):
+    if not isinstance(infos, dict):
+        return
+
+    # Vector envs commonly expose episode stats as infos["episode"] with infos["_episode"] mask.
+    if "episode" in infos:
+        episode = infos["episode"]
+        ep_returns = np.asarray(episode["r"]).reshape(-1)
+        ep_lengths = np.asarray(episode["l"]).reshape(-1)
+        ep_mask = np.asarray(
+            infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
+        ).reshape(-1)
+        for idx in np.where(ep_mask)[0]:
+            episodic_return = float(ep_returns[idx])
+            episodic_length = float(ep_lengths[idx])
+            print(f"global_step={global_step}, episodic_return={episodic_return}")
+            log_wandb(
+                {
+                    "charts/episodic_return": episodic_return,
+                    "charts/episodic_length": episodic_length,
+                },
+                step=global_step,
+                silent=True,
             )
 
-    return env
+    # Some wrappers/setups expose terminal episode stats via final_info.
+    elif "final_info" in infos:
+        for item in infos["final_info"]:
+            if item and "episode" in item:
+                episodic_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
+                episodic_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
+                print(f"global_step={global_step}, episodic_return={episodic_return}")
+                log_wandb(
+                    {
+                        "charts/episodic_return": episodic_return,
+                        "charts/episodic_length": episodic_length,
+                    },
+                    step=global_step,
+                    silent=True,
+                )
+
+
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class Agent(nn.Module):
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+    ):
+        super().__init__()
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, act_dim), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
+
+    def get_value(self, x):
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return (
+            action,
+            probs.log_prob(action).sum(1),
+            probs.entropy().sum(1),
+            self.critic(x),
+        )
 
 
 class PPOTrainer:
@@ -143,114 +272,111 @@ class PPOTrainer:
         policy_lr: float = 3e-4,
         value_lr: float = 1e-4,
         clip_ratio: float = 0.2,
-        ent_coef: float = 1e-3,
+        ent_coef: float = 0.0,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
         target_kl: float = 0.02,
         norm_adv: bool = True,
         clip_vloss: bool = True,
         anneal_lr: bool = True,
-        normalize_obs: bool = False,
+        normalize_obs: bool = True,
         num_envs: int = 1,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         capture_video: bool = False,
         run_name: str | None = None,
     ):
-        self.seed = seed
+        # Intentionally ignored to match the implementation-details reference behavior.
+        _ = (
+            policy_layer_sizes,
+            critic_layer_sizes,
+            value_lr,
+            optimizer_type,
+            sgd_momentum,
+        )
+
+        self.env_id = str(env_id)
+        self.seed = int(seed)
+        self.device = device
+
         self.num_envs = int(num_envs)
-        self.env_id = env_id
-        self.capture_video = bool(capture_video)
-        safe_run_name = (
-            run_name if run_name is not None else f"ppo-{env_id}-seed{seed}"
-        ).replace("/", "-")
-        self.video_dir = os.path.join("videos", safe_run_name)
+        self.num_steps = int(rollout_steps)
+        self.batch_size = int(self.num_envs * self.num_steps)
+        self.minibatch_size = int(minibatch_size)
+
         self.gamma = float(gamma)
         self.gae_lambda = float(gae_lambda)
-        self.target_kl = float(target_kl)
+        self.gae = True
+
+        self.update_epochs = int(update_epochs)
+        self.clip_coef = float(clip_ratio)
+        self.clip_vloss = bool(clip_vloss)
+        self.norm_adv = bool(norm_adv)
+        self.ent_coef = float(ent_coef)
+        self.vf_coef = float(vf_coef)
+        self.max_grad_norm = float(max_grad_norm)
+        self.target_kl = (
+            None
+            if target_kl is None or float(target_kl) <= 0.0
+            else float(target_kl)
+        )
         self.anneal_lr = bool(anneal_lr)
-        env_fns = [
-            (
-                lambda i=i: self._make_train_env(
-                    env_id=env_id,
-                    seed=seed + i,
-                    env_index=i,
-                    gamma=self.gamma,
-                    normalize_obs=normalize_obs,
-                )
-            )
-            for i in range(self.num_envs)
-        ]
-        self.env = gym.vector.SyncVectorEnv(env_fns)
-        obs_space = self.env.single_observation_space
-        act_space = self.env.single_action_space
-        obs_dim = infer_obs_dim(obs_space)
-        if not isinstance(act_space, gym.spaces.Box):
-            raise ValueError("PPO only supports continuous action spaces.")
-        if act_space.shape is None:
-            raise ValueError("Action space has no shape.")
-        act_dim = int(np.prod(np.array(act_space.shape)))
-        action_low = getattr(act_space, "low", None)
-        action_high = getattr(act_space, "high", None)
-        if action_low is None or action_high is None:
-            action_low = -np.ones(act_dim, dtype=np.float32)
-            action_high = np.ones(act_dim, dtype=np.float32)
-        self.agent = PPOAgent(
-            obs_dim=obs_dim,
-            act_dim=act_dim,
-            action_low=action_low,
-            action_high=action_high,
-            device=device,
-            policy_layer_sizes=policy_layer_sizes,
-            critic_layer_sizes=critic_layer_sizes,
-            gamma=gamma,
-            gae_lambda=gae_lambda,
-            clip_ratio=clip_ratio,
-            policy_lr=policy_lr,
-            value_lr=value_lr,
-            ent_coef=ent_coef,
-            vf_coef=vf_coef,
-            max_grad_norm=max_grad_norm,
-            target_kl=target_kl,
-            norm_adv=norm_adv,
-            clip_vloss=clip_vloss,
-            anneal_lr=anneal_lr,
-            optimizer_type=optimizer_type,
-            sgd_momentum=sgd_momentum,
-        )
-        self.rollout_steps = rollout_steps
-        self.update_epochs = update_epochs
-        self.minibatch_size = minibatch_size
+
+        self.learning_rate = float(policy_lr)
+
         self.normalize_obs = bool(normalize_obs)
-        self.buffer = RolloutBuffer.create(
-            obs_dim, act_dim, rollout_steps, self.num_envs
-        )
-        self._base_policy_lr = float(policy_lr)
-        self._base_value_lr = float(value_lr)
-        self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
-        self.last_eval = 0
+        self.capture_video = bool(capture_video)
+        self.run_name = (
+            run_name if run_name is not None else f"ppo-{self.env_id}-seed{self.seed}"
+        ).replace("/", "-")
+
+        self.eval_episodes = 5
+        self.eval_deterministic = True
         self.last_checkpoint = 0
 
-    def _make_train_env(
-        self,
-        *,
-        env_id: str,
-        seed: int,
-        env_index: int,
-        gamma: float,
-        normalize_obs: bool,
-    ):
-        should_record = self.capture_video and env_index == 0
-        env = _make_env(
-            env_id,
-            seed=seed,
-            render_mode="rgb_array" if should_record else None,
-            gamma=gamma,
-            normalize_observation=normalize_obs,
+        # Keep ppo-implementation-details behavior deterministic.
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        torch.backends.cudnn.deterministic = True
+
+        self.envs = gym.vector.SyncVectorEnv(
+            [
+                make_env(
+                    self.env_id,
+                    self.seed + i,
+                    i,
+                    self.capture_video,
+                    self.run_name,
+                    normalize_observation=self.normalize_obs,
+                )
+                for i in range(self.num_envs)
+            ]
         )
-        if should_record:
-            env = wrap_record_video(env, self.video_dir)
-        return env
+        assert isinstance(
+            self.envs.single_action_space, gym.spaces.Box
+        ), "only continuous action space is supported"
+
+        obs_shape = self.envs.single_observation_space.shape
+        act_shape = self.envs.single_action_space.shape
+        if obs_shape is None:
+            raise ValueError("observation space has no shape")
+        if act_shape is None:
+            raise ValueError("action space has no shape")
+
+        obs_dim = int(np.array(obs_shape).prod())
+        act_dim = int(np.prod(act_shape))
+
+        self.agent = Agent(
+            obs_dim=obs_dim,
+            act_dim=act_dim,
+        ).to(self.device)
+
+        self.optimizer = optim.Adam(
+            self.agent.parameters(),
+            lr=self.learning_rate,
+            eps=1e-5,
+        )
 
     def train(
         self,
@@ -259,343 +385,263 @@ class PPOTrainer:
         save_interval: int,
         out_dir: str,
     ):
-        console_log_interval = max(
-            1, min(1_000, eval_interval if eval_interval > 0 else 1_000)
-        )
-        batch_size = self.rollout_steps * self.num_envs
-        num_updates = total_steps // batch_size
-        scheduled_steps = num_updates * batch_size
-        print(
-            "[PPO] training started: "
-            f"requested_total_steps={total_steps}, "
-            f"scheduled_total_steps={scheduled_steps}, "
-            f"rollout_steps={self.rollout_steps}, "
-            f"num_envs={self.num_envs}, "
-            f"batch_size={batch_size}, "
-            f"update_epochs={self.update_epochs}, "
-            f"minibatch_size={self.minibatch_size}, "
-            f"console_log_interval={console_log_interval}"
-        )
+        total_steps = int(total_steps)
+        eval_interval = int(eval_interval)
+        save_interval = int(save_interval)
+
+        num_updates = total_steps // self.batch_size
         if num_updates <= 0:
             print(
                 "[PPO] no updates scheduled because requested_total_steps < batch_size "
-                f"({total_steps} < {batch_size})."
+                f"({total_steps} < {self.batch_size})."
             )
-            self.env.close()
+            self.envs.close()
             return
-        interval_metric_sums: Dict[str, float] = {}
-        interval_update_count = 0
-        interval_episode_count = 0
-        interval_episode_sum = 0.0
-        interval_episode_min = float("inf")
-        interval_episode_max = float("-inf")
 
-        obs, _ = self.env.reset()
-        obs = np.asarray(obs, dtype=np.float32)
+        obs = torch.zeros(
+            (self.num_steps, self.num_envs) + self.envs.single_observation_space.shape,
+            device=self.device,
+        )
+        actions = torch.zeros(
+            (self.num_steps, self.num_envs) + self.envs.single_action_space.shape,
+            device=self.device,
+        )
+        logprobs = torch.zeros((self.num_steps, self.num_envs), device=self.device)
+        rewards = torch.zeros((self.num_steps, self.num_envs), device=self.device)
+        dones = torch.zeros((self.num_steps, self.num_envs), device=self.device)
+        values = torch.zeros((self.num_steps, self.num_envs), device=self.device)
 
-        step = 0
-        for update_idx in range(num_updates):
+        global_step = 0
+        start_time = time.time()
+
+        next_obs, _ = self.envs.reset()
+        next_obs = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)
+        next_done = torch.zeros(self.num_envs, device=self.device)
+
+        eval_env = None
+        next_eval_step = None
+        if eval_interval > 0:
+            eval_env = make_eval_env(
+                self.env_id,
+                self.seed + 10_000,
+                normalize_observation=self.normalize_obs,
+            )
+            next_eval_step = eval_interval
+
+        for update in range(1, num_updates + 1):
             if self.anneal_lr:
-                frac = 1.0 - (update_idx / float(num_updates))
-                frac = max(frac, 0.0)
-                for group in self.agent.policy_opt.param_groups:
-                    group["lr"] = self._base_policy_lr * frac
-                for group in self.agent.value_opt.param_groups:
-                    group["lr"] = self._base_value_lr * frac
-                log_wandb(
-                    {
-                        "train/lr_policy": self.agent.policy_opt.param_groups[0]["lr"],
-                        "train/lr_value": self.agent.value_opt.param_groups[0]["lr"],
-                    },
-                    step=step,
-                    silent=True,
+                frac = 1.0 - (update - 1.0) / num_updates
+                lrnow = frac * self.learning_rate
+                self.optimizer.param_groups[0]["lr"] = lrnow
+
+            for step in range(0, self.num_steps):
+                global_step += self.num_envs
+                obs[step] = next_obs
+                dones[step] = next_done
+
+                with torch.no_grad():
+                    action, logprob, _, value = self.agent.get_action_and_value(next_obs)
+                    values[step] = value.flatten()
+                actions[step] = action
+                logprobs[step] = logprob
+
+                next_obs_np, reward, terminated, truncated, infos = self.envs.step(
+                    action.cpu().numpy()
                 )
+                done = np.logical_or(terminated, truncated)
 
-            for t in range(self.rollout_steps):
-                obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
+                rewards[step] = torch.as_tensor(
+                    reward, dtype=torch.float32, device=self.device
+                ).view(-1)
+                next_obs = torch.as_tensor(
+                    next_obs_np, dtype=torch.float32, device=self.device
+                )
+                next_done = torch.as_tensor(done, dtype=torch.float32, device=self.device)
 
-                action_t, logp_t, value_t = self.agent.act(obs_t, deterministic=False)
-                action = action_t.cpu().numpy()
-                action_for_buffer = action.copy()
-                logp = logp_t.cpu().numpy().squeeze(-1)
-                value = value_t.cpu().numpy().squeeze(-1)
-
-                next_obs, reward, terminated, truncated, infos = self.env.step(action)
-                next_obs = np.asarray(next_obs, dtype=np.float32)
-                terminated = np.asarray(terminated, dtype=bool)
-                truncated = np.asarray(truncated, dtype=bool)
-                done = terminated | truncated
-                reward = np.asarray(reward, dtype=np.float32)
-                final_infos = infos.get("final_info", None) if isinstance(infos, dict) else None
-
-                # Time-limit fix:
-                # For truncated/non-terminated transitions, bootstrap from V(final_obs)
-                # before storing the transition.
-                timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
-                if np.any(timeout_mask):
-                    final_obs = _extract_final_observations(infos, self.num_envs)
-                    timeout_indices = np.flatnonzero(timeout_mask)
-                    timeout_obs_batch = []
-                    timeout_obs_env_idx = []
-                    for env_i in timeout_indices:
-                        obs_i = final_obs[int(env_i)]
-                        if obs_i is None:
-                            # Fallback for older wrappers without final_obs metadata.
-                            obs_i = np.asarray(next_obs[int(env_i)], dtype=np.float32)
-                        timeout_obs_batch.append(obs_i)
-                        timeout_obs_env_idx.append(int(env_i))
-
-                    if timeout_obs_batch:
-                        timeout_obs_t = torch.as_tensor(
-                            np.stack(timeout_obs_batch, axis=0),
-                            dtype=torch.float32,
-                            device=self.agent.device,
-                        )
-                        with torch.no_grad():
-                            timeout_values = (
-                                self.agent.value(timeout_obs_t)
-                                .cpu()
-                                .numpy()
-                                .reshape(-1)
-                            )
-                        for env_i, v_i in zip(timeout_obs_env_idx, timeout_values):
-                            reward[env_i] += self.gamma * float(v_i)
-
-                # Defensive check
-                if not (isinstance(next_obs, np.ndarray) and next_obs.ndim in (1, 2)):
-                    raise ValueError(
-                        f"unexpected observation array at step: shape={getattr(next_obs,'shape',None)}"
-                    )
-
-                for i in range(self.num_envs):
-                    self.buffer.add(
-                        t,
-                        i,
-                        obs[i],
-                        action_for_buffer[i],
-                        float(reward[i]),
-                        float(done[i]),
-                        float(value[i]),
-                        float(logp[i]),
-                    )
-                    self.episode_return[i] += float(reward[i])
-                    # Log episode return for each env when done
-                    if done[i]:
-                        episode_return = None
-                        if final_infos is not None and i < len(final_infos):
-                            final_info = final_infos[i]
-                            if final_info and "episode" in final_info:
-                                episode_return = float(final_info["episode"]["r"])
-                        if episode_return is None:
-                            episode_return = float(self.episode_return[i])
-                        log_wandb(
-                            {"train/episode_return": episode_return},
-                            step=step + 1,
-                            silent=True,
-                        )
-                        print(
-                            f"[PPO][episode] step={step + 1}/{total_steps}, "
-                            f"env={i}, return={episode_return:.3f}"
-                        )
-                        interval_episode_count += 1
-                        interval_episode_sum += episode_return
-                        interval_episode_min = min(interval_episode_min, episode_return)
-                        interval_episode_max = max(interval_episode_max, episode_return)
-                        self.episode_return[i] = 0.0
-
-                obs = next_obs
-                step += self.num_envs
+                log_episode_stats(infos, global_step)
 
             with torch.no_grad():
-                obs_t = torch.tensor(obs, dtype=torch.float32, device=self.agent.device)
-                last_values = self.agent.value(obs_t).cpu().numpy().squeeze(-1)
-
-            data = self.buffer.compute_returns_advantages(
-                last_values, self.gamma, self.gae_lambda
-            )
-            obs_f, act_f, logp_f, val_f, ret_f, adv_f = data
-            var_y = np.var(ret_f)
-            explained_var = np.nan if var_y == 0 else 1.0 - np.var(ret_f - val_f) / var_y
-            log_wandb({"train/explained_variance": float(explained_var)}, step=step, silent=True)
-
-            obs_f = torch.tensor(obs_f, dtype=torch.float32, device=self.agent.device)
-            act_f = torch.tensor(act_f, dtype=torch.float32, device=self.agent.device)
-            logp_f = torch.tensor(logp_f, dtype=torch.float32, device=self.agent.device)
-            val_f = torch.tensor(val_f, dtype=torch.float32, device=self.agent.device)
-            ret_f = torch.tensor(ret_f, dtype=torch.float32, device=self.agent.device)
-            adv_f = torch.tensor(adv_f, dtype=torch.float32, device=self.agent.device)
-
-            early_stop_due_to_kl = False
-            early_stop_kl = float("nan")
-            for _ in range(self.update_epochs):
-                for idx in self.buffer.minibatches(self.minibatch_size):
-                    batch = {
-                        "obs": obs_f[idx],
-                        "actions": act_f[idx],
-                        "log_probs": logp_f[idx].unsqueeze(-1),
-                        "values_old": val_f[idx].unsqueeze(-1),
-                        "returns": ret_f[idx].unsqueeze(-1),
-                        "advantages": adv_f[idx].unsqueeze(-1),
-                    }
-                    metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=step, silent=True)
-                    for key, value in metrics.items():
-                        interval_metric_sums[key] = (
-                            interval_metric_sums.get(key, 0.0) + float(value)
+                next_value = self.agent.get_value(next_obs).reshape(1, -1)
+                if self.gae:
+                    advantages = torch.zeros_like(rewards, device=self.device)
+                    lastgaelam = 0
+                    for t in reversed(range(self.num_steps)):
+                        if t == self.num_steps - 1:
+                            nextnonterminal = 1.0 - next_done
+                            nextvalues = next_value
+                        else:
+                            nextnonterminal = 1.0 - dones[t + 1]
+                            nextvalues = values[t + 1]
+                        delta = (
+                            rewards[t]
+                            + self.gamma * nextvalues * nextnonterminal
+                            - values[t]
                         )
-                    interval_update_count += 1
-                    approx_kl = metrics.get("approx_kl", None)
-                    if (
-                        approx_kl is not None
-                        and self.target_kl > 0.0
-                        and approx_kl > self.target_kl
-                    ):
-                        # Stop remaining minibatches and epochs to preserve trust region.
-                        early_stop_due_to_kl = True
-                        early_stop_kl = float(approx_kl)
+                        advantages[t] = lastgaelam = (
+                            delta
+                            + self.gamma
+                            * self.gae_lambda
+                            * nextnonterminal
+                            * lastgaelam
+                        )
+                    returns = advantages + values
+                else:
+                    returns = torch.zeros_like(rewards, device=self.device)
+                    for t in reversed(range(self.num_steps)):
+                        if t == self.num_steps - 1:
+                            nextnonterminal = 1.0 - next_done
+                            next_return = next_value
+                        else:
+                            nextnonterminal = 1.0 - dones[t + 1]
+                            next_return = returns[t + 1]
+                        returns[t] = rewards[t] + self.gamma * nextnonterminal * next_return
+                    advantages = returns - values
+
+            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
+            b_logprobs = logprobs.reshape(-1)
+            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)
+            b_advantages = advantages.reshape(-1)
+            b_returns = returns.reshape(-1)
+            b_values = values.reshape(-1)
+
+            b_inds = np.arange(self.batch_size)
+            clipfracs = []
+
+            # Track last minibatch values for logging parity with reference implementation.
+            pg_loss = torch.tensor(0.0, device=self.device)
+            v_loss = torch.tensor(0.0, device=self.device)
+            entropy_loss = torch.tensor(0.0, device=self.device)
+            old_approx_kl = torch.tensor(0.0, device=self.device)
+            approx_kl = torch.tensor(0.0, device=self.device)
+
+            for epoch in range(self.update_epochs):
+                np.random.shuffle(b_inds)
+                for start in range(0, self.batch_size, self.minibatch_size):
+                    end = start + self.minibatch_size
+                    mb_inds = b_inds[start:end]
+
+                    _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
+                        b_obs[mb_inds], b_actions[mb_inds]
+                    )
+                    logratio = newlogprob - b_logprobs[mb_inds]
+                    ratio = logratio.exp()
+
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        old_approx_kl = (-logratio).mean()
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
+                        ]
+
+                    mb_advantages = b_advantages[mb_inds]
+                    if self.norm_adv:
+                        mb_advantages = (
+                            mb_advantages - mb_advantages.mean()
+                        ) / (mb_advantages.std() + 1e-8)
+
+                    pg_loss1 = -mb_advantages * ratio
+                    pg_loss2 = -mb_advantages * torch.clamp(
+                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
+                    )
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    newvalue = newvalue.view(-1)
+                    if self.clip_vloss:
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -self.clip_coef,
+                            self.clip_coef,
+                        )
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    entropy_loss = entropy.mean()
+                    loss = (
+                        pg_loss
+                        - self.ent_coef * entropy_loss
+                        + v_loss * self.vf_coef
+                    )
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad_norm)
+                    self.optimizer.step()
+
+                if self.target_kl is not None:
+                    if approx_kl > self.target_kl:
                         break
-                if early_stop_due_to_kl:
-                    break
 
-            if early_stop_due_to_kl:
+            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+            var_y = np.var(y_true)
+            explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+            sps = int(global_step / max(time.time() - start_time, 1e-8))
+            log_wandb(
+                {
+                    "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
+                    "losses/value_loss": v_loss.item(),
+                    "losses/policy_loss": pg_loss.item(),
+                    "losses/entropy": entropy_loss.item(),
+                    "losses/old_approx_kl": old_approx_kl.item(),
+                    "losses/approx_kl": approx_kl.item(),
+                    "losses/clipfrac": float(np.mean(clipfracs)) if clipfracs else 0.0,
+                    "losses/explained_variance": float(explained_var),
+                    "charts/SPS": float(sps),
+                },
+                step=global_step,
+                silent=True,
+            )
+            print("SPS:", sps)
+
+            if eval_env is not None and next_eval_step is not None and global_step >= next_eval_step:
+                sync_obs_rms(self.envs.envs[0], eval_env)
+                eval_returns, eval_lengths = evaluate(
+                    self.agent,
+                    eval_env,
+                    self.device,
+                    self.eval_episodes,
+                    deterministic=self.eval_deterministic,
+                )
+                eval_return_mean = float(np.mean(eval_returns))
+                eval_return_std = float(np.std(eval_returns))
+                eval_length_mean = float(np.mean(eval_lengths))
                 print(
-                    f"[PPO][early-stop] step={step}/{scheduled_steps}: "
-                    f"approx_kl={early_stop_kl:.6f} > target_kl={self.target_kl:.6f}"
+                    f"eval global_step={global_step}, "
+                    f"episodic_return_mean={eval_return_mean:.2f}, "
+                    f"episodic_return_std={eval_return_std:.2f}, "
+                    f"episodic_length_mean={eval_length_mean:.1f}"
                 )
-
-            self.buffer.reset()
-
-            if eval_interval > 0 and self.last_eval < step // eval_interval:
-                self.last_eval = step // eval_interval
-                metrics = _evaluate_vectorized(
-                    agent=self.agent,
-                    env_id=self.env_id,
-                    seed=self.seed + 1000,
-                    gamma=self.gamma,
-                    normalize_observation=self.normalize_obs,
+                log_wandb(
+                    {
+                        "eval/episodic_return_mean": eval_return_mean,
+                        "eval/episodic_return_std": eval_return_std,
+                        "eval/episodic_length_mean": eval_length_mean,
+                    },
+                    step=global_step,
+                    silent=True,
                 )
-                log_wandb(metrics, step=step)
-                print(
-                    f"[PPO][eval] step={step}/{scheduled_steps}: "
-                    f"{_format_metrics(metrics)}"
-                )
+                next_eval_step += eval_interval
 
-            if save_interval > 0 and self.last_checkpoint < step // save_interval:
-                self.last_checkpoint = step // save_interval
+            if save_interval > 0 and self.last_checkpoint < global_step // save_interval:
+                self.last_checkpoint = global_step // save_interval
                 os.makedirs(out_dir, exist_ok=True)
                 ckpt_path = os.path.join(out_dir, "ppo.pt")
                 torch.save(
                     {
-                        "policy": self.agent.policy.state_dict(),
-                        "value": self.agent.value.state_dict(),
+                        "actor_mean": self.agent.actor_mean.state_dict(),
+                        "actor_logstd": self.agent.actor_logstd.detach().cpu(),
+                        "critic": self.agent.critic.state_dict(),
+                        "optimizer": self.optimizer.state_dict(),
                     },
                     ckpt_path,
                 )
-                print(
-                    f"[PPO][checkpoint] step={step}/{scheduled_steps}: saved {ckpt_path}"
-                )
+                print(f"[PPO][checkpoint] step={global_step}/{total_steps}: saved {ckpt_path}")
 
-            update_display = update_idx + 1
-            step_display = step
-            should_print_progress = (
-                update_display >= num_updates or step_display % console_log_interval == 0
-            )
-            if should_print_progress:
-                progress = 100.0 * float(step_display) / float(scheduled_steps)
-                print(
-                    "[PPO][progress] "
-                    f"step={step_display}/{scheduled_steps} ({progress:.2f}%), "
-                    f"update={update_display}/{num_updates}"
-                )
-                if interval_episode_count > 0:
-                    print(
-                        "[PPO][episode-stats] "
-                        f"count={interval_episode_count}, "
-                        f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
-                        f"return_min={interval_episode_min:.3f}, "
-                        f"return_max={interval_episode_max:.3f}"
-                    )
-                    interval_episode_count = 0
-                    interval_episode_sum = 0.0
-                    interval_episode_min = float("inf")
-                    interval_episode_max = float("-inf")
-                if interval_update_count > 0:
-                    mean_metrics = {
-                        key: value / float(interval_update_count)
-                        for key, value in interval_metric_sums.items()
-                    }
-                    print(
-                        "[PPO][train-metrics] "
-                        f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
-                    )
-                    interval_metric_sums.clear()
-                    interval_update_count = 0
-
-        self.env.close()
-
-@torch.no_grad()
-def _evaluate_vectorized(
-    agent: PPOAgent,
-    env_id: str,
-    n_episodes: int = 10,
-    seed: int = 42,
-    gamma: float = 0.99,
-    normalize_observation: bool = True,
-) -> Dict[str, float]:
-    """
-    High-performance vectorized evaluation.
-    Runs all n_episodes in parallel using a SyncVectorEnv.
-    """
-    eval_envs = gym.vector.SyncVectorEnv(
-        [
-            (
-                lambda i=i: _make_env(
-                    env_id,
-                    seed=seed + i,
-                    gamma=gamma,
-                    normalize_observation=normalize_observation,
-                )
-            )
-            for i in range(n_episodes)
-        ]
-    )
-
-    agent.policy.eval()
-    obs, _ = eval_envs.reset(seed=seed)
-
-    episode_returns = np.zeros(n_episodes, dtype=np.float32)
-    final_returns = []
-    dones = np.zeros(n_episodes, dtype=bool)
-
-    while len(final_returns) < n_episodes:
-        obs = np.asarray(obs, dtype=np.float32)
-
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
-        action = agent.policy.sample_action(obs_t, deterministic=True).cpu().numpy()
-
-        next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
-        episode_returns += np.asarray(reward, dtype=np.float32)
-        done = np.asarray(terminated) | np.asarray(truncated)
-
-        if isinstance(infos, dict) and "final_info" in infos:
-            for i, final_info in enumerate(infos["final_info"]):
-                if not dones[i] and final_info and "episode" in final_info:
-                    final_returns.append(float(final_info["episode"]["r"]))
-                    dones[i] = True
-        else:
-            for i in range(n_episodes):
-                if not dones[i] and done[i]:
-                    final_returns.append(float(episode_returns[i]))
-                    dones[i] = True
-
-        obs = next_obs
-
-    eval_envs.close()
-    agent.policy.train()
-
-    return {
-        "eval/return_mean": float(np.mean(final_returns)),
-        "eval/return_std": float(np.std(final_returns)),
-        "eval/return_min": float(np.min(final_returns)),
-        "eval/return_max": float(np.max(final_returns)),
-    }
+        self.envs.close()
+        if eval_env is not None:
+            eval_env.close()
