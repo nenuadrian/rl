@@ -734,7 +734,7 @@ class MPOAgent:
             (F.softplus(self.log_alpha_mean).mean() + 1e-8).detach().item()
         )
 
-        return {
+        metric = {
             "loss/q": float(q_loss.item()),
             "loss/policy": float(loss_policy.item()),
             "loss/dual_eta": float(loss_temperature.detach().item()),
@@ -754,8 +754,10 @@ class MPOAgent:
             "q/max": float(q_vals.max().detach().item()),
             "pi/std_min": float(std_online.min().detach().item()),
             "pi/std_max": float(std_online.max().detach().item()),
-            "penalty_kl/q_pi": float(penalty_kl_rel.detach().item()),
         }
+        if self.action_penalization:
+            metric["penalty_kl/q_pi"] = float(penalty_kl_rel.detach().item())
+            
 
     def _sync_module(self, net: nn.Module, target: nn.Module) -> None:
         target.load_state_dict(net.state_dict())
