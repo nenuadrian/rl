@@ -21,8 +21,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "lam": 0.95,
         "kl_coef": 0.2,
         "normalize_advantages": True,
-        "max_prompt_length": 96,
-        "max_response_length": 8,
+        "max_prompt_length": 128,
+        "max_response_length": 64,
         "temperature": 0.5,
         "top_p": 0.9,
         "top_k": 50,
@@ -40,8 +40,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "log_num_examples": 10,
         "eval_compare_modes": True,
         "dataset_size": 10_000,
-        "dataset_min_value": 0,
-        "dataset_max_value": 90,
+        "dataset_min_value": 100,
+        "dataset_max_value": 9999,
         "dataset_seed": 123,
         "prompt_template": (
             "Solve this addition problem and reply with only the final integer.\n"
