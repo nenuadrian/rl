@@ -405,6 +405,8 @@ class GPTPPOTrainer:
 
         if actor_model.get_input_embeddings().num_embeddings < len(self.tokenizer):
             actor_model.resize_token_embeddings(len(self.tokenizer))
+        if getattr(actor_model.config, "loss_type", None) is None:
+            actor_model.config.loss_type = "ForCausalLM"
 
         self.policy = CausalLMWithValueHead(actor_model).to(self.device)
 
@@ -447,16 +449,22 @@ class GPTPPOTrainer:
         do_sample: bool,
         max_new_tokens: int | None = None,
     ) -> torch.Tensor:
+        generation_kwargs: dict[str, Any] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "do_sample": do_sample,
+            "max_new_tokens": max_new_tokens or self.config.max_response_length,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+        if do_sample:
+            generation_kwargs["temperature"] = self.config.temperature
+            generation_kwargs["top_p"] = self.config.top_p
+            if self.config.top_k > 0:
+                generation_kwargs["top_k"] = self.config.top_k
+
         return self.policy.model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            do_sample=do_sample,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
-            top_k=self.config.top_k,
-            max_new_tokens=max_new_tokens or self.config.max_response_length,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
+            **generation_kwargs,
         )
 
     @staticmethod
@@ -552,6 +560,8 @@ class GPTPPOTrainer:
         )
 
         losses: list[float] = []
+        skipped_zero_label_batches = 0
+        skipped_non_finite_batches = 0
         for epoch in range(1, int(self.config.sft_epochs) + 1):
             indices = np.arange(len(self.train_samples))
             np.random.shuffle(indices)
@@ -590,8 +600,14 @@ class GPTPPOTrainer:
                 for i, prompt_ids in enumerate(enc_prompt["input_ids"]):
                     non_pad_tokens = int(attention_mask[i].sum().item())
                     left_pad = seq_len - non_pad_tokens
-                    prompt_len = min(int(len(prompt_ids)), non_pad_tokens)
+                    # Keep at least one token supervised to avoid NaN CE on all -100 labels.
+                    prompt_len = min(int(len(prompt_ids)), max(non_pad_tokens - 1, 0))
                     labels[i, left_pad : left_pad + prompt_len] = -100
+
+                num_supervised = int((labels != -100).sum().item())
+                if num_supervised <= 0:
+                    skipped_zero_label_batches += 1
+                    continue
 
                 outputs = self.policy.model(
                     input_ids=input_ids,
@@ -601,6 +617,10 @@ class GPTPPOTrainer:
                     use_cache=False,
                 )
                 loss = outputs.loss
+                if not torch.isfinite(loss):
+                    skipped_non_finite_batches += 1
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
 
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
@@ -619,6 +639,16 @@ class GPTPPOTrainer:
                 f"[GPTPPO][SFT] epoch={epoch}/{self.config.sft_epochs} "
                 f"loss={mean_epoch_loss:.6f}"
             )
+            if skipped_zero_label_batches > 0:
+                print(
+                    "[GPTPPO][SFT] skipped batches with zero supervised labels: "
+                    f"{skipped_zero_label_batches}"
+                )
+            if skipped_non_finite_batches > 0:
+                print(
+                    "[GPTPPO][SFT] skipped non-finite loss batches: "
+                    f"{skipped_non_finite_batches}"
+                )
 
         self._sync_reference_to_policy()
         self._did_sft_warmstart = True

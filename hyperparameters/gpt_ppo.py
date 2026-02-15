@@ -43,7 +43,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "dataset_max_value": 9,
         "dataset_seed": 123,
         "prompt_template": (
-            "Solve this addition problem and reply with only the final integer.\\n"
+            "Solve this addition problem and reply with only the final integer.\n"
             "Question: {a} + {b} = "
         ),
         "save_every": 100,
