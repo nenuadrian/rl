@@ -16,3 +16,4 @@ VinePPO
 .report_cache
 stable-baselines3
 site/
+.DS_Store
