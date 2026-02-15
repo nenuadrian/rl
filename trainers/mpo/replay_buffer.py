@@ -1,21 +1,36 @@
+from __future__ import annotations
+
 import numpy as np
+import torch
+from tensordict import TensorDict
+from torchrl.data import LazyTensorStorage
+from torchrl.data.replay_buffers import TensorDictReplayBuffer
 
 
 class MPOReplayBuffer:
     def __init__(self, obs_dim: int, act_dim: int, capacity: int):
-        self.capacity = capacity
-        self.ptr = 0
-        self.size = 0
-        self.obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-        self.next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-        self.actions_exec = np.zeros((capacity, act_dim), dtype=np.float32)
-        self.actions_raw = np.zeros((capacity, act_dim), dtype=np.float32)
-        self.behaviour_logp = np.zeros((capacity, 1), dtype=np.float32)
-        self.rewards = np.zeros((capacity, 1), dtype=np.float32)
-        self.dones = np.zeros((capacity, 1), dtype=np.float32)
-        self._sequence_scratch = None
-        self._sequence_scratch_shape = None
-        self._sequence_offsets = {}
+        self.obs_dim = int(obs_dim)
+        self.act_dim = int(act_dim)
+        self.capacity = int(capacity)
+        if self.capacity < 1:
+            raise ValueError("capacity must be >= 1")
+
+        self._buffer = TensorDictReplayBuffer(
+            storage=LazyTensorStorage(max_size=self.capacity),
+        )
+        self._sequence_offsets: dict[int, torch.Tensor] = {}
+
+    @property
+    def size(self) -> int:
+        return int(len(self._buffer))
+
+    @property
+    def ptr(self) -> int:
+        return int(self._buffer.write_count % self.capacity)
+
+    @staticmethod
+    def _as_tensor(value: np.ndarray | float, shape: tuple[int, ...]) -> torch.Tensor:
+        return torch.as_tensor(value, dtype=torch.float32, device="cpu").reshape(shape)
 
     def add(
         self,
@@ -27,53 +42,36 @@ class MPOReplayBuffer:
         next_obs: np.ndarray,
         done: float,
     ) -> None:
-        self.obs[self.ptr] = obs
-        self.actions_exec[self.ptr] = action_exec
-        self.actions_raw[self.ptr] = action_raw
-        self.behaviour_logp[self.ptr] = behaviour_logp
-        self.rewards[self.ptr] = reward
-        self.next_obs[self.ptr] = next_obs
-        self.dones[self.ptr] = done
-        self.ptr = (self.ptr + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
+        transition = TensorDict(
+            {
+                "obs": self._as_tensor(obs, (self.obs_dim,)),
+                "next_obs": self._as_tensor(next_obs, (self.obs_dim,)),
+                "actions_exec": self._as_tensor(action_exec, (self.act_dim,)),
+                "actions_raw": self._as_tensor(action_raw, (self.act_dim,)),
+                "behaviour_logp": self._as_tensor(behaviour_logp, (1,)),
+                "rewards": self._as_tensor(reward, (1,)),
+                "dones": self._as_tensor(done, (1,)),
+            },
+            batch_size=[],
+        )
+        self._buffer.add(transition)
 
     def sample(self, batch_size: int) -> dict:
-        idxs = np.random.randint(0, self.size, size=batch_size)
+        sampled = self._buffer.sample(batch_size=int(batch_size))
         return {
-            "obs": self.obs[idxs],
-            "actions": self.actions_exec[idxs],
-            "rewards": self.rewards[idxs],
-            "next_obs": self.next_obs[idxs],
-            "dones": self.dones[idxs],
+            "obs": sampled["obs"],
+            "actions": sampled["actions_exec"],
+            "rewards": sampled["rewards"],
+            "next_obs": sampled["next_obs"],
+            "dones": sampled["dones"],
         }
 
-    def _get_sequence_offsets(self, seq_len: int) -> np.ndarray:
+    def _get_sequence_offsets(self, seq_len: int) -> torch.Tensor:
         offsets = self._sequence_offsets.get(seq_len)
         if offsets is None:
-            offsets = np.arange(seq_len, dtype=np.int64)
+            offsets = torch.arange(seq_len, dtype=torch.long)
             self._sequence_offsets[seq_len] = offsets
         return offsets
-
-    def _get_sequence_scratch(self, batch_size: int, seq_len: int) -> dict:
-        shape = (batch_size, seq_len)
-        if self._sequence_scratch_shape != shape:
-            obs_dim = self.obs.shape[-1]
-            act_dim = self.actions_exec.shape[-1]
-            self._sequence_scratch = {
-                "obs": np.empty((batch_size, seq_len, obs_dim), dtype=np.float32),
-                "next_obs": np.empty((batch_size, seq_len, obs_dim), dtype=np.float32),
-                "actions_exec": np.empty(
-                    (batch_size, seq_len, act_dim), dtype=np.float32
-                ),
-                "actions_raw": np.empty(
-                    (batch_size, seq_len, act_dim), dtype=np.float32
-                ),
-                "rewards": np.empty((batch_size, seq_len, 1), dtype=np.float32),
-                "dones": np.empty((batch_size, seq_len, 1), dtype=np.float32),
-                "behaviour_logp": np.empty((batch_size, seq_len, 1), dtype=np.float32),
-            }
-            self._sequence_scratch_shape = shape
-        return self._sequence_scratch
 
     def sample_sequences(self, batch_size: int, seq_len: int) -> dict:
         if seq_len < 1:
@@ -81,38 +79,35 @@ class MPOReplayBuffer:
         if self.size < seq_len:
             raise ValueError("Not enough data in replay buffer for sequence sampling")
 
-        scratch = self._get_sequence_scratch(batch_size, seq_len)
+        batch_size = int(batch_size)
         offsets = self._get_sequence_offsets(seq_len)
         if self.size < self.capacity:
-            starts = np.random.randint(0, self.size - seq_len + 1, size=batch_size)
-            idxs = starts[:, None] + offsets[None, :]
+            starts = torch.randint(
+                0,
+                self.size - seq_len + 1,
+                (batch_size,),
+                dtype=torch.long,
+            )
+            idxs = starts.unsqueeze(1) + offsets.unsqueeze(0)
         else:
-            # Once the ring is full there is a single discontinuity at ptr-1 -> ptr.
-            # Valid sequence starts are the contiguous block [ptr, ptr + valid_count).
             valid_start_count = self.capacity - (seq_len - 1)
             if valid_start_count <= 0:
                 raise RuntimeError(
                     "Failed to sample enough contiguous sequences; consider reducing seq_len."
                 )
             starts = (
-                self.ptr + np.random.randint(0, valid_start_count, size=batch_size)
+                self.ptr
+                + torch.randint(0, valid_start_count, (batch_size,), dtype=torch.long)
             ) % self.capacity
-            idxs = (starts[:, None] + offsets[None, :]) % self.capacity
+            idxs = (starts.unsqueeze(1) + offsets.unsqueeze(0)) % self.capacity
 
-        scratch["obs"][:] = self.obs[idxs]
-        scratch["next_obs"][:] = self.next_obs[idxs]
-        scratch["actions_exec"][:] = self.actions_exec[idxs]
-        scratch["actions_raw"][:] = self.actions_raw[idxs]
-        scratch["rewards"][:] = self.rewards[idxs]
-        scratch["dones"][:] = self.dones[idxs]
-        scratch["behaviour_logp"][:] = self.behaviour_logp[idxs]
-
+        sampled = self._buffer.storage[idxs]
         return {
-            "obs": scratch["obs"],
-            "actions_exec": scratch["actions_exec"],
-            "actions_raw": scratch["actions_raw"],
-            "behaviour_logp": scratch["behaviour_logp"],
-            "rewards": scratch["rewards"],
-            "next_obs": scratch["next_obs"],
-            "dones": scratch["dones"],
+            "obs": sampled["obs"],
+            "actions_exec": sampled["actions_exec"],
+            "actions_raw": sampled["actions_raw"],
+            "behaviour_logp": sampled["behaviour_logp"],
+            "rewards": sampled["rewards"],
+            "next_obs": sampled["next_obs"],
+            "dones": sampled["dones"],
         }

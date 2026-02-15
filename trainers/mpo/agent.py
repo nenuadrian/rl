@@ -476,13 +476,13 @@ class MPOAgent:
         return q_ret
 
     def update(self, batch: dict) -> dict:
-        # Acme-style periodic hard sync of online -> target networks.
         if self._num_steps % self.target_networks_update_period == 0:
-            self._sync_module(self.policy, self.policy_target)
-            self._sync_module(self.q, self.q_target)
+            self.policy_target.load_state_dict(self.policy.state_dict())
+            self.q_target.load_state_dict(self.q.state_dict())
 
-        is_sequence_batch = (
-            isinstance(batch.get("obs"), np.ndarray) and batch["obs"].ndim == 3
+        obs_batch = batch.get("obs")
+        is_sequence_batch = isinstance(obs_batch, (np.ndarray, torch.Tensor)) and (
+            obs_batch.ndim == 3
         )
         use_retrace = self.use_retrace
 
@@ -666,6 +666,3 @@ class MPOAgent:
             "pi/std_min": float(std_online.min().detach().item()),
             "pi/std_max": float(std_online.max().detach().item()),
         }
-
-    def _sync_module(self, net: nn.Module, target: nn.Module) -> None:
-        target.load_state_dict(net.state_dict())
