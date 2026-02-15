@@ -181,7 +181,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "retrace_lambda": 0.95,
     },
     "Humanoid-v5": {
-        "replay_size": 1_000_000,
+        "replay_size": 350_000,
         "total_steps": 400_000,
         "update_after": 50_000,
         "batch_size": 512,

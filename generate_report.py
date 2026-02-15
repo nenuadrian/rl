@@ -44,7 +44,7 @@ DEFAULT_HISTORY_SAMPLES = 600
 DEFAULT_WORKERS = 8
 DEFAULT_CACHE_DIR = ".report_cache"
 CACHE_VERSION = "v1"
-_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "trpo")
+_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo")
 
 
 @dataclass
@@ -108,7 +108,7 @@ def _default_adv_type_for_algorithm(algorithm: str | None) -> str:
     algo = (algorithm or "").strip().lower()
     if algo == "vmpo":
         return "returns"
-    if algo in {"ppo", "trpo"}:
+    if algo in {"ppo"}:
         return "gae"
     if algo == "mpo":
         return "none"

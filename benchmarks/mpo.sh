@@ -5,9 +5,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 environments=(
-    "HalfCheetah-v5"
-    "Walker2d-v5"
-    "Humanoid-v5"
+    #"HalfCheetah-v5"
+   # "Walker2d-v5"
+   # "Humanoid-v5"
     "Ant-v5"
     "dm_control/cheetah/run"
     "dm_control/humanoid/walk"

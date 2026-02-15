@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "algo",
-        choices=["ppo", "trpo", "vmpo", "mpo"],
+        choices=["ppo", "vmpo", "mpo"],
         help="Which algorithm's checkpoint to load.",
     )
     parser.add_argument(

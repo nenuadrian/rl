@@ -71,7 +71,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "dm_control/walker/walk": {
         "num_envs": 4,
-        "total_steps": 500_000,
+        "total_steps": 1_000_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,
@@ -92,7 +92,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "dm_control/walker/run": {
         "num_envs": 4,
-        "total_steps": 500_000,
+        "total_steps": 1_000_000,
         "policy_layer_sizes": (256, 256, 256),
         "critic_layer_sizes": (512, 512, 256),
         "rollout_steps": 2048,

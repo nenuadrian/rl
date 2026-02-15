@@ -101,15 +101,14 @@ def build_policy_for_algo(
         else policy_sizes
     )
 
-    if algo in {"ppo", "trpo"}:
-        from trainers.ppo.agent import GaussianPolicy
+    if algo in {"ppo"}:
+        from trainers.ppo.trainer import Agent
 
-        policy = GaussianPolicy(
+        policy = Agent(
             obs_dim,
             act_dim,
-            hidden_sizes=policy_sizes,
-            action_low=action_low,
-            action_high=action_high,
+            policy_layer_sizes=policy_sizes,
+            value_layer_sizes=value_sizes,
         )
     elif algo == "mpo":
         from trainers.mpo.agent import DiagonalGaussianPolicy
