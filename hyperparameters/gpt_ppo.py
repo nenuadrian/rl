@@ -7,7 +7,7 @@ from hyperparameters._common import get_preset
 
 PRESETS: dict[str, dict[str, Any]] = {
     "math/addition": {
-        "model_name": "facebook/opt-125m",
+        "model_name": "Qwen/Qwen1.5-0.5B",
         "num_iterations": 500,
         "batch_size": 8,
         "mini_batch_size": 4,
