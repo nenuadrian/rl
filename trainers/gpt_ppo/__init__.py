@@ -1,11 +1,14 @@
 from trainers.gpt_ppo.trainer import (
+    DigitMatchReward,
     ExactMathReward,
     GPTPPOConfig,
     GPTPPOTrainer,
     MathSample,
     ShapedMathReward,
     build_addition_dataset,
+    count_decimal_carries,
     compute_masked_gae,
+    extract_addition_operands,
     extract_integer_from_first_line,
     extract_first_integer,
     extract_last_integer,
@@ -13,13 +16,16 @@ from trainers.gpt_ppo.trainer import (
 )
 
 __all__ = [
+    "DigitMatchReward",
     "ExactMathReward",
     "GPTPPOConfig",
     "GPTPPOTrainer",
     "MathSample",
     "ShapedMathReward",
     "build_addition_dataset",
+    "count_decimal_carries",
     "compute_masked_gae",
+    "extract_addition_operands",
     "extract_integer_from_first_line",
     "extract_first_integer",
     "extract_last_integer",

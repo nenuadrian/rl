@@ -447,6 +447,10 @@ if __name__ == "__main__":
                 else float(args.target_kl)
             ),
             max_grad_norm=float(args.max_grad_norm),
+            force_fp32_policy=bool(getattr(args, "force_fp32_policy", True)),
+            detach_value_head_input=bool(
+                getattr(args, "detach_value_head_input", True)
+            ),
             reward_type=str(getattr(args, "reward_type", "exact")),
             response_parse_mode=str(
                 getattr(args, "response_parse_mode", "strict_line")
@@ -455,6 +459,15 @@ if __name__ == "__main__":
             incorrect_reward=float(getattr(args, "incorrect_reward", 0.0)),
             invalid_reward=float(getattr(args, "invalid_reward", 0.0)),
             reward_error_scale=float(getattr(args, "reward_error_scale", 100.0)),
+            reward_alpha=float(getattr(args, "reward_alpha", 1.0)),
+            enable_token_level_reward=bool(
+                getattr(args, "enable_token_level_reward", True)
+            ),
+            token_level_reward_coef=float(
+                getattr(args, "token_level_reward_coef", 1.0)
+            ),
+            length_penalty_beta=float(getattr(args, "length_penalty_beta", 0.0)),
+            stop_on_newline=bool(getattr(args, "stop_on_newline", True)),
             sft_epochs=int(getattr(args, "sft_epochs", 0)),
             sft_batch_size=int(getattr(args, "sft_batch_size", 0)),
             sft_learning_rate=float(getattr(args, "sft_learning_rate", 5e-5)),
@@ -487,12 +500,19 @@ if __name__ == "__main__":
                 "top_k": gpt_config.top_k,
                 "target_kl": gpt_config.target_kl,
                 "max_grad_norm": gpt_config.max_grad_norm,
+                "force_fp32_policy": gpt_config.force_fp32_policy,
+                "detach_value_head_input": gpt_config.detach_value_head_input,
                 "reward_type": gpt_config.reward_type,
                 "response_parse_mode": gpt_config.response_parse_mode,
                 "correct_reward": gpt_config.correct_reward,
                 "incorrect_reward": gpt_config.incorrect_reward,
                 "invalid_reward": gpt_config.invalid_reward,
                 "reward_error_scale": gpt_config.reward_error_scale,
+                "reward_alpha": gpt_config.reward_alpha,
+                "enable_token_level_reward": gpt_config.enable_token_level_reward,
+                "token_level_reward_coef": gpt_config.token_level_reward_coef,
+                "length_penalty_beta": gpt_config.length_penalty_beta,
+                "stop_on_newline": gpt_config.stop_on_newline,
                 "sft_epochs": gpt_config.sft_epochs,
                 "sft_batch_size": gpt_config.sft_batch_size,
                 "sft_learning_rate": gpt_config.sft_learning_rate,

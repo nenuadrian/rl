@@ -1,10 +1,13 @@
 import torch
 
 from trainers.gpt_ppo.trainer import (
+    DigitMatchReward,
     ExactMathReward,
     ShapedMathReward,
     build_addition_dataset,
+    count_decimal_carries,
     compute_masked_gae,
+    extract_addition_operands,
     extract_integer_from_first_line,
     extract_first_integer,
     extract_last_integer,
@@ -81,6 +84,26 @@ def test_shaped_math_reward_gives_partial_credit():
 
     # 3+3=6 -> |7-6|=1 => 1 - 1/10 = 0.9
     assert torch.allclose(scores, torch.tensor([0.9, 0.0], dtype=torch.float32))
+
+
+def test_digit_match_reward_gives_structured_signal():
+    samples = build_addition_dataset(
+        num_samples=2,
+        min_value=12,
+        max_value=12,
+        seed=0,
+        prompt_template="{a}+{b}=",
+    )
+    # target is 24
+    reward = DigitMatchReward(invalid_reward=-1.0)
+    scores = reward(samples, responses=["25", "xx"])
+    assert torch.allclose(scores, torch.tensor([0.5, -1.0], dtype=torch.float32))
+
+
+def test_addition_operand_and_carry_helpers():
+    ops = extract_addition_operands("Question: 9326 + 9991 = ")
+    assert ops == (9326, 9991)
+    assert count_decimal_carries(9326, 9991) == 3
 
 
 def test_compute_masked_gae_terminal_reward_without_bootstrap():
