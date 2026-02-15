@@ -53,7 +53,7 @@ DEFAULT_VIDEO_MAX_STEPS = 1000
 DEFAULT_VIDEO_FPS = 30
 DEFAULT_VIDEO_ATTEMPTS = 10
 CACHE_VERSION = "v1"
-_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "vmpo-gtrxl", "r2d2-gtrxl")
+_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "vmpo-gtrxl", "r2d2-gtrxl", "ppo-gtrxl")
 _STEP_KEY_ALIASES = (
     "_step",
     "evaluator_step",
@@ -189,7 +189,7 @@ def _normalize_env_fallback(env_text: str) -> str:
 
 def _default_optimizer_for_algorithm(algorithm: str | None) -> str:
     algo = (algorithm or "").strip().lower()
-    if algo in {"ppo", "vmpo", "mpo", "trpo"}:
+    if algo in {"ppo", "vmpo", "mpo"}:
         return "adam"
     return "unknown"
 

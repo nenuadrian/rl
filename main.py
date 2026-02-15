@@ -46,6 +46,8 @@ def _load_preset(algo: str, env_id: str) -> dict:
 
 def _apply_preset(args: argparse.Namespace, preset: dict) -> None:
     for key, value in preset.items():
+        if key == "advantage_estimator" and hasattr(args, "advantage_estimator") and getattr(args, "advantage_estimator") is not None:
+            continue  # Don't override if already set by CLI
         setattr(args, key, value)
 
 
