@@ -454,6 +454,7 @@ class GPTPPOTrainer:
             actor_model.config.loss_type = "ForCausalLM"
 
         self.policy = CausalLMWithValueHead(actor_model).to(self.device)
+        self._assert_policy_finite("initialization")
 
         if reference_model is None:
             reference_model = copy.deepcopy(actor_model)
@@ -487,6 +488,31 @@ class GPTPPOTrainer:
             return random.sample(self.train_samples, self.config.batch_size)
         return random.choices(self.train_samples, k=self.config.batch_size)
 
+    @staticmethod
+    def _parameters_are_finite(module: nn.Module) -> bool:
+        for param in module.parameters():
+            if not torch.isfinite(param).all():
+                return False
+        return True
+
+    @staticmethod
+    def _gradients_are_finite(module: nn.Module) -> bool:
+        for param in module.parameters():
+            if param.grad is None:
+                continue
+            if not torch.isfinite(param.grad).all():
+                return False
+        return True
+
+    def _assert_policy_finite(self, context: str) -> None:
+        if not self._parameters_are_finite(self.policy.model):
+            raise RuntimeError(
+                f"Detected non-finite policy parameters at '{context}'. "
+                "This usually means the optimization step diverged. "
+                "Try reducing SFT/PPO learning rates, reducing ppo_epochs, "
+                "or disabling SFT for this model."
+            )
+
     def _generate_batch(
         self,
         input_ids: torch.Tensor,
@@ -494,6 +520,7 @@ class GPTPPOTrainer:
         do_sample: bool,
         max_new_tokens: int | None = None,
     ) -> torch.Tensor:
+        self._assert_policy_finite("generation")
         generation_kwargs: dict[str, Any] = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
@@ -501,6 +528,8 @@ class GPTPPOTrainer:
             "max_new_tokens": max_new_tokens or self.config.max_response_length,
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
+            "remove_invalid_values": True,
+            "renormalize_logits": True,
         }
         if do_sample:
             generation_kwargs["temperature"] = self.config.temperature
@@ -611,6 +640,7 @@ class GPTPPOTrainer:
             indices = np.arange(len(self.train_samples))
             np.random.shuffle(indices)
             epoch_losses: list[float] = []
+            epoch_updated_batches = 0
 
             for start in range(0, len(indices), sft_batch_size):
                 end = min(start + sft_batch_size, len(indices))
@@ -669,11 +699,17 @@ class GPTPPOTrainer:
 
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                if not self._gradients_are_finite(self.policy.model):
+                    skipped_non_finite_batches += 1
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
                 nn.utils.clip_grad_norm_(
                     self.policy.model.parameters(),
                     self.config.max_grad_norm,
                 )
                 optimizer.step()
+                self._assert_policy_finite("sft_step")
+                epoch_updated_batches += 1
 
                 step_loss = float(loss.detach().cpu().item())
                 losses.append(step_loss)
@@ -682,7 +718,8 @@ class GPTPPOTrainer:
             mean_epoch_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
             print(
                 f"[GPTPPO][SFT] epoch={epoch}/{self.config.sft_epochs} "
-                f"loss={mean_epoch_loss:.6f}"
+                f"loss={mean_epoch_loss:.6f} "
+                f"updated_batches={epoch_updated_batches}"
             )
             if skipped_zero_label_batches > 0:
                 print(
@@ -693,6 +730,12 @@ class GPTPPOTrainer:
                 print(
                     "[GPTPPO][SFT] skipped non-finite loss batches: "
                     f"{skipped_non_finite_batches}"
+                )
+            if epoch_updated_batches == 0:
+                raise RuntimeError(
+                    "SFT produced zero valid optimizer updates in this epoch "
+                    "(all batches were skipped as non-finite/invalid). "
+                    "The chosen model/config is numerically unstable with current SFT settings."
                 )
 
         self._sync_reference_to_policy()
@@ -890,6 +933,8 @@ class GPTPPOTrainer:
         entropy_values: list[float] = []
         approx_kls: list[float] = []
         clipfracs: list[float] = []
+        skipped_non_finite_batches = 0
+        updated_batches = 0
 
         early_stop = False
 
@@ -946,11 +991,20 @@ class GPTPPOTrainer:
                     + self.config.vf_coef * value_loss
                     - self.config.ent_coef * entropy_loss
                 )
+                if not torch.isfinite(loss):
+                    skipped_non_finite_batches += 1
+                    continue
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                if not self._gradients_are_finite(self.policy):
+                    skipped_non_finite_batches += 1
+                    self.optimizer.zero_grad(set_to_none=True)
+                    continue
                 nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
                 self.optimizer.step()
+                self._assert_policy_finite("ppo_step")
+                updated_batches += 1
 
                 with torch.no_grad():
                     approx_kl = masked_mean(old_logprobs - new_logprobs, action_mask)
@@ -996,6 +1050,8 @@ class GPTPPOTrainer:
             "train/score_mean": score_mean,
             "train/score_std": score_std,
             "train/adv_variance": adv_variance,
+            "train/skipped_non_finite_batches": float(skipped_non_finite_batches),
+            "train/updated_batches": float(updated_batches),
         }
         return metrics
 
@@ -1073,7 +1129,9 @@ class GPTPPOTrainer:
                     f"value_loss={metrics['train/value_loss']:.4f} "
                     f"approx_kl={metrics['train/approx_kl']:.6f} "
                     f"clip_fraction={metrics['train/clip_fraction']:.4f} "
-                    f"adv_var={metrics['train/adv_variance']:.6f}"
+                    f"adv_var={metrics['train/adv_variance']:.6f} "
+                    f"skipped_non_finite={int(metrics['train/skipped_non_finite_batches'])} "
+                    f"updated_batches={int(metrics['train/updated_batches'])}"
                 )
                 if self.config.eval_compare_modes:
                     print(
