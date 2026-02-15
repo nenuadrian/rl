@@ -22,7 +22,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kl_coef": 0.2,
         "normalize_advantages": True,
         "max_prompt_length": 96,
-        "max_response_length": 4,
+        "max_response_length": 8,
         "temperature": 0.5,
         "top_p": 0.9,
         "top_k": 50,
@@ -41,7 +41,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "eval_compare_modes": True,
         "dataset_size": 10_000,
         "dataset_min_value": 0,
-        "dataset_max_value": 9,
+        "dataset_max_value": 90,
         "dataset_seed": 123,
         "prompt_template": (
             "Solve this addition problem and reply with only the final integer.\n"

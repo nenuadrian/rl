@@ -585,31 +585,6 @@ class GPTPPOTrainer:
         }
         return metrics, details
 
-    def _log_examples(
-        self,
-        iteration: int,
-        details: Sequence[dict[str, Any]],
-        rewards: torch.Tensor,
-        prefix: str,
-    ) -> None:
-        max_examples = min(int(self.config.log_num_examples), len(details))
-        if max_examples <= 0:
-            return
-
-        indices = random.sample(range(len(details)), k=max_examples)
-        reward_values = rewards.detach().cpu().tolist()
-        for idx in indices:
-            row = details[idx]
-            print(
-                f"[GPTPPO][{prefix}][example] "
-                f"iter={iteration} idx={idx} "
-                f"reward={float(reward_values[idx]):.4f} "
-                f"parseable={row['is_parseable']} exact={row['is_exact_match']} "
-                f"target={row['target']} parsed={row['response_parsed']} "
-                f"prompt={row['prompt']!r} "
-                f"response={row['response_raw']!r}"
-            )
-
     def _sync_reference_to_policy(self) -> None:
         new_reference = copy.deepcopy(self.policy.model)
         new_reference.eval()
@@ -1087,12 +1062,6 @@ class GPTPPOTrainer:
             metrics["eval_sampled/frac_exact_match"] = sampled_metrics["frac_exact_match"]
             metrics["eval_sampled/mean_abs_error"] = sampled_metrics["mean_abs_error"]
 
-            self._log_examples(
-                iteration=iteration,
-                details=sampled_details,
-                rewards=rollout.scores,
-                prefix="sampled",
-            )
 
             if self.config.eval_compare_modes:
                 greedy_responses = self.generate(
@@ -1111,12 +1080,6 @@ class GPTPPOTrainer:
                 if not isinstance(greedy_rewards, torch.Tensor):
                     greedy_rewards = torch.tensor(greedy_rewards, dtype=torch.float32)
                 greedy_rewards = greedy_rewards.to(torch.float32)
-                self._log_examples(
-                    iteration=iteration,
-                    details=greedy_details,
-                    rewards=greedy_rewards,
-                    prefix="greedy",
-                )
 
             history.append(metrics)
 
