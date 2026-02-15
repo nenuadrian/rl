@@ -5,6 +5,7 @@ from trainers.gpt_ppo.trainer import (
     ShapedMathReward,
     build_addition_dataset,
     compute_masked_gae,
+    extract_integer_from_first_line,
     extract_first_integer,
     extract_last_integer,
     masked_mean,
@@ -39,6 +40,14 @@ def test_extract_first_integer_reads_first_number():
 def test_extract_last_integer_alias_reads_first_number_for_backcompat():
     assert extract_last_integer("steps 3 then -7") == 3
     assert extract_last_integer("no number here") is None
+
+
+def test_extract_integer_from_first_line_modes():
+    assert extract_integer_from_first_line("7", mode="strict_line") == 7
+    assert extract_integer_from_first_line("7 apples", mode="strict_line") is None
+    assert extract_integer_from_first_line("7 apples", mode="line_prefix") == 7
+    assert extract_integer_from_first_line("x=7", mode="line_prefix") is None
+    assert extract_integer_from_first_line("x=7", mode="anywhere") == 7
 
 
 def test_exact_math_reward_scores_matches():
