@@ -14,7 +14,12 @@ from utils.wandb_utils import finish_wandb, init_wandb
 from trainers.vmpo.trainer import VMPOTrainer
 from trainers.mpo.trainer import MPOTrainer
 from trainers.ppo.trainer import PPOTrainer
-from trainers.gpt_ppo import GPTPPOConfig, GPTPPOTrainer, MathSample, build_addition_dataset
+from trainers.gpt_ppo import (
+    GPTPPOConfig,
+    GPTPPOTrainer,
+    MathSample,
+    build_addition_dataset,
+)
 
 
 def _print_banner() -> None:
@@ -48,7 +53,11 @@ def _load_preset(algo: str, env_id: str) -> dict:
 
 def _apply_preset(args: argparse.Namespace, preset: dict) -> None:
     for key, value in preset.items():
-        if key == "advantage_estimator" and hasattr(args, "advantage_estimator") and getattr(args, "advantage_estimator") is not None:
+        if (
+            key == "advantage_estimator"
+            and hasattr(args, "advantage_estimator")
+            and getattr(args, "advantage_estimator") is not None
+        ):
             continue  # Don't override if already set by CLI
         setattr(args, key, value)
 
@@ -167,7 +176,12 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="minerva-rl")
     parser.add_argument("--wandb_entity", type=str, default="adrian-research")
     parser.add_argument("--wandb_group", type=str, default=None)
-    parser.add_argument("--advantage_estimator", type=str, default=None, help="Override advantage estimator (returns, gae, dae)")
+    parser.add_argument(
+        "--advantage_estimator",
+        type=str,
+        default=None,
+        help="Override advantage estimator (returns, gae, dae)",
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -219,7 +233,9 @@ if __name__ == "__main__":
     run_optimizer = _slug_component(_resolve_run_optimizer(algo, args))
     run_adv_type = _slug_component(_resolve_run_adv_type(algo, args))
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_name = f"{algo}_{env_slug}-{run_optimizer}-{run_adv_type}_{timestamp}"
+    run_name = (
+        f"{algo}_{env_slug}-{run_optimizer}-{run_adv_type}_seed{args.seed}_{timestamp}"
+    )
     args.out_dir = os.path.join(args.out_dir, algo, run_name)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -435,11 +451,7 @@ if __name__ == "__main__":
             temperature=float(args.temperature),
             top_p=float(args.top_p),
             top_k=int(args.top_k),
-            target_kl=(
-                None
-                if float(args.target_kl) <= 0
-                else float(args.target_kl)
-            ),
+            target_kl=(None if float(args.target_kl) <= 0 else float(args.target_kl)),
             max_grad_norm=float(args.max_grad_norm),
             reward_type=str(getattr(args, "reward_type", "exact")),
             response_parse_mode=str(

@@ -5,14 +5,14 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 environments=(
-    "HalfCheetah-v5"
-    "Walker2d-v5"
-    "Humanoid-v5"
     "dm_control/cheetah/run"
     "dm_control/humanoid/walk"
     "dm_control/humanoid/run"
     "dm_control/walker/walk"
     "dm_control/walker/run"
+    "HalfCheetah-v5"
+    "Walker2d-v5"
+    "Humanoid-v5"
     "Ant-v5"
 )
 
@@ -26,8 +26,8 @@ WANDB_PROJECT_NAME="minerva-rl-benchmark-${BENCHMARK_SUFFIX}"
 SEEDS="${SEEDS:-1}"
 SEED_START="${SEED_START:-42}"
 
-for env in "${environments[@]}"; do
-    for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
+for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
+    for env in "${environments[@]}"; do
         echo "[ppo] env=${env} seed=${seed}"
         python main.py ppo \
         --env "$env" \
