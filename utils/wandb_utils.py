@@ -54,8 +54,6 @@ def log_wandb(metrics: Mapping[str, Any], step: int | None = None, silent: bool 
         str(key): _coerce_scalar(value) for key, value in dict(metrics).items()
     }
     wandb.log(payload, step=step)
-    if "eval/return_mean" in payload:
-        wandb.run.summary["eval/return_mean"] = payload["eval/return_mean"]
     if not silent:
         print(f"step {step}: " + ", ".join(f"{k}={v:.3f}" for k, v in payload.items()))
 

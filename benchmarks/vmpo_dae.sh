@@ -32,6 +32,7 @@ for env in "${environments[@]}"; do
         python main.py vmpo \
         --env "$env" \
         --wandb_project "$WANDB_PROJECT_NAME" \
-        --seed "$seed"
+        --seed "$seed" \
+        --advantage_estimator dae 
     done
 done
