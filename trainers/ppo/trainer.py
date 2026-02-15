@@ -343,6 +343,11 @@ class PPOTrainer:
                 for i in range(self.num_envs)
             ]
         )
+        self.eval_env = make_eval_env(
+            self.env_id,
+            self.seed + 10_000,
+            normalize_observation=self.normalize_obs,
+        )
         assert isinstance(
             self.envs.single_action_space, gym.spaces.Box
         ), "only continuous action space is supported"
@@ -399,6 +404,7 @@ class PPOTrainer:
                 f"({total_steps} < {self.batch_size})."
             )
             self.envs.close()
+            self.eval_env.close()
             return
 
         obs = torch.zeros(
@@ -421,11 +427,6 @@ class PPOTrainer:
         next_obs = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)
         next_done = torch.zeros(self.num_envs, device=self.device)
 
-        eval_env = make_eval_env(
-            self.env_id,
-            self.seed + 10_000,
-            normalize_observation=self.normalize_obs,
-        )
         last_eval = 0
         best_eval_score = float("-inf")
         os.makedirs(out_dir, exist_ok=True)
@@ -468,10 +469,10 @@ class PPOTrainer:
 
                 if global_step // eval_interval > last_eval:
                     last_eval = global_step // eval_interval
-                    sync_obs_rms(self.envs.envs[0], eval_env)
+                    sync_obs_rms(self.envs.envs[0], self.eval_env)
                     eval_returns, eval_lengths = evaluate(
                         self.agent,
-                        eval_env,
+                        self.eval_env,
                         self.device,
                         self.eval_episodes,
                         deterministic=self.eval_deterministic,
@@ -656,4 +657,4 @@ class PPOTrainer:
             print("SPS:", sps)
 
         self.envs.close()
-        eval_env.close()
+        self.eval_env.close()

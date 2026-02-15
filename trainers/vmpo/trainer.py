@@ -419,6 +419,21 @@ class VMPOTrainer:
         # Current observation is episode start until the first action is taken.
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         self.last_eval = 0
+        self.eval_episodes = 50
+        self.eval_seed = self.seed + 1000
+        self.eval_env = gym.vector.SyncVectorEnv(
+            [
+                (lambda i=i: _make_env(
+                    self.env_id,
+                    seed=self.eval_seed + i,
+                    gamma=self.gamma,
+                    # Evaluate on raw environment reward so returns are comparable
+                    # across checkpoints/runs. Training can still use reward norm.
+                    normalize_reward=False,
+                ))
+                for i in range(self.eval_episodes)
+            ]
+        )
 
     def _make_train_env(
         self,
@@ -682,9 +697,8 @@ class VMPOTrainer:
                 self.last_eval = global_step // eval_interval
                 metrics = _evaluate_vectorized(
                     agent=self.agent,
-                    env_id=self.env_id,
-                    seed=self.seed + 1000,
-                    gamma=self.gamma,
+                    eval_envs=self.eval_env,
+                    seed=self.eval_seed,
                     obs_rms_stats=_collect_vector_obs_rms_stats(self.env),
                 )
                 log_wandb(metrics, step=global_step, silent=True)
@@ -743,36 +757,24 @@ class VMPOTrainer:
                     interval_update_count = 0
 
         self.env.close()
+        self.eval_env.close()
 
 
 @torch.no_grad()
 def _evaluate_vectorized(
     agent: VMPOAgent,
-    env_id: str,
-    n_episodes: int = 50,
+    eval_envs: gym.vector.VectorEnv,
     seed: int = 42,
-    gamma: float = 0.99,
     obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
-    eval_envs = gym.vector.SyncVectorEnv(
-        [
-            lambda i=i: _make_env(
-                env_id,
-                seed=seed + i,
-                gamma=gamma,
-                # Evaluate on raw environment reward so returns are comparable
-                # across checkpoints/runs. Training can still use reward norm.
-                normalize_reward=False,
-            )
-            for i in range(n_episodes)
-        ]
-    )
+    n_episodes = int(eval_envs.num_envs)
     _apply_obs_rms_stats(eval_envs, obs_rms_stats)
 
+    was_training = agent.policy.training
     agent.policy.eval()
     obs, _ = eval_envs.reset(seed=seed)
 
@@ -811,8 +813,8 @@ def _evaluate_vectorized(
                 dones[i] = True
 
         obs = next_obs
-    eval_envs.close()
-    agent.policy.train()
+    if was_training:
+        agent.policy.train()
 
     return {
         "eval/return_mean": float(np.mean(final_returns)),

@@ -79,6 +79,14 @@ class MPOTrainer:
             env_id,
             seed=seed,
         )
+        self.eval_episodes = 50
+        self.eval_seed = self.seed + 1000
+        self.eval_envs = gym.vector.SyncVectorEnv(
+            [
+                (lambda i=i: _make_env(env_id, seed=self.eval_seed + i))
+                for i in range(self.eval_episodes)
+            ]
+        )
         self.env_id = env_id
 
         obs_dim = infer_obs_dim(self.env.observation_space)
@@ -167,184 +175,183 @@ class MPOTrainer:
 
         obs, _ = self.env.reset()
         obs = np.asarray(obs, dtype=np.float32)
-        for step in range(1, total_steps + 1):
-            action_exec, action_raw, behaviour_logp = self.agent.act_with_logp(
-                obs, deterministic=False
-            )
-
-            next_obs, reward, terminated, truncated, _ = self.env.step(action_exec)
-            next_obs = np.asarray(next_obs, dtype=np.float32)
-            reward_f = float(reward)
-            done = float(terminated or truncated)
-
-            self.replay.add(
-                obs,
-                action_exec,
-                action_raw,
-                behaviour_logp,
-                reward_f,
-                next_obs,
-                done,
-            )
-            obs = next_obs
-
-            self.episode_return += reward_f
-
-            if terminated or truncated:
-                episode_return = float(self.episode_return)
-                if step >= update_after:
-                    log_wandb(
-                        {"train/episode_return": episode_return},
-                        step=step,
-                        silent=True,
-                    )
-                print(
-                    f"[MPO][episode] step={step}/{total_steps}, return={episode_return:.3f}"
+        try:
+            for step in range(1, total_steps + 1):
+                action_exec, action_raw, behaviour_logp = self.agent.act_with_logp(
+                    obs, deterministic=False
                 )
-                interval_episode_count += 1
-                interval_episode_sum += episode_return
-                interval_episode_min = min(interval_episode_min, episode_return)
-                interval_episode_max = max(interval_episode_max, episode_return)
-                obs, _ = self.env.reset()
-                obs = np.asarray(obs, dtype=np.float32)
-                self.episode_return = 0.0
 
-            if step >= update_after and self.replay.size >= batch_size:
-                step_metric_sums: Dict[str, float] = {}
-                step_update_count = 0
-                for _ in range(int(updates_per_step)):
-                    seq_len = self.retrace_steps
-                    if self.use_retrace and seq_len > 1:
-                        if self.replay.size >= batch_size + seq_len:
-                            batch = self.replay.sample_sequences(
-                                batch_size, seq_len=seq_len
-                            )
+                next_obs, reward, terminated, truncated, _ = self.env.step(action_exec)
+                next_obs = np.asarray(next_obs, dtype=np.float32)
+                reward_f = float(reward)
+                done = float(terminated or truncated)
+
+                self.replay.add(
+                    obs,
+                    action_exec,
+                    action_raw,
+                    behaviour_logp,
+                    reward_f,
+                    next_obs,
+                    done,
+                )
+                obs = next_obs
+
+                self.episode_return += reward_f
+
+                if terminated or truncated:
+                    episode_return = float(self.episode_return)
+                    if step >= update_after:
+                        log_wandb(
+                            {"train/episode_return": episode_return},
+                            step=step,
+                            silent=True,
+                        )
+                    print(
+                        f"[MPO][episode] step={step}/{total_steps}, return={episode_return:.3f}"
+                    )
+                    interval_episode_count += 1
+                    interval_episode_sum += episode_return
+                    interval_episode_min = min(interval_episode_min, episode_return)
+                    interval_episode_max = max(interval_episode_max, episode_return)
+                    obs, _ = self.env.reset()
+                    obs = np.asarray(obs, dtype=np.float32)
+                    self.episode_return = 0.0
+
+                if step >= update_after and self.replay.size >= batch_size:
+                    step_metric_sums: Dict[str, float] = {}
+                    step_update_count = 0
+                    for _ in range(int(updates_per_step)):
+                        seq_len = self.retrace_steps
+                        if self.use_retrace and seq_len > 1:
+                            if self.replay.size >= batch_size + seq_len:
+                                batch = self.replay.sample_sequences(
+                                    batch_size, seq_len=seq_len
+                                )
+                            else:
+                                continue
                         else:
-                            continue
-                    else:
-                        batch = self.replay.sample(batch_size)
+                            batch = self.replay.sample(batch_size)
 
-                    metrics = self.agent.update(batch)
-                    for key, value in metrics.items():
-                        step_metric_sums[key] = step_metric_sums.get(key, 0.0) + float(
-                            value
-                        )
-                    step_update_count += 1
-                    for key, value in metrics.items():
-                        interval_metric_sums[key] = (
-                            interval_metric_sums.get(key, 0.0) + float(value)
-                        )
-                    interval_update_count += 1
-                    total_update_count += 1
+                        metrics = self.agent.update(batch)
+                        for key, value in metrics.items():
+                            step_metric_sums[key] = step_metric_sums.get(
+                                key, 0.0
+                            ) + float(value)
+                        step_update_count += 1
+                        for key, value in metrics.items():
+                            interval_metric_sums[key] = (
+                                interval_metric_sums.get(key, 0.0) + float(value)
+                            )
+                        interval_update_count += 1
+                        total_update_count += 1
 
-                if step_update_count > 0:
-                    step_mean_metrics = {
-                        key: value / float(step_update_count)
-                        for key, value in step_metric_sums.items()
+                    if step_update_count > 0:
+                        step_mean_metrics = {
+                            key: value / float(step_update_count)
+                            for key, value in step_metric_sums.items()
+                        }
+                        log_wandb(step_mean_metrics, step=step, silent=True)
+
+                if step % eval_interval == 0:
+                    metrics = _evaluate_vectorized(
+                        agent=self.agent,
+                        eval_envs=self.eval_envs,
+                        seed=self.eval_seed,
+                    )
+                    log_wandb(metrics, step=step)
+                    print(
+                        f"[MPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
+                    )
+                    ckpt_payload = {
+                        "policy": self.agent.policy.state_dict(),
+                        "q": self.agent.q.state_dict(),
                     }
-                    log_wandb(step_mean_metrics, step=step, silent=True)
+                    ckpt_last_path = os.path.join(out_dir, "mpo_last.pt")
+                    torch.save(ckpt_payload, ckpt_last_path)
+                    print(f"[MPO][checkpoint] step={step}: saved {ckpt_last_path}")
 
-            if step % eval_interval == 0:
-                metrics = _evaluate_vectorized(
-                    agent=self.agent,
-                    env_id=self.env_id,
-                    seed=self.seed + 1000,
+                    eval_score = float(metrics["eval/return_mean"])
+                    if eval_score > best_eval_score:
+                        best_eval_score = eval_score
+                        ckpt_best_path = os.path.join(out_dir, "mpo_best.pt")
+                        torch.save(ckpt_payload, ckpt_best_path)
+                        print(
+                            f"[MPO][checkpoint-best] step={step}: "
+                            f"score={eval_score:.6f}, saved {ckpt_best_path}"
+                        )
+
+                should_print_progress = (
+                    step == total_steps
+                    or step == update_after
+                    or step % console_log_interval == 0
                 )
-                log_wandb(metrics, step=step)
-                print(
-                    f"[MPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
-                )
-                ckpt_payload = {
-                    "policy": self.agent.policy.state_dict(),
-                    "q": self.agent.q.state_dict(),
-                }
-                ckpt_last_path = os.path.join(out_dir, "mpo_last.pt")
-                torch.save(ckpt_payload, ckpt_last_path)
-                print(f"[MPO][checkpoint] step={step}: saved {ckpt_last_path}")
+                if should_print_progress:
+                    now = time.perf_counter()
+                    elapsed_total = max(now - start_time, 1e-9)
+                    elapsed_window = max(now - last_progress_time, 1e-9)
+                    steps_window = step - last_progress_step
+                    updates_window = total_update_count - last_progress_updates
 
-                eval_score = float(metrics["eval/return_mean"])
-                if eval_score > best_eval_score:
-                    best_eval_score = eval_score
-                    ckpt_best_path = os.path.join(out_dir, "mpo_best.pt")
-                    torch.save(ckpt_payload, ckpt_best_path)
+                    progress = 100.0 * float(step) / float(total_steps)
                     print(
-                        f"[MPO][checkpoint-best] step={step}: "
-                        f"score={eval_score:.6f}, saved {ckpt_best_path}"
+                        "[MPO][progress] "
+                        f"step={step}/{total_steps} ({progress:.2f}%), "
+                        f"replay={self.replay.size}/{self.replay.capacity}, "
+                        f"updates={total_update_count}, "
+                        f"sps={steps_window / elapsed_window:.2f}, "
+                        f"ups={updates_window / elapsed_window:.2f}, "
+                        f"sps_total={step / elapsed_total:.2f}"
                     )
+                    last_progress_time = now
+                    last_progress_step = step
+                    last_progress_updates = total_update_count
 
-            should_print_progress = (
-                step == total_steps
-                or step == update_after
-                or step % console_log_interval == 0
-            )
-            if should_print_progress:
-                now = time.perf_counter()
-                elapsed_total = max(now - start_time, 1e-9)
-                elapsed_window = max(now - last_progress_time, 1e-9)
-                steps_window = step - last_progress_step
-                updates_window = total_update_count - last_progress_updates
+                    if interval_episode_count > 0:
+                        print(
+                            "[MPO][episode-stats] "
+                            f"count={interval_episode_count}, "
+                            f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
+                            f"return_min={interval_episode_min:.3f}, "
+                            f"return_max={interval_episode_max:.3f}"
+                        )
+                        interval_episode_count = 0
+                        interval_episode_sum = 0.0
+                        interval_episode_min = float("inf")
+                        interval_episode_max = float("-inf")
 
-                progress = 100.0 * float(step) / float(total_steps)
-                print(
-                    "[MPO][progress] "
-                    f"step={step}/{total_steps} ({progress:.2f}%), "
-                    f"replay={self.replay.size}/{self.replay.capacity}, "
-                    f"updates={total_update_count}, "
-                    f"sps={steps_window / elapsed_window:.2f}, "
-                    f"ups={updates_window / elapsed_window:.2f}, "
-                    f"sps_total={step / elapsed_total:.2f}"
-                )
-                last_progress_time = now
-                last_progress_step = step
-                last_progress_updates = total_update_count
-
-                if interval_episode_count > 0:
-                    print(
-                        "[MPO][episode-stats] "
-                        f"count={interval_episode_count}, "
-                        f"return_mean={interval_episode_sum / interval_episode_count:.3f}, "
-                        f"return_min={interval_episode_min:.3f}, "
-                        f"return_max={interval_episode_max:.3f}"
-                    )
-                    interval_episode_count = 0
-                    interval_episode_sum = 0.0
-                    interval_episode_min = float("inf")
-                    interval_episode_max = float("-inf")
-
-                if interval_update_count > 0:
-                    mean_metrics = {
-                        key: value / float(interval_update_count)
-                        for key, value in interval_metric_sums.items()
-                    }
-                    print(
-                        "[MPO][train-metrics] "
-                        f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
-                    )
-                    interval_metric_sums.clear()
-                    interval_update_count = 0
-                elif step < update_after:
-                    print(
-                        "[MPO][train-metrics] "
-                        f"waiting for replay warmup ({step}/{update_after} steps)"
-                    )
-
-        self.env.close()
+                    if interval_update_count > 0:
+                        mean_metrics = {
+                            key: value / float(interval_update_count)
+                            for key, value in interval_metric_sums.items()
+                        }
+                        print(
+                            "[MPO][train-metrics] "
+                            f"updates={interval_update_count}, {_format_metrics(mean_metrics)}"
+                        )
+                        interval_metric_sums.clear()
+                        interval_update_count = 0
+                    elif step < update_after:
+                        print(
+                            "[MPO][train-metrics] "
+                            f"waiting for replay warmup ({step}/{update_after} steps)"
+                        )
+        finally:
+            self.env.close()
+            self.eval_envs.close()
 
 @torch.no_grad()
 def _evaluate_vectorized(
     agent: MPOAgent,
-    env_id: str,
-    n_episodes: int = 50,
+    eval_envs: gym.vector.VectorEnv,
     seed: int = 42,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
-    eval_envs = gym.vector.SyncVectorEnv(
-        [lambda i=i: _make_env(env_id, seed=seed + i) for i in range(n_episodes)]
-    )
-
+    n_episodes = int(eval_envs.num_envs)
+    was_training = agent.policy.training
     agent.policy.eval()
     obs, _ = eval_envs.reset(seed=seed)
 
@@ -379,8 +386,8 @@ def _evaluate_vectorized(
 
         obs = next_obs
 
-    eval_envs.close()
-    agent.policy.train()
+    if was_training:
+        agent.policy.train()
 
     return {
         "eval/return_mean": float(np.mean(final_returns)),
