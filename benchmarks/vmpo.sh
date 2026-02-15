@@ -23,7 +23,7 @@ fi
 BENCHMARK_SUFFIX="$1"
 shift
 WANDB_PROJECT_NAME="minerva-rl-benchmark-${BENCHMARK_SUFFIX}"
-SEEDS="${SEEDS:-1}"
+SEEDS="${SEEDS:-3}"
 SEED_START="${SEED_START:-42}"
 
 for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
