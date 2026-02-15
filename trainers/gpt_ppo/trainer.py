@@ -32,10 +32,6 @@ except ImportError:  # pragma: no cover - exercised only when transformers is ab
 _INT_PATTERN = re.compile(r"([+-]?\d+)")
 _STRICT_INT_LINE_PATTERN = re.compile(r"^\s*([+-]?\d+)\s*$")
 _LINE_PREFIX_INT_PATTERN = re.compile(r"^\s*([+-]?\d+)\b")
-_ADDITION_PROMPT_PATTERN = re.compile(
-    r"Question:\s*([+-]?\d+)\s*\+\s*([+-]?\d+)\s*=",
-    flags=re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -111,31 +107,6 @@ def extract_integer_from_first_line(
     raise ValueError(f"Unknown parse mode: {mode}")
 
 
-def extract_addition_operands(prompt: str) -> tuple[int, int] | None:
-    match = _ADDITION_PROMPT_PATTERN.search(str(prompt))
-    if match is None:
-        return None
-    return int(match.group(1)), int(match.group(2))
-
-
-def count_decimal_carries(a: int, b: int) -> int:
-    a_abs = abs(int(a))
-    b_abs = abs(int(b))
-    carry = 0
-    carry_count = 0
-    while a_abs > 0 or b_abs > 0:
-        da = a_abs % 10
-        db = b_abs % 10
-        if da + db + carry >= 10:
-            carry = 1
-            carry_count += 1
-        else:
-            carry = 0
-        a_abs //= 10
-        b_abs //= 10
-    return carry_count
-
-
 class ExactMathReward:
     """Exact-match integer reward for math responses."""
 
@@ -179,16 +150,12 @@ class ShapedMathReward:
     def __init__(
         self,
         error_scale: float = 100.0,
-        alpha: float = 1.0,
         invalid_reward: float = 0.0,
         parse_fn: Callable[[str], int | None] = extract_first_integer,
     ):
         if error_scale <= 0:
             raise ValueError("error_scale must be > 0")
-        if alpha <= 0:
-            raise ValueError("alpha must be > 0")
         self.error_scale = float(error_scale)
-        self.alpha = float(alpha)
         self.invalid_reward = float(invalid_reward)
         self.parse_fn = parse_fn
 
@@ -209,54 +176,8 @@ class ShapedMathReward:
                 continue
 
             distance = abs(float(prediction - target))
-            shaped = 1.0 - self.alpha * (distance / self.error_scale)
-            scores.append(float(max(-1.0, min(1.0, shaped))))
-
-        return torch.tensor(scores, dtype=torch.float32)
-
-
-class DigitMatchReward:
-    """Digit-level match reward with right-aligned decimal comparison."""
-
-    def __init__(
-        self,
-        invalid_reward: float = -1.0,
-        parse_fn: Callable[[str], int | None] = extract_first_integer,
-    ):
-        self.invalid_reward = float(invalid_reward)
-        self.parse_fn = parse_fn
-
-    @staticmethod
-    def _digit_match_ratio(target: int, prediction: int) -> float:
-        target_sign = 1 if int(target) >= 0 else -1
-        pred_sign = 1 if int(prediction) >= 0 else -1
-        t = str(abs(int(target)))
-        p = str(abs(int(prediction)))
-        width = max(len(t), len(p))
-        t = t.zfill(width)
-        p = p.zfill(width)
-        matches = sum(1 for dt, dp in zip(t, p) if dt == dp)
-        ratio = float(matches / max(width, 1))
-        if target_sign != pred_sign:
-            ratio = max(0.0, ratio - 0.25)
-        return ratio
-
-    def __call__(
-        self,
-        samples: Sequence[MathSample],
-        responses: Sequence[str],
-    ) -> torch.Tensor:
-        if len(samples) != len(responses):
-            raise ValueError("samples and responses must have the same length")
-
-        scores: list[float] = []
-        for sample, response in zip(samples, responses):
-            target = self.parse_fn(sample.answer)
-            prediction = self.parse_fn(response)
-            if target is None or prediction is None:
-                scores.append(self.invalid_reward)
-                continue
-            scores.append(self._digit_match_ratio(target=target, prediction=prediction))
+            shaped = 1.0 - (distance / self.error_scale)
+            scores.append(float(max(0.0, min(1.0, shaped))))
 
         return torch.tensor(scores, dtype=torch.float32)
 
@@ -289,20 +210,13 @@ class GPTPPOConfig:
 
     target_kl: float | None = None
     max_grad_norm: float = 1.0
-    force_fp32_policy: bool = True
-    detach_value_head_input: bool = True
 
-    reward_type: str = "shaped"
+    reward_type: str = "exact"
     response_parse_mode: str = "strict_line"
     correct_reward: float = 1.0
     incorrect_reward: float = 0.0
     invalid_reward: float = 0.0
     reward_error_scale: float = 100.0
-    reward_alpha: float = 1.0
-    enable_token_level_reward: bool = True
-    token_level_reward_coef: float = 1.0
-    length_penalty_beta: float = 0.0
-    stop_on_newline: bool = True
 
     sft_epochs: int = 0
     sft_batch_size: int = 0
@@ -335,28 +249,14 @@ class GPTPPOConfig:
             raise ValueError("clip_range must be >= 0")
         if self.clip_range_value < 0:
             raise ValueError("clip_range_value must be >= 0")
-        if self.reward_type not in {"exact", "shaped", "digit_match"}:
-            raise ValueError("reward_type must be one of: exact, shaped, digit_match")
+        if self.reward_type not in {"exact", "shaped"}:
+            raise ValueError("reward_type must be one of: exact, shaped")
         if self.response_parse_mode not in {"strict_line", "line_prefix", "anywhere"}:
             raise ValueError(
                 "response_parse_mode must be one of: strict_line, line_prefix, anywhere"
             )
         if self.reward_error_scale <= 0:
             raise ValueError("reward_error_scale must be > 0")
-        if self.reward_alpha <= 0:
-            raise ValueError("reward_alpha must be > 0")
-        if self.token_level_reward_coef < 0:
-            raise ValueError("token_level_reward_coef must be >= 0")
-        if self.length_penalty_beta < 0:
-            raise ValueError("length_penalty_beta must be >= 0")
-        if not isinstance(self.force_fp32_policy, bool):
-            raise ValueError("force_fp32_policy must be bool")
-        if not isinstance(self.detach_value_head_input, bool):
-            raise ValueError("detach_value_head_input must be bool")
-        if not isinstance(self.enable_token_level_reward, bool):
-            raise ValueError("enable_token_level_reward must be bool")
-        if not isinstance(self.stop_on_newline, bool):
-            raise ValueError("stop_on_newline must be bool")
         if self.sft_epochs < 0:
             raise ValueError("sft_epochs must be >= 0")
         if self.sft_batch_size < 0:
@@ -436,14 +336,9 @@ def compute_masked_gae(
 class CausalLMWithValueHead(nn.Module):
     """A causal LM plus a token-value head for PPO."""
 
-    def __init__(
-        self,
-        model: PreTrainedModel,
-        detach_value_head_input: bool = True,
-    ):
+    def __init__(self, model: PreTrainedModel):
         super().__init__()
         self.model = model
-        self.detach_value_head_input = bool(detach_value_head_input)
 
         hidden_size = getattr(model.config, "hidden_size", None)
         if hidden_size is None:
@@ -469,8 +364,6 @@ class CausalLMWithValueHead(nn.Module):
 
         logits = outputs.logits
         hidden_states = outputs.hidden_states[-1]
-        if self.detach_value_head_input:
-            hidden_states = hidden_states.detach()
         # Mixed-precision safe value head projection:
         # hidden states can be fp16/bf16 while the value head often stays fp32.
         value_input = hidden_states.to(self.value_head.weight.dtype)
@@ -520,12 +413,6 @@ class GPTPPOTrainer:
             if config.reward_type == "shaped":
                 reward_fn = ShapedMathReward(
                     error_scale=config.reward_error_scale,
-                    alpha=config.reward_alpha,
-                    invalid_reward=config.invalid_reward,
-                    parse_fn=self.response_parse_fn,
-                )
-            elif config.reward_type == "digit_match":
-                reward_fn = DigitMatchReward(
                     invalid_reward=config.invalid_reward,
                     parse_fn=self.response_parse_fn,
                 )
@@ -557,10 +444,6 @@ class GPTPPOTrainer:
                 tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "left"
         self.tokenizer = tokenizer
-        newline_token_ids = self.tokenizer_ids_for_text("\n")
-        self._newline_token_id: int | None = (
-            int(newline_token_ids[0]) if len(newline_token_ids) == 1 else None
-        )
 
         if actor_model is None:
             if AutoModelForCausalLM is None:
@@ -568,25 +451,14 @@ class GPTPPOTrainer:
                     "transformers is required to construct GPTPPOTrainer. "
                     "Install it with `pip install transformers`."
                 )
-            from_pretrained_kwargs: dict[str, Any] = {}
-            if "opt" in config.model_name.lower():
-                from_pretrained_kwargs["tie_word_embeddings"] = False
-            actor_model = AutoModelForCausalLM.from_pretrained(
-                config.model_name,
-                **from_pretrained_kwargs,
-            )
+            actor_model = AutoModelForCausalLM.from_pretrained(config.model_name)
 
         if actor_model.get_input_embeddings().num_embeddings < len(self.tokenizer):
             actor_model.resize_token_embeddings(len(self.tokenizer))
         if getattr(actor_model.config, "loss_type", None) is None:
             actor_model.config.loss_type = "ForCausalLM"
-        if self.config.force_fp32_policy:
-            actor_model = actor_model.to(torch.float32)
 
-        self.policy = CausalLMWithValueHead(
-            actor_model,
-            detach_value_head_input=self.config.detach_value_head_input,
-        ).to(self.device)
+        self.policy = CausalLMWithValueHead(actor_model).to(self.device)
         self._assert_policy_finite("initialization")
 
         if reference_model is None:
@@ -621,15 +493,6 @@ class GPTPPOTrainer:
             return random.sample(self.train_samples, self.config.batch_size)
         return random.choices(self.train_samples, k=self.config.batch_size)
 
-    def tokenizer_ids_for_text(self, text: str) -> list[int]:
-        enc = self.tokenizer(
-            text,
-            add_special_tokens=False,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-        )
-        return [int(tok) for tok in enc["input_ids"]]
-
     @staticmethod
     def _parameters_are_finite(module: nn.Module) -> bool:
         for param in module.parameters():
@@ -647,9 +510,9 @@ class GPTPPOTrainer:
         return True
 
     def _assert_policy_finite(self, context: str) -> None:
-        if not self._parameters_are_finite(self.policy):
+        if not self._parameters_are_finite(self.policy.model):
             raise RuntimeError(
-                f"Detected non-finite policy/value parameters at '{context}'. "
+                f"Detected non-finite policy parameters at '{context}'. "
                 "This usually means the optimization step diverged. "
                 "Try reducing SFT/PPO learning rates, reducing ppo_epochs, "
                 "or disabling SFT for this model."
@@ -663,24 +526,13 @@ class GPTPPOTrainer:
         max_new_tokens: int | None = None,
     ) -> torch.Tensor:
         self._assert_policy_finite("generation")
-        eos_value: int | list[int] | None = self.tokenizer.eos_token_id
-        if (
-            self.config.stop_on_newline
-            and self._newline_token_id is not None
-            and self._newline_token_id != self.tokenizer.eos_token_id
-        ):
-            if eos_value is None:
-                eos_value = [self._newline_token_id]
-            else:
-                eos_value = [int(eos_value), int(self._newline_token_id)]
-
         generation_kwargs: dict[str, Any] = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "do_sample": do_sample,
             "max_new_tokens": max_new_tokens or self.config.max_response_length,
             "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": eos_value,
+            "eos_token_id": self.tokenizer.eos_token_id,
             "remove_invalid_values": True,
             "renormalize_logits": True,
         }
@@ -734,115 +586,6 @@ class GPTPPOTrainer:
             "mean_abs_error": mean_abs_error,
         }
         return metrics, details
-
-    def _distance_score(self, target: int, prediction: int) -> float:
-        distance = abs(float(prediction - target))
-        shaped = 1.0 - float(self.config.reward_alpha) * (
-            distance / float(self.config.reward_error_scale)
-        )
-        return float(max(-1.0, min(1.0, shaped)))
-
-    @staticmethod
-    def _digit_match_ratio(target: int, prediction: int) -> float:
-        target_sign = 1 if int(target) >= 0 else -1
-        pred_sign = 1 if int(prediction) >= 0 else -1
-        t = str(abs(int(target)))
-        p = str(abs(int(prediction)))
-        width = max(len(t), len(p))
-        t = t.zfill(width)
-        p = p.zfill(width)
-        matches = sum(1 for dt, dp in zip(t, p) if dt == dp)
-        ratio = float(matches / max(width, 1))
-        if target_sign != pred_sign:
-            ratio = max(0.0, ratio - 0.25)
-        return ratio
-
-    def _score_prediction(self, target: int | None, prediction: int | None) -> float:
-        if target is None or prediction is None:
-            return float(self.config.invalid_reward)
-
-        if self.config.reward_type == "exact":
-            return (
-                float(self.config.correct_reward)
-                if int(prediction) == int(target)
-                else float(self.config.incorrect_reward)
-            )
-        if self.config.reward_type == "digit_match":
-            return self._digit_match_ratio(target=int(target), prediction=int(prediction))
-        return self._distance_score(target=int(target), prediction=int(prediction))
-
-    def _compute_token_level_prefix_rewards(
-        self,
-        samples: Sequence[MathSample],
-        generated_ids: torch.Tensor,
-        prompt_width: int,
-        response_lengths: Sequence[int],
-        action_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        token_rewards = torch.zeros_like(action_mask, dtype=torch.float32)
-        if not self.config.enable_token_level_reward:
-            return token_rewards
-
-        for i, (sample, response_len) in enumerate(zip(samples, response_lengths)):
-            target = self.response_parse_fn(sample.answer)
-            prev_score = 0.0
-            response_tokens = generated_ids[i, prompt_width : prompt_width + response_len]
-            for step in range(1, int(response_len) + 1):
-                prefix_text = self.tokenizer.decode(
-                    response_tokens[:step],
-                    skip_special_tokens=True,
-                )
-                prediction = self.response_parse_fn(prefix_text)
-                curr_score = self._score_prediction(target=target, prediction=prediction)
-                delta = curr_score - prev_score
-                action_idx = (prompt_width - 1) + (step - 1)
-                if 0 <= action_idx < token_rewards.shape[1]:
-                    token_rewards[i, action_idx] = float(delta)
-                prev_score = curr_score
-
-        return token_rewards * action_mask
-
-    def _compute_length_penalty(
-        self,
-        samples: Sequence[MathSample],
-        response_lengths: Sequence[int],
-    ) -> torch.Tensor:
-        penalties = torch.zeros(len(samples), dtype=torch.float32, device=self.device)
-        beta = float(self.config.length_penalty_beta)
-        if beta <= 0:
-            return penalties
-
-        target_token_lens = [
-            max(1, len(self.tokenizer_ids_for_text(sample.answer))) for sample in samples
-        ]
-        for i, (resp_len, target_len) in enumerate(zip(response_lengths, target_token_lens)):
-            extra_tokens = max(0, int(resp_len) - int(target_len))
-            penalties[i] = beta * float(extra_tokens)
-        return penalties
-
-    def _compute_carry_bucket_metrics(
-        self,
-        samples: Sequence[MathSample],
-        details: Sequence[dict[str, Any]],
-    ) -> dict[str, float]:
-        totals: dict[int, int] = {}
-        hits: dict[int, int] = {}
-        for sample, detail in zip(samples, details):
-            operands = extract_addition_operands(sample.prompt)
-            if operands is None:
-                continue
-            carries = count_decimal_carries(*operands)
-            totals[carries] = totals.get(carries, 0) + 1
-            if bool(detail.get("is_exact_match", False)):
-                hits[carries] = hits.get(carries, 0) + 1
-
-        metrics: dict[str, float] = {}
-        for carries, total in totals.items():
-            if total <= 0:
-                continue
-            key = f"train/accuracy_carry_{carries}"
-            metrics[key] = float(hits.get(carries, 0) / total)
-        return metrics
 
     def _log_examples(
         self,
@@ -1159,27 +902,14 @@ class GPTPPOTrainer:
             raise ValueError(
                 f"Reward fn returned {scores.numel()} scores for {batch_size} samples"
             )
-        length_penalty = self._compute_length_penalty(samples, response_lengths)
-        if float(self.config.length_penalty_beta) > 0:
-            scores = scores - length_penalty
 
         kl = old_logprobs - ref_logprobs
         non_score_rewards = -self.config.kl_coef * kl
 
         rewards = non_score_rewards * action_mask
-        if self.config.enable_token_level_reward:
-            prefix_token_rewards = self._compute_token_level_prefix_rewards(
-                samples=samples,
-                generated_ids=generated_ids,
-                prompt_width=prompt_width,
-                response_lengths=response_lengths,
-                action_mask=action_mask,
-            )
-            rewards = rewards + float(self.config.token_level_reward_coef) * prefix_token_rewards
-        else:
-            for i, response_len in enumerate(response_lengths):
-                last_action_idx = (prompt_width - 1) + response_len - 1
-                rewards[i, last_action_idx] += scores[i]
+        for i, response_len in enumerate(response_lengths):
+            last_action_idx = (prompt_width - 1) + response_len - 1
+            rewards[i, last_action_idx] += scores[i]
 
         advantages, returns = compute_masked_gae(
             values=old_values,
@@ -1366,7 +1096,6 @@ class GPTPPOTrainer:
             metrics["eval_sampled/frac_parseable"] = sampled_metrics["frac_parseable"]
             metrics["eval_sampled/frac_exact_match"] = sampled_metrics["frac_exact_match"]
             metrics["eval_sampled/mean_abs_error"] = sampled_metrics["mean_abs_error"]
-            metrics.update(self._compute_carry_bucket_metrics(batch, sampled_details))
 
             self._log_examples(
                 iteration=iteration,
