@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -19,43 +18,48 @@ class VideoRenderConfig:
     fps: int = 30
 
 
-def find_latest_checkpoint(out_dir: str, algo: str) -> str:
-    """Return the most recent checkpoint for an algo in out_dir.
+def find_latest_checkpoint(out_dir: str, algo: str, env_id: str) -> str:
+    """Return the newest checkpoint for an env under current run directories.
 
-    Prefers the highest step number from filenames like `{algo}_step_123.pt`.
-    Falls back to modification time if step parsing fails.
+    Expected layout:
+      out_dir/{algo}_{env_slug}-{optimizer}-{adv_type}_{timestamp}/{algo}_best.pt
+    Falls back to `{algo}_last.pt` if `{algo}_best.pt` is missing.
     """
-    pattern = re.compile(rf"^{re.escape(algo)}_step_(\\d+)\\.pt$")
-
     if not os.path.isdir(out_dir):
         raise FileNotFoundError(f"out_dir does not exist: {out_dir}")
 
-    candidates: list[tuple[int | None, float, str]] = []
+    env_slug = str(env_id).replace("/", "-")
+    run_prefix = f"{algo}_{env_slug}-"
+    candidates: list[tuple[float, str]] = []
+
     for name in os.listdir(out_dir):
-        if not name.startswith(f"{algo}") or not name.endswith(".pt"):
+        run_dir = os.path.join(out_dir, name)
+        if not os.path.isdir(run_dir):
             continue
-        match = pattern.match(name)
-        step = int(match.group(1)) if match else None
-        path = os.path.join(out_dir, name)
+        if not name.startswith(run_prefix):
+            continue
+
+        best_path = os.path.join(run_dir, f"{algo}_best.pt")
+        last_path = os.path.join(run_dir, f"{algo}_last.pt")
+        path = best_path if os.path.isfile(best_path) else last_path
+        if not os.path.isfile(path):
+            continue
+
         try:
             mtime = os.path.getmtime(path)
         except OSError:
-            mtime = 0.0
-        candidates.append((step, mtime, path))
+            continue
+        candidates.append((mtime, path))
 
     if not candidates:
         raise FileNotFoundError(
-            f"No checkpoints found for algo='{algo}' in out_dir='{out_dir}'. "
-            f"Expected files like: {algo}_step_50000.pt"
+            f"No checkpoints found for algo='{algo}', env='{env_id}' in out_dir='{out_dir}'. "
+            f"Expected run directories with prefix '{run_prefix}' containing "
+            f"'{algo}_best.pt' or '{algo}_last.pt'."
         )
 
-    def sort_key(item: tuple[int | None, float, str]) -> tuple[int, float]:
-        step, mtime, _ = item
-        # Put parsed steps first; then sort descending by step/mtime.
-        return (-(step if step is not None else -1), -mtime)
-
-    candidates.sort(key=sort_key)
-    return candidates[0][2]
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
 
 
 def _as_tuple_ints(values: Iterable[int]) -> tuple[int, ...]:
@@ -137,6 +141,64 @@ def build_policy_for_algo(
     return policy.to(device)
 
 
+def _load_policy_state_from_checkpoint(
+    policy: torch.nn.Module, ckpt: object, *, algo: str
+) -> None:
+    if not isinstance(ckpt, dict):
+        raise TypeError(
+            f"Checkpoint at render time must be a dict, got {type(ckpt).__name__}"
+        )
+
+    if algo == "ppo":
+        required_keys = {"actor_mean", "actor_logstd", "critic"}
+        missing = sorted(required_keys.difference(ckpt.keys()))
+        if missing:
+            raise KeyError(
+                f"PPO checkpoint missing required keys: {missing}. "
+                f"Found keys: {sorted(ckpt.keys())}"
+            )
+
+        for attr in ("actor_mean", "actor_logstd", "critic"):
+            if not hasattr(policy, attr):
+                raise AttributeError(
+                    f"Loaded PPO policy is missing expected attribute '{attr}'"
+                )
+
+        actor_mean_state = ckpt["actor_mean"]
+        critic_state = ckpt["critic"]
+        actor_logstd = ckpt["actor_logstd"]
+        if not isinstance(actor_mean_state, dict) or not isinstance(critic_state, dict):
+            raise TypeError("PPO checkpoint 'actor_mean' and 'critic' must be state dicts")
+        if not isinstance(actor_logstd, torch.Tensor):
+            raise TypeError(
+                "PPO checkpoint 'actor_logstd' must be a torch.Tensor, "
+                f"got {type(actor_logstd).__name__}"
+            )
+
+        policy.actor_mean.load_state_dict(actor_mean_state)
+        policy.critic.load_state_dict(critic_state)
+        with torch.no_grad():
+            policy.actor_logstd.copy_(actor_logstd.to(policy.actor_logstd.device))
+        return
+
+    if algo in {"mpo", "vmpo"}:
+        if "policy" not in ckpt:
+            raise KeyError(
+                f"{algo.upper()} checkpoint missing required key 'policy'. "
+                f"Found keys: {sorted(ckpt.keys())}"
+            )
+        policy_state = ckpt["policy"]
+        if not isinstance(policy_state, dict):
+            raise TypeError(
+                f"{algo.upper()} checkpoint 'policy' must be a state dict, "
+                f"got {type(policy_state).__name__}"
+            )
+        policy.load_state_dict(policy_state)
+        return
+
+    raise ValueError(f"Unsupported algo for checkpoint loading: {algo}")
+
+
 def _extract_action_tensor(action_out: object) -> torch.Tensor:
     if isinstance(action_out, torch.Tensor):
         return action_out
@@ -153,6 +215,11 @@ def _select_deterministic_action(
     policy: torch.nn.Module, obs_t: torch.Tensor
 ) -> torch.Tensor:
     """Best-effort deterministic action across policy implementations."""
+    # PPO Agent exposes actor_mean directly and has no nn.Module.forward.
+    if hasattr(policy, "actor_mean"):
+        action_out = policy.actor_mean(obs_t)  # type: ignore[attr-defined]
+        return _extract_action_tensor(action_out)
+
     if hasattr(policy, "act_deterministic"):
         action_out = policy.act_deterministic(obs_t)  # type: ignore[attr-defined]
         return _extract_action_tensor(action_out)
@@ -185,14 +252,15 @@ def render_policy_video(
     algo: str,
     env_id: str,
     out_path: str,
+    gif_out_path: str | None = None,
     seed: int,
     config: VideoRenderConfig = VideoRenderConfig(),
     policy_layer_sizes: Iterable[int] = (256, 256, 256),
     value_layer_sizes: Iterable[int] | None = None,
     device: torch.device | None = None,
     num_attempts: int = 10,
-) -> tuple[str, int]:
-    """Render a trained checkpoint into an mp4 and return (out_path, num_frames).
+) -> tuple[str, str, int]:
+    """Render a trained checkpoint into mp4+gif and return paths + frame count.
     Runs the environment multiple times and picks the attempt with the highest reward.
     """
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -200,10 +268,6 @@ def render_policy_video(
     set_seed(int(seed))
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    if "policy" not in ckpt:
-        raise KeyError(
-            f"Checkpoint missing 'policy' key: {checkpoint_path}. Keys: {list(ckpt.keys())}"
-        )
 
     def _make_rgb_env(env_seed: int):
         try:
@@ -238,7 +302,7 @@ def render_policy_video(
         value_layer_sizes=value_layer_sizes,
         device=device,
     )
-    policy.load_state_dict(ckpt["policy"])
+    _load_policy_state_from_checkpoint(policy, ckpt, algo=algo)
     policy.eval()
     dummy_env.close()
 
@@ -276,7 +340,18 @@ def render_policy_video(
     out_dir = os.path.dirname(out_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
+    if gif_out_path is None:
+        gif_out_path = os.path.splitext(out_path)[0] + ".gif"
+    gif_dir = os.path.dirname(gif_out_path)
+    if gif_dir:
+        os.makedirs(gif_dir, exist_ok=True)
 
     imageio.mimsave(out_path, list(best_frames), fps=int(config.fps))
+
+    gif_fps = 5
+    gif_max_seconds = 5
+    gif_max_frames = max(1, gif_fps * gif_max_seconds)
+    gif_frames = list(best_frames[:gif_max_frames])
+    imageio.mimsave(gif_out_path, gif_frames, fps=gif_fps)
     print(f"Best attempt reward: {best_reward:.2f} over {len(best_frames)} frames")
-    return out_path, len(best_frames)
+    return out_path, gif_out_path, len(best_frames)

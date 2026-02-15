@@ -1,10 +1,25 @@
 from __future__ import annotations
 
-import os
-import re
 from typing import Any, Mapping
 
 import wandb
+
+
+
+def _coerce_scalar(value: Any) -> Any:
+    if isinstance(value, (float, int, bool, str)):
+        return value
+    if value is None:
+        return value
+    # NumPy scalar / zero-dim array compatibility.
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except Exception:
+            return value
+    return value
+
 
 
 def init_wandb(
@@ -35,14 +50,17 @@ def init_wandb(
 def log_wandb(metrics: Mapping[str, Any], step: int | None = None, silent: bool = False) -> None:
     if wandb is None or wandb.run is None:
         return
-    wandb.log(dict(metrics), step=step)
+    payload: dict[str, Any] = {
+        str(key): _coerce_scalar(value) for key, value in dict(metrics).items()
+    }
+    wandb.log(payload, step=step)
+    if "eval/return_mean" in payload:
+        wandb.run.summary["eval/return_mean"] = payload["eval/return_mean"]
     if not silent:
-        print(f"step {step}: " + ", ".join(f"{k}={v:.3f}" for k, v in metrics.items()))
+        print(f"step {step}: " + ", ".join(f"{k}={v:.3f}" for k, v in payload.items()))
 
 
 def finish_wandb() -> None:
     if wandb is None or wandb.run is None:
         return
     wandb.finish()
-
-

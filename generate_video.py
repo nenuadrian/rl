@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional checkpoint path (.pt). If omitted, uses the latest checkpoint "
-            "found under --out_dir/{algo}/{env}."
+            "for the requested env under --out_dir/{algo}/<run_name>/."
         ),
     )
     parser.add_argument(
@@ -78,6 +78,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Output video path. Defaults to videos/{algo}-{env}.mp4",
+    )
+    parser.add_argument(
+        "--gif_out",
+        type=str,
+        default=None,
+        help="Output gif path. Defaults to same basename as --video_out with .gif",
     )
     parser.add_argument("--video_max_steps", type=int, default=1000)
     parser.add_argument("--fps", type=int, default=30)
@@ -99,26 +105,31 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Replace slashes in env for directory and filename
     env_dir = args.env.replace("/", "-")
-    run_out_dir = os.path.join(args.out_dir, args.algo, env_dir)
+    algo_out_dir = os.path.join(args.out_dir, args.algo)
 
     checkpoint_path = (
         str(args.checkpoint)
         if args.checkpoint is not None
-        else find_latest_checkpoint(run_out_dir, args.algo)
+        else find_latest_checkpoint(algo_out_dir, args.algo, args.env)
     )
     out_path = (
         str(args.video_out)
         if args.video_out is not None
         else os.path.join("videos", f"{args.algo}-{env_dir}.mp4")
     )
+    gif_out_path = (
+        str(args.gif_out)
+        if args.gif_out is not None
+        else os.path.splitext(out_path)[0] + ".gif"
+    )
 
-    saved_path, n_frames = render_policy_video(
+    saved_path, saved_gif_path, n_frames = render_policy_video(
         checkpoint_path=checkpoint_path,
         algo=args.algo,
         env_id=args.env,
         out_path=out_path,
+        gif_out_path=gif_out_path,
         seed=int(args.seed),
         config=VideoRenderConfig(
             max_steps=int(args.video_max_steps),
@@ -133,6 +144,7 @@ def main() -> None:
         device=device,
     )
     print(f"Saved video to: {saved_path}")
+    print(f"Saved gif to: {saved_gif_path}")
     print(f"Frames: {n_frames}")
 
 

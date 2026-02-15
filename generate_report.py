@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -15,6 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 import time
+import torch
+from utils.video import VideoRenderConfig, render_policy_video
+
 
 if "MPLCONFIGDIR" not in os.environ:
     _mpl_cache_dir = Path(".mplconfig")
@@ -33,9 +37,9 @@ from matplotlib.ticker import AutoMinorLocator
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-DEFAULT_PROJECT = "minerva-rl-benchmark-1"
+DEFAULT_PROJECT = "minerva-rl-benchmark-6"
 DEFAULT_ENTITY = "adrian-research"
-DEFAULT_MIN_STEPS = 10_000
+DEFAULT_MIN_STEPS = 1
 DEFAULT_STEP_KEY = "_step"
 DEFAULT_METRIC_KEY = "eval/return_mean"
 DEFAULT_POINTS = 200
@@ -43,8 +47,35 @@ DEFAULT_OUTPUT_DIR = "reports"
 DEFAULT_HISTORY_SAMPLES = 600
 DEFAULT_WORKERS = 8
 DEFAULT_CACHE_DIR = ".report_cache"
+DEFAULT_CHECKPOINTS_DIR = "checkpoints"
+DEFAULT_VIDEOS_DIR = "videos"
+DEFAULT_VIDEO_MAX_STEPS = 1000
+DEFAULT_VIDEO_FPS = 30
+DEFAULT_VIDEO_ATTEMPTS = 10
 CACHE_VERSION = "v1"
-_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo")
+_KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "vmpo-gtrxl", "r2d2-gtrxl")
+_STEP_KEY_ALIASES = (
+    "_step",
+    "evaluator_step",
+)
+_METRIC_KEY_ALIAS_GROUPS = (
+    (
+        "eval/return_mean",
+        "eval/reward_mean",
+        "evaluator_step/reward_mean",
+        "evaluator_step/return_mean",
+        "eval/episodic_return_mean",
+        "eval_return_mean",
+    ),
+    (
+        "eval/return_max",
+        "eval/reward_max",
+        "evaluator_step/reward_max",
+        "evaluator_step/return_max",
+        "eval/episodic_return_max",
+        "eval_return_max",
+    ),
+)
 
 
 @dataclass
@@ -61,6 +92,20 @@ class RunRecord:
     adv_type: str
 
 
+@dataclass
+class BestRunVideoResult:
+    env: str
+    algorithm: str
+    run_name: str | None
+    run_url: str | None
+    metric_value: float | None
+    checkpoint_path: str | None
+    video_path: str | None
+    gif_path: str | None
+    status: str
+    detail: str
+
+
 def _as_float(value: Any) -> float | None:
     try:
         out = float(value)
@@ -69,6 +114,51 @@ def _as_float(value: Any) -> float | None:
     if not np.isfinite(out):
         return None
     return out
+
+
+def _as_int(value: Any) -> int | None:
+    out = _as_float(value)
+    if out is None:
+        return None
+    return int(out)
+
+
+def _ordered_unique(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return tuple(out)
+
+
+def _step_key_candidates(step_key: str) -> tuple[str, ...]:
+    requested = str(step_key).strip()
+    values = [requested]
+    for alias in _STEP_KEY_ALIASES:
+        values.append(alias)
+    return _ordered_unique(values)
+
+
+def _metric_key_candidates(metric_key: str) -> tuple[str, ...]:
+    requested = str(metric_key).strip()
+    values = [requested]
+    for group in _METRIC_KEY_ALIAS_GROUPS:
+        if requested in group:
+            values.extend(group)
+            break
+    return _ordered_unique(values)
+
+
+def _first_float(mapping: dict[str, Any], *, keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        value = _as_float(mapping.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _extract_first_config_value(
@@ -227,17 +317,20 @@ def _extract_run_axes(
     return algorithm, env, optimizer, adv_type
 
 
-def collect_runs(entity: str, project: str, min_steps: int) -> list[RunRecord]:
+def collect_runs(
+    entity: str, project: str, min_steps: int, *, step_key: str
+) -> list[RunRecord]:
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project}")
     selected: list[RunRecord] = []
     skipped_missing_step = 0
     skipped_short = 0
     skipped_missing_config = 0
+    step_candidates = _step_key_candidates(step_key)
 
     for run in runs:
         summary = run.summary or {}
-        step = _as_float(summary.get("_step"))
+        step = _first_float(summary, keys=step_candidates)
         if step is None:
             skipped_missing_step += 1
             continue
@@ -311,11 +404,14 @@ def _rows_to_step_value_arrays(
     else:
         row_iterable = rows
 
+    step_candidates = _step_key_candidates(step_key)
+    metric_candidates = _metric_key_candidates(metric_key)
+
     for row in row_iterable:
         if not isinstance(row, dict):
             continue
-        step = _as_float(row.get(step_key))
-        value = _as_float(row.get(metric_key))
+        step = _first_float(row, keys=step_candidates)
+        value = _first_float(row, keys=metric_candidates)
         if step is None or value is None:
             continue
         steps.append(step)
@@ -341,8 +437,16 @@ def _load_full_history_series(
     run: Any, *, step_key: str, metric_key: str
 ) -> tuple[np.ndarray, np.ndarray]:
     rows: list[dict[str, Any]] = []
+    keys = list(
+        _ordered_unique(
+            [
+                *_step_key_candidates(step_key),
+                *_metric_key_candidates(metric_key),
+            ]
+        )
+    )
     try:
-        for row in run.scan_history(keys=[step_key, metric_key], page_size=1000):
+        for row in run.scan_history(keys=keys, page_size=1000):
             if isinstance(row, dict):
                 rows.append(row)
     except Exception as exc:
@@ -365,9 +469,17 @@ def load_run_series(
     if full_history:
         return _load_full_history_series(run, step_key=step_key, metric_key=metric_key)
 
+    keys = list(
+        _ordered_unique(
+            [
+                *_step_key_candidates(step_key),
+                *_metric_key_candidates(metric_key),
+            ]
+        )
+    )
     try:
         sampled_rows = run.history(
-            keys=[step_key, metric_key],
+            keys=keys,
             samples=history_samples,
             pandas=False,
         )
@@ -875,9 +987,12 @@ def _build_max_achieved_table(
             run_max_values: list[float] = []
             for record in records:
                 summary = record.run.summary or {}
-                value = _as_float(summary.get("eval/return_max"))
+                value = _first_float(
+                    summary,
+                    keys=_metric_key_candidates("eval/return_max"),
+                )
                 if value is None:
-                    value = _as_float(summary.get(metric_key))
+                    value = _first_float(summary, keys=_metric_key_candidates(metric_key))
                 if value is not None:
                     run_max_values.append(value)
 
@@ -892,24 +1007,264 @@ def _build_max_achieved_table(
     return lines
 
 
+def _default_mujoco_gl_backend() -> str:
+    system = platform.system().lower()
+    if system == "darwin":
+        return "glfw"
+    if system == "linux":
+        return "egl"
+    return "glfw"
+
+
+def _run_score(record: RunRecord, *, metric_key: str) -> float | None:
+    summary = record.run.summary or {}
+    score = _first_float(
+        summary,
+        keys=_metric_key_candidates("eval/return_max"),
+    )
+    if score is None:
+        score = _first_float(summary, keys=_metric_key_candidates(metric_key))
+    return score
+
+
+def _select_best_run_for_video(
+    records: list[RunRecord],
+    *,
+    metric_key: str,
+) -> tuple[RunRecord | None, float | None]:
+    best_record: RunRecord | None = None
+    best_score: float | None = None
+    for record in records:
+        score = _run_score(record, metric_key=metric_key)
+        if score is None:
+            continue
+        if best_record is None:
+            best_record = record
+            best_score = score
+            continue
+        if score > (best_score if best_score is not None else float("-inf")):
+            best_record = record
+            best_score = score
+            continue
+        if score == best_score and record.step > best_record.step:
+            best_record = record
+            best_score = score
+    return best_record, best_score
+
+
+def _coerce_int_tuple(value: Any) -> tuple[int, ...] | None:
+    parsed = value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return None
+    if not isinstance(parsed, (list, tuple)):
+        return None
+    out: list[int] = []
+    for item in parsed:
+        maybe_int = _as_int(item)
+        if maybe_int is None or maybe_int <= 0:
+            return None
+        out.append(maybe_int)
+    if not out:
+        return None
+    return tuple(out)
+
+
+def _value_layers_for_algorithm(
+    config: dict[str, Any],
+    *,
+    algorithm: str,
+) -> tuple[int, ...] | None:
+    if algorithm == "vmpo":
+        return _coerce_int_tuple(config.get("value_layer_sizes")) or _coerce_int_tuple(
+            config.get("critic_layer_sizes")
+        )
+    if algorithm in {"ppo", "mpo"}:
+        return _coerce_int_tuple(config.get("critic_layer_sizes")) or _coerce_int_tuple(
+            config.get("value_layer_sizes")
+        )
+    return _coerce_int_tuple(config.get("value_layer_sizes"))
+
+
+def generate_best_run_videos(
+    grouped_runs: dict[str, dict[str, list[RunRecord]]],
+    *,
+    metric_key: str,
+    checkpoints_dir: str,
+    videos_dir: str,
+    gifs_dir: str,
+    video_max_steps: int,
+    video_fps: int,
+    video_attempts: int,
+) -> list[BestRunVideoResult]:
+    results: list[BestRunVideoResult] = []
+    pending: list[tuple[RunRecord, float, Path, Path, Path]] = []
+    checkpoints_root = Path(checkpoints_dir)
+    videos_root = Path(videos_dir)
+    gifs_root = Path(gifs_dir)
+
+    for env in sorted(grouped_runs.keys()):
+        for algorithm in sorted(grouped_runs[env].keys()):
+            records = grouped_runs[env].get(algorithm, [])
+            best_record, best_score = _select_best_run_for_video(
+                records,
+                metric_key=metric_key,
+            )
+            if best_record is None or best_score is None:
+                results.append(
+                    BestRunVideoResult(
+                        env=env,
+                        algorithm=algorithm,
+                        run_name=None,
+                        run_url=None,
+                        metric_value=None,
+                        checkpoint_path=None,
+                        video_path=None,
+                        gif_path=None,
+                        status="skipped",
+                        detail=f"No eval/return_max or {metric_key} value in run summaries.",
+                    )
+                )
+                continue
+
+            checkpoint_path = (
+                checkpoints_root / algorithm / best_record.name / f"{algorithm}_best.pt"
+            )
+            video_out_path = videos_root / f"{best_record.name}.mp4"
+            gif_out_path = gifs_root / f"{best_record.name}.gif"
+            if not checkpoint_path.exists():
+                results.append(
+                    BestRunVideoResult(
+                        env=env,
+                        algorithm=algorithm,
+                        run_name=best_record.name,
+                        run_url=best_record.url,
+                        metric_value=best_score,
+                        checkpoint_path=str(checkpoint_path),
+                        video_path=str(video_out_path),
+                        gif_path=str(gif_out_path),
+                        status="skipped",
+                        detail="Checkpoint file not found.",
+                    )
+                )
+                continue
+
+            pending.append(
+                (best_record, best_score, checkpoint_path, video_out_path, gif_out_path)
+            )
+
+    if not pending:
+        return results
+
+    os.environ.setdefault("MUJOCO_GL", _default_mujoco_gl_backend())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    for best_record, best_score, checkpoint_path, video_out_path, gif_out_path in pending:
+        config = dict(best_record.run.config or {})
+        policy_layer_sizes = _coerce_int_tuple(config.get("policy_layer_sizes"))
+        if policy_layer_sizes is None:
+            policy_layer_sizes = (256, 256, 256)
+        value_layer_sizes = _value_layers_for_algorithm(
+            config,
+            algorithm=best_record.algorithm,
+        )
+        seed = _as_int(config.get("seed"))
+        if seed is None:
+            seed = 42
+
+        try:
+            saved_path, saved_gif_path, n_frames = render_policy_video(
+                checkpoint_path=str(checkpoint_path),
+                algo=best_record.algorithm,
+                env_id=best_record.env_id,
+                out_path=str(video_out_path),
+                gif_out_path=str(gif_out_path),
+                seed=seed,
+                config=VideoRenderConfig(
+                    max_steps=int(video_max_steps),
+                    fps=int(video_fps),
+                ),
+                policy_layer_sizes=policy_layer_sizes,
+                value_layer_sizes=value_layer_sizes,
+                device=device,
+                num_attempts=int(video_attempts),
+            )
+            results.append(
+                BestRunVideoResult(
+                    env=best_record.env,
+                    algorithm=best_record.algorithm,
+                    run_name=best_record.name,
+                    run_url=best_record.url,
+                    metric_value=best_score,
+                    checkpoint_path=str(checkpoint_path),
+                    video_path=str(saved_path),
+                    gif_path=str(saved_gif_path),
+                    status="generated",
+                    detail=f"Frames: {n_frames}",
+                )
+            )
+            print(
+                f"[video] generated env={best_record.env_id} algo={best_record.algorithm} "
+                f"run={best_record.name} video={saved_path} gif={saved_gif_path}"
+            )
+        except Exception as exc:
+            results.append(
+                BestRunVideoResult(
+                    env=best_record.env,
+                    algorithm=best_record.algorithm,
+                    run_name=best_record.name,
+                    run_url=best_record.url,
+                    metric_value=best_score,
+                    checkpoint_path=str(checkpoint_path),
+                    video_path=str(video_out_path),
+                    gif_path=str(gif_out_path),
+                    status="failed",
+                    detail=str(exc),
+                )
+            )
+            print(
+                f"Warning: failed to generate video for run "
+                f"'{best_record.name}' ({best_record.algorithm}, {best_record.env_id}): {exc}"
+            )
+
+    return results
+
+
 def write_readme(
     readme_path: Path,
     *,
     entity: str,
     project: str,
     min_steps: int,
+    step_key: str,
     metric_key: str,
     runs: list[RunRecord],
     grouped_runs: dict[str, dict[str, list[RunRecord]]],
     aggregated: dict[str, dict[str, dict[str, Any]]],
     overview_image_name: str | None,
+    video_results: list[BestRunVideoResult],
 ) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _md_rel_path(path_text: str | None) -> str | None:
+        if not path_text:
+            return None
+        path_obj = Path(path_text)
+        try:
+            rel = path_obj.relative_to(readme_path.parent)
+        except ValueError:
+            rel = Path(os.path.relpath(path_obj, readme_path.parent))
+        return rel.as_posix()
 
     with readme_path.open("w", encoding="utf-8") as handle:
         handle.write(f"# Report: `{entity}/{project}`\n\n")
         handle.write(f"- Generated: {timestamp}\n")
-        handle.write(f"- Included runs: {len(runs)} (`_step` > {min_steps})\n")
+        handle.write(f"- Included runs: {len(runs)} (`{step_key}` > {min_steps})\n")
         handle.write("- Algorithm key source: run config `command`\n")
         handle.write(
             "- Environment key source: run config `env` + `optimizer_type` + `advantage_estimator`\n"
@@ -966,7 +1321,7 @@ def write_readme(
                     )
                 handle.write("\n")
 
-            handle.write(f"| Run | Algorithm | _step | {metric_key} |\n")
+            handle.write(f"| Run | Algorithm | {step_key} | {metric_key} |\n")
             handle.write("|---|---|---:|---:|\n")
             env_records: list[RunRecord] = []
             for algorithm in sorted(grouped_runs[env].keys()):
@@ -974,12 +1329,67 @@ def write_readme(
             env_records.sort(key=lambda rec: (rec.algorithm, rec.name))
 
             for record in env_records:
-                metric_value = _as_float((record.run.summary or {}).get(metric_key))
+                metric_value = _first_float(
+                    (record.run.summary or {}),
+                    keys=_metric_key_candidates(metric_key),
+                )
                 handle.write(
                     f"| [{record.name}]({record.url}) | `{record.algorithm}` | "
                     f"{_format_step(record.step)} | {_format_metric(metric_value)} |\n"
                 )
             handle.write("\n")
+
+            env_video_results = sorted(
+                (result for result in video_results if result.env == env),
+                key=lambda item: (
+                    item.algorithm,
+                    item.run_name if item.run_name is not None else "",
+                ),
+            )
+            env_gif_results: list[tuple[BestRunVideoResult, str]] = []
+            for result in env_video_results:
+                if result.status != "generated" or not result.gif_path:
+                    continue
+                gif_path_obj = Path(result.gif_path)
+                if not gif_path_obj.is_file():
+                    continue
+                gif_rel_path = _md_rel_path(result.gif_path)
+                if not gif_rel_path:
+                    continue
+                env_gif_results.append((result, gif_rel_path))
+
+            if env_gif_results:
+                handle.write("### Best-Run GIFs\n\n")
+                handle.write(
+                    "Best run per algorithm by `eval/return_max` "
+                    f"(fallback `{metric_key}`).\n\n"
+                )
+                handle.write("| Algorithm | Run | Best Metric | Preview |\n")
+                handle.write("|---|---|---:|---|\n")
+                for result, gif_rel_path in env_gif_results:
+                    run_cell = "-"
+                    if result.run_name and result.run_url:
+                        run_cell = (
+                            f"[{_escape_md_cell(result.run_name)}]"
+                            f"({result.run_url})"
+                        )
+                    elif result.run_name:
+                        run_cell = f"`{_escape_md_cell(result.run_name)}`"
+
+                    preview_cell = f"![preview]({gif_rel_path})"
+                    handle.write(
+                        "| "
+                        + " | ".join(
+                            [
+                                f"`{_escape_md_cell(result.algorithm)}`",
+                                run_cell,
+                                _format_metric(result.metric_value),
+                                preview_cell,
+                            ]
+                        )
+                        + " |\n"
+                    )
+                handle.write("\n")
 
 
 def create_report_folder(output_dir: Path) -> Path:
@@ -1031,6 +1441,12 @@ def generate_report(
     fallback_scan_history: bool,
     workers: int,
     cache_dir: str | None,
+    generate_videos: bool,
+    checkpoints_dir: str,
+    videos_dir: str,
+    video_max_steps: int,
+    video_fps: int,
+    video_attempts: int,
 ) -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1044,7 +1460,12 @@ def generate_report(
         f"fallback_scan_history={fallback_scan_history}",
     )
 
-    runs = collect_runs(entity=entity, project=project, min_steps=min_steps)
+    runs = collect_runs(
+        entity=entity,
+        project=project,
+        min_steps=min_steps,
+        step_key=step_key,
+    )
     grouped_runs = group_runs_by_env_and_algorithm(runs)
     aggregated = compute_weighted_curves(
         grouped_runs,
@@ -1065,16 +1486,31 @@ def generate_report(
         output_path=report_dir / "overview.png",
     )
 
+    video_results: list[BestRunVideoResult] = []
+    if generate_videos:
+        video_results = generate_best_run_videos(
+            grouped_runs,
+            metric_key=metric_key,
+            checkpoints_dir=checkpoints_dir,
+            videos_dir=videos_dir,
+            gifs_dir=str(report_dir),
+            video_max_steps=video_max_steps,
+            video_fps=video_fps,
+            video_attempts=video_attempts,
+        )
+
     write_readme(
         report_dir / "README.md",
         entity=entity,
         project=project,
         min_steps=min_steps,
+        step_key=step_key,
         metric_key=metric_key,
         runs=runs,
         grouped_runs=grouped_runs,
         aggregated=aggregated,
         overview_image_name=overview_image_name,
+        video_results=video_results,
     )
     print(f"Report generated: {report_dir / 'README.md'}")
 
@@ -1153,6 +1589,45 @@ def main() -> None:
         default=DEFAULT_CACHE_DIR,
         help="Directory for cached resampled curves. Set to empty string to disable.",
     )
+    parser.add_argument(
+        "--skip-videos",
+        action="store_true",
+        help=(
+            "Skip best-run video generation. By default, videos are generated for "
+            "the best run per environment and algorithm when checkpoints are present."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoints-dir",
+        default=DEFAULT_CHECKPOINTS_DIR,
+        help=(
+            "Checkpoint root directory. Expected layout: "
+            "checkpoints/<algo>/<run_name>/<algo>_best.pt"
+        ),
+    )
+    parser.add_argument(
+        "--videos-dir",
+        default=DEFAULT_VIDEOS_DIR,
+        help="Directory where generated videos are written.",
+    )
+    parser.add_argument(
+        "--video-max-steps",
+        type=int,
+        default=DEFAULT_VIDEO_MAX_STEPS,
+        help="Maximum steps per rollout while rendering videos.",
+    )
+    parser.add_argument(
+        "--video-fps",
+        type=int,
+        default=DEFAULT_VIDEO_FPS,
+        help="Frames-per-second for generated videos.",
+    )
+    parser.add_argument(
+        "--video-attempts",
+        type=int,
+        default=DEFAULT_VIDEO_ATTEMPTS,
+        help="Number of rollout attempts; the highest-return attempt is saved.",
+    )
     args = parser.parse_args()
 
     if args.points < 2:
@@ -1163,6 +1638,12 @@ def main() -> None:
         parser.error("--history-samples must be >= 2")
     if args.workers < 1:
         parser.error("--workers must be >= 1")
+    if args.video_max_steps < 1:
+        parser.error("--video-max-steps must be >= 1")
+    if args.video_fps < 1:
+        parser.error("--video-fps must be >= 1")
+    if args.video_attempts < 1:
+        parser.error("--video-attempts must be >= 1")
 
     generate_report(
         project=args.project,
@@ -1177,6 +1658,12 @@ def main() -> None:
         fallback_scan_history=bool(args.fallback_scan_history),
         workers=args.workers,
         cache_dir=(args.cache_dir.strip() if args.cache_dir else None),
+        generate_videos=not bool(args.skip_videos),
+        checkpoints_dir=args.checkpoints_dir,
+        videos_dir=args.videos_dir,
+        video_max_steps=int(args.video_max_steps),
+        video_fps=int(args.video_fps),
+        video_attempts=int(args.video_attempts),
     )
 
 

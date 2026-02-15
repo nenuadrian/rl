@@ -25,7 +25,6 @@ shift
 WANDB_PROJECT_NAME="minerva-rl-benchmark-${BENCHMARK_SUFFIX}"
 SEEDS="${SEEDS:-1}"
 SEED_START="${SEED_START:-42}"
-EXTRA_ARGS=("$@")
 
 for env in "${environments[@]}"; do
     for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
@@ -33,7 +32,6 @@ for env in "${environments[@]}"; do
         python main.py ppo \
         --env "$env" \
         --wandb_project "$WANDB_PROJECT_NAME" \
-        --seed "$seed" \
-        "${EXTRA_ARGS[@]}"
+        --seed "$seed" 
     done
 done

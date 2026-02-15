@@ -63,3 +63,12 @@ bash benchmarks/mpo.sh
 ```bash
 python generate_report.py
 ```
+
+By default this also tries to render a video for the best run of each environment/algorithm pair using:
+`checkpoints/<algo>/<run_name>/<algo>_best.pt` -> `videos/<run_name>.mp4`
+
+Skip that step with:
+
+```bash
+python generate_report.py --skip-videos
+```
