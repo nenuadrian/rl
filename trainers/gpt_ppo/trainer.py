@@ -362,7 +362,10 @@ class CausalLMWithValueHead(nn.Module):
 
         logits = outputs.logits
         hidden_states = outputs.hidden_states[-1]
-        values = self.value_head(hidden_states).squeeze(-1)
+        # Mixed-precision safe value head projection:
+        # hidden states can be fp16/bf16 while the value head often stays fp32.
+        value_input = hidden_states.to(self.value_head.weight.dtype)
+        values = self.value_head(value_input).squeeze(-1)
 
         result: dict[str, torch.Tensor] = {"logits": logits, "values": values}
         if return_entropy:
