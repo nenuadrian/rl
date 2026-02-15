@@ -150,6 +150,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="minerva-rl")
     parser.add_argument("--wandb_entity", type=str, default="adrian-research")
     parser.add_argument("--wandb_group", type=str, default=None)
+    parser.add_argument("--advantage_estimator", type=str, default=None, help="Override advantage estimator (returns, gae, dae)")
     parser.add_argument(
         "--device",
         type=str,
