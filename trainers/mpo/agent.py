@@ -492,7 +492,8 @@ class MPOAgent:
             actions = self._to_device_tensor(batch["actions_exec"][:, 0, :])
         else:
             obs = self._to_device_tensor(batch["obs"])
-            actions = self._to_device_tensor(batch["actions"])
+            actions_key = "actions_exec" if "actions_exec" in batch.keys() else "actions"
+            actions = self._to_device_tensor(batch[actions_key])
             rewards = self._to_device_tensor(batch["rewards"])
             next_obs = self._to_device_tensor(batch["next_obs"])
             dones = self._to_device_tensor(batch["dones"])

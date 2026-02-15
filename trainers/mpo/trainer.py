@@ -7,11 +7,13 @@ from typing import Dict, Mapping, Tuple
 import gymnasium as gym
 import numpy as np
 import torch
+from tensordict import TensorDict
+from torchrl.data import LazyTensorStorage
+from torchrl.data.replay_buffers import TensorDictReplayBuffer
 
 from trainers.mpo.agent import MPOAgent
 from utils.env import infer_obs_dim
 from utils.wandb_utils import log_wandb
-from trainers.mpo.replay_buffer import MPOReplayBuffer
 
 
 def _format_metrics(metrics: Mapping[str, float]) -> str:
@@ -131,9 +133,91 @@ class MPOTrainer:
             sgd_momentum=sgd_momentum,
         )
 
-        self.replay = MPOReplayBuffer(obs_dim, act_dim, capacity=replay_size)
+        self.replay_capacity = int(replay_size)
+        self.replay = TensorDictReplayBuffer(
+            storage=LazyTensorStorage(max_size=self.replay_capacity),
+        )
+        self._obs_dim = obs_dim
+        self._act_dim = act_dim
+        self._sequence_offsets: dict[int, torch.Tensor] = {}
 
         self.episode_return = 0.0
+
+    @property
+    def replay_size(self) -> int:
+        return int(len(self.replay))
+
+    @property
+    def replay_ptr(self) -> int:
+        return int(self.replay.write_count % self.replay_capacity)
+
+    @staticmethod
+    def _as_cpu_float_tensor(
+        value: np.ndarray | float,
+        shape: tuple[int, ...],
+    ) -> torch.Tensor:
+        return torch.as_tensor(value, dtype=torch.float32, device="cpu").reshape(shape)
+
+    def _add_transition(
+        self,
+        obs: np.ndarray,
+        action_exec: np.ndarray,
+        action_raw: np.ndarray,
+        behaviour_logp: float,
+        reward: float,
+        next_obs: np.ndarray,
+        done: float,
+    ) -> None:
+        transition = TensorDict(
+            {
+                "obs": self._as_cpu_float_tensor(obs, (self._obs_dim,)),
+                "next_obs": self._as_cpu_float_tensor(next_obs, (self._obs_dim,)),
+                "actions_exec": self._as_cpu_float_tensor(action_exec, (self._act_dim,)),
+                "actions_raw": self._as_cpu_float_tensor(action_raw, (self._act_dim,)),
+                "behaviour_logp": self._as_cpu_float_tensor(behaviour_logp, (1,)),
+                "rewards": self._as_cpu_float_tensor(reward, (1,)),
+                "dones": self._as_cpu_float_tensor(done, (1,)),
+            },
+            batch_size=[],
+        )
+        self.replay.add(transition)
+
+    def _get_sequence_offsets(self, seq_len: int) -> torch.Tensor:
+        offsets = self._sequence_offsets.get(seq_len)
+        if offsets is None:
+            offsets = torch.arange(seq_len, dtype=torch.long)
+            self._sequence_offsets[seq_len] = offsets
+        return offsets
+
+    def _sample_sequences(self, batch_size: int, seq_len: int) -> TensorDict:
+        if seq_len < 1:
+            raise ValueError("seq_len must be >= 1")
+        if self.replay_size < seq_len:
+            raise ValueError("Not enough data in replay buffer for sequence sampling")
+
+        batch_size = int(batch_size)
+        offsets = self._get_sequence_offsets(seq_len)
+        if self.replay_size < self.replay_capacity:
+            starts = torch.randint(
+                0,
+                self.replay_size - seq_len + 1,
+                (batch_size,),
+                dtype=torch.long,
+            )
+            idxs = starts.unsqueeze(1) + offsets.unsqueeze(0)
+        else:
+            valid_start_count = self.replay_capacity - (seq_len - 1)
+            if valid_start_count <= 0:
+                raise RuntimeError(
+                    "Failed to sample enough contiguous sequences; consider reducing seq_len."
+                )
+            starts = (
+                self.replay_ptr
+                + torch.randint(0, valid_start_count, (batch_size,), dtype=torch.long)
+            ) % self.replay_capacity
+            idxs = (starts.unsqueeze(1) + offsets.unsqueeze(0)) % self.replay_capacity
+
+        return self.replay.storage[idxs]
 
     def train(
         self,
@@ -187,7 +271,7 @@ class MPOTrainer:
                 reward_f = float(reward)
                 done = float(terminated or truncated)
 
-                self.replay.add(
+                self._add_transition(
                     obs,
                     action_exec,
                     action_raw,
@@ -219,20 +303,20 @@ class MPOTrainer:
                     obs = np.asarray(obs, dtype=np.float32)
                     self.episode_return = 0.0
 
-                if step >= update_after and self.replay.size >= batch_size:
+                if step >= update_after and self.replay_size >= batch_size:
                     step_metric_sums: Dict[str, float] = {}
                     step_update_count = 0
                     for _ in range(int(updates_per_step)):
                         seq_len = self.retrace_steps
                         if self.use_retrace and seq_len > 1:
-                            if self.replay.size >= batch_size + seq_len:
-                                batch = self.replay.sample_sequences(
-                                    batch_size, seq_len=seq_len
+                            if self.replay_size >= batch_size + seq_len:
+                                batch = self._sample_sequences(
+                                    batch_size=batch_size, seq_len=seq_len
                                 )
                             else:
                                 continue
                         else:
-                            batch = self.replay.sample(batch_size)
+                            batch = self.replay.sample(batch_size=int(batch_size))
 
                         metrics = self.agent.update(batch)
                         for key, value in metrics.items():
@@ -296,12 +380,12 @@ class MPOTrainer:
 
                     progress = 100.0 * float(step) / float(total_steps)
                     print(
-                        "[MPO][progress] "
-                        f"step={step}/{total_steps} ({progress:.2f}%), "
-                        f"replay={self.replay.size}/{self.replay.capacity}, "
-                        f"updates={total_update_count}, "
-                        f"sps={steps_window / elapsed_window:.2f}, "
-                        f"ups={updates_window / elapsed_window:.2f}, "
+                            "[MPO][progress] "
+                            f"step={step}/{total_steps} ({progress:.2f}%), "
+                            f"replay={self.replay_size}/{self.replay_capacity}, "
+                            f"updates={total_update_count}, "
+                            f"sps={steps_window / elapsed_window:.2f}, "
+                            f"ups={updates_window / elapsed_window:.2f}, "
                         f"sps_total={step / elapsed_total:.2f}"
                     )
                     last_progress_time = now
