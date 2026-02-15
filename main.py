@@ -448,6 +448,9 @@ if __name__ == "__main__":
             ),
             max_grad_norm=float(args.max_grad_norm),
             reward_type=str(getattr(args, "reward_type", "exact")),
+            response_parse_mode=str(
+                getattr(args, "response_parse_mode", "strict_line")
+            ),
             correct_reward=float(getattr(args, "correct_reward", 1.0)),
             incorrect_reward=float(getattr(args, "incorrect_reward", 0.0)),
             invalid_reward=float(getattr(args, "invalid_reward", 0.0)),
@@ -485,6 +488,7 @@ if __name__ == "__main__":
                 "target_kl": gpt_config.target_kl,
                 "max_grad_norm": gpt_config.max_grad_norm,
                 "reward_type": gpt_config.reward_type,
+                "response_parse_mode": gpt_config.response_parse_mode,
                 "correct_reward": gpt_config.correct_reward,
                 "incorrect_reward": gpt_config.incorrect_reward,
                 "invalid_reward": gpt_config.invalid_reward,

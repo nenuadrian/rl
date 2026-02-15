@@ -28,6 +28,8 @@ except ImportError:  # pragma: no cover - exercised only when transformers is ab
 
 
 _INT_PATTERN = re.compile(r"([+-]?\d+)")
+_STRICT_INT_LINE_PATTERN = re.compile(r"^\s*([+-]?\d+)\s*$")
+_LINE_PREFIX_INT_PATTERN = re.compile(r"^\s*([+-]?\d+)\b")
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,34 @@ def extract_last_integer(text: str) -> int | None:
     return extract_first_integer(text)
 
 
+def extract_integer_from_first_line(
+    text: str,
+    mode: str = "strict_line",
+) -> int | None:
+    """
+    Parse integer from the first line of model output.
+
+    Modes:
+    - strict_line: first line must be exactly one integer
+    - line_prefix: first line must start with an integer token
+    - anywhere: fallback to first integer anywhere
+    """
+    cleaned = str(text).strip()
+    if not cleaned:
+        return None
+    first_line = cleaned.splitlines()[0].strip()
+
+    if mode == "strict_line":
+        match = _STRICT_INT_LINE_PATTERN.match(first_line)
+        return int(match.group(1)) if match else None
+    if mode == "line_prefix":
+        match = _LINE_PREFIX_INT_PATTERN.match(first_line)
+        return int(match.group(1)) if match else None
+    if mode == "anywhere":
+        return extract_first_integer(cleaned)
+    raise ValueError(f"Unknown parse mode: {mode}")
+
+
 class ExactMathReward:
     """Exact-match integer reward for math responses."""
 
@@ -83,10 +113,12 @@ class ExactMathReward:
         correct_reward: float = 1.0,
         incorrect_reward: float = 0.0,
         invalid_reward: float = 0.0,
+        parse_fn: Callable[[str], int | None] = extract_first_integer,
     ):
         self.correct_reward = float(correct_reward)
         self.incorrect_reward = float(incorrect_reward)
         self.invalid_reward = float(invalid_reward)
+        self.parse_fn = parse_fn
 
     def __call__(
         self,
@@ -98,8 +130,8 @@ class ExactMathReward:
 
         scores: list[float] = []
         for sample, response in zip(samples, responses):
-            target = extract_first_integer(sample.answer)
-            prediction = extract_first_integer(response)
+            target = self.parse_fn(sample.answer)
+            prediction = self.parse_fn(response)
             if target is None or prediction is None:
                 scores.append(self.invalid_reward)
             elif prediction == target:
@@ -117,11 +149,13 @@ class ShapedMathReward:
         self,
         error_scale: float = 100.0,
         invalid_reward: float = 0.0,
+        parse_fn: Callable[[str], int | None] = extract_first_integer,
     ):
         if error_scale <= 0:
             raise ValueError("error_scale must be > 0")
         self.error_scale = float(error_scale)
         self.invalid_reward = float(invalid_reward)
+        self.parse_fn = parse_fn
 
     def __call__(
         self,
@@ -133,8 +167,8 @@ class ShapedMathReward:
 
         scores: list[float] = []
         for sample, response in zip(samples, responses):
-            target = extract_first_integer(sample.answer)
-            prediction = extract_first_integer(response)
+            target = self.parse_fn(sample.answer)
+            prediction = self.parse_fn(response)
             if target is None or prediction is None:
                 scores.append(self.invalid_reward)
                 continue
@@ -176,6 +210,7 @@ class GPTPPOConfig:
     max_grad_norm: float = 1.0
 
     reward_type: str = "exact"
+    response_parse_mode: str = "strict_line"
     correct_reward: float = 1.0
     incorrect_reward: float = 0.0
     invalid_reward: float = 0.0
@@ -214,6 +249,10 @@ class GPTPPOConfig:
             raise ValueError("clip_range_value must be >= 0")
         if self.reward_type not in {"exact", "shaped"}:
             raise ValueError("reward_type must be one of: exact, shaped")
+        if self.response_parse_mode not in {"strict_line", "line_prefix", "anywhere"}:
+            raise ValueError(
+                "response_parse_mode must be one of: strict_line, line_prefix, anywhere"
+            )
         if self.reward_error_scale <= 0:
             raise ValueError("reward_error_scale must be > 0")
         if self.sft_epochs < 0:
@@ -361,17 +400,23 @@ class GPTPPOTrainer:
 
         self.config = config
         self.train_samples = list(train_samples)
+        self.response_parse_fn = lambda text: extract_integer_from_first_line(
+            text,
+            mode=self.config.response_parse_mode,
+        )
         if reward_fn is None:
             if config.reward_type == "shaped":
                 reward_fn = ShapedMathReward(
                     error_scale=config.reward_error_scale,
                     invalid_reward=config.invalid_reward,
+                    parse_fn=self.response_parse_fn,
                 )
             else:
                 reward_fn = ExactMathReward(
                     correct_reward=config.correct_reward,
                     incorrect_reward=config.incorrect_reward,
                     invalid_reward=config.invalid_reward,
+                    parse_fn=self.response_parse_fn,
                 )
         self.reward_fn = reward_fn
         self.device = self._resolve_device(config.device)
@@ -467,8 +512,8 @@ class GPTPPOTrainer:
             **generation_kwargs,
         )
 
-    @staticmethod
     def _compute_response_metrics(
+        self,
         samples: Sequence[MathSample],
         responses: Sequence[str],
     ) -> tuple[dict[str, float], list[dict[str, Any]]]:
@@ -478,8 +523,8 @@ class GPTPPOTrainer:
         details: list[dict[str, Any]] = []
 
         for sample, response in zip(samples, responses):
-            target = extract_first_integer(sample.answer)
-            parsed = extract_first_integer(response)
+            target = self.response_parse_fn(sample.answer)
+            parsed = self.response_parse_fn(response)
             is_parseable = int(parsed is not None)
             is_exact = int(target is not None and parsed is not None and parsed == target)
 
