@@ -2,6 +2,7 @@ import argparse
 import os
 import importlib
 import re
+import json
 from datetime import datetime
 from pprint import pformat
 
@@ -13,6 +14,7 @@ from utils.wandb_utils import finish_wandb, init_wandb
 from trainers.vmpo.trainer import VMPOTrainer
 from trainers.mpo.trainer import MPOTrainer
 from trainers.ppo.trainer import PPOTrainer
+from trainers.gpt_ppo import GPTPPOConfig, GPTPPOTrainer, MathSample, build_addition_dataset
 
 
 def _print_banner() -> None:
@@ -120,11 +122,23 @@ def _resolve_run_adv_type(algo: str, args: argparse.Namespace) -> str:
             if text and text != "none":
                 return text
         return "returns"
-    if algo in {"ppo", "trpo"}:
+    if algo in {"ppo", "trpo", "gpt_ppo"}:
         return "gae"
     if algo == "mpo":
         return "none"
     return "unknown"
+
+
+def _save_math_samples(path: str, samples: list[MathSample]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for sample in samples:
+            f.write(
+                json.dumps(
+                    {"prompt": sample.prompt, "answer": sample.answer},
+                    ensure_ascii=False,
+                )
+            )
+            f.write("\n")
 
 
 if __name__ == "__main__":
@@ -137,6 +151,7 @@ if __name__ == "__main__":
             "ppo",
             "vmpo",
             "mpo",
+            "gpt_ppo",
         ],
     )
 
@@ -390,6 +405,115 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             out_dir=args.out_dir,
             updates_per_step=int(args.updates_per_step),
+        )
+    elif algo == "gpt_ppo":
+
+        train_samples = build_addition_dataset(
+            num_samples=int(args.dataset_size),
+            min_value=int(args.dataset_min_value),
+            max_value=int(args.dataset_max_value),
+            seed=int(args.dataset_seed),
+            prompt_template=str(args.prompt_template),
+        )
+        dataset_path = os.path.join(args.out_dir, "math_dataset.jsonl")
+        _save_math_samples(dataset_path, train_samples)
+        print(
+            f"[GPTPPO] pre-generated fixed math dataset with {len(train_samples)} samples: "
+            f"{dataset_path}"
+        )
+
+        gpt_config = GPTPPOConfig(
+            model_name=str(args.model_name),
+            batch_size=int(args.batch_size),
+            mini_batch_size=int(args.mini_batch_size),
+            ppo_epochs=int(args.ppo_epochs),
+            learning_rate=float(args.learning_rate),
+            clip_range=float(args.clip_range),
+            clip_range_value=float(args.clip_range_value),
+            vf_coef=float(args.vf_coef),
+            ent_coef=float(args.ent_coef),
+            gamma=float(args.gamma),
+            lam=float(args.lam),
+            kl_coef=float(args.kl_coef),
+            normalize_advantages=bool(args.normalize_advantages),
+            max_prompt_length=int(args.max_prompt_length),
+            max_response_length=int(args.max_response_length),
+            temperature=float(args.temperature),
+            top_p=float(args.top_p),
+            top_k=int(args.top_k),
+            target_kl=(
+                None
+                if float(args.target_kl) <= 0
+                else float(args.target_kl)
+            ),
+            max_grad_norm=float(args.max_grad_norm),
+            reward_type=str(getattr(args, "reward_type", "exact")),
+            correct_reward=float(getattr(args, "correct_reward", 1.0)),
+            incorrect_reward=float(getattr(args, "incorrect_reward", 0.0)),
+            invalid_reward=float(getattr(args, "invalid_reward", 0.0)),
+            reward_error_scale=float(getattr(args, "reward_error_scale", 100.0)),
+            sft_epochs=int(getattr(args, "sft_epochs", 0)),
+            sft_batch_size=int(getattr(args, "sft_batch_size", 0)),
+            sft_learning_rate=float(getattr(args, "sft_learning_rate", 5e-5)),
+            log_num_examples=int(getattr(args, "log_num_examples", 10)),
+            eval_compare_modes=bool(getattr(args, "eval_compare_modes", True)),
+            device=str(device),
+            seed=int(args.seed),
+        )
+
+        _print_config(
+            "GPT-PPO config",
+            {
+                "model_name": gpt_config.model_name,
+                "batch_size": gpt_config.batch_size,
+                "mini_batch_size": gpt_config.mini_batch_size,
+                "ppo_epochs": gpt_config.ppo_epochs,
+                "learning_rate": gpt_config.learning_rate,
+                "clip_range": gpt_config.clip_range,
+                "clip_range_value": gpt_config.clip_range_value,
+                "vf_coef": gpt_config.vf_coef,
+                "ent_coef": gpt_config.ent_coef,
+                "gamma": gpt_config.gamma,
+                "lam": gpt_config.lam,
+                "kl_coef": gpt_config.kl_coef,
+                "normalize_advantages": gpt_config.normalize_advantages,
+                "max_prompt_length": gpt_config.max_prompt_length,
+                "max_response_length": gpt_config.max_response_length,
+                "temperature": gpt_config.temperature,
+                "top_p": gpt_config.top_p,
+                "top_k": gpt_config.top_k,
+                "target_kl": gpt_config.target_kl,
+                "max_grad_norm": gpt_config.max_grad_norm,
+                "reward_type": gpt_config.reward_type,
+                "correct_reward": gpt_config.correct_reward,
+                "incorrect_reward": gpt_config.incorrect_reward,
+                "invalid_reward": gpt_config.invalid_reward,
+                "reward_error_scale": gpt_config.reward_error_scale,
+                "sft_epochs": gpt_config.sft_epochs,
+                "sft_batch_size": gpt_config.sft_batch_size,
+                "sft_learning_rate": gpt_config.sft_learning_rate,
+                "log_num_examples": gpt_config.log_num_examples,
+                "eval_compare_modes": gpt_config.eval_compare_modes,
+                "num_iterations": int(args.num_iterations),
+                "save_every": int(args.save_every),
+                "log_every": int(args.log_every),
+                "dataset_size": int(args.dataset_size),
+                "dataset_min_value": int(args.dataset_min_value),
+                "dataset_max_value": int(args.dataset_max_value),
+                "dataset_seed": int(args.dataset_seed),
+                "dataset_path": dataset_path,
+            },
+        )
+
+        trainer = GPTPPOTrainer(
+            config=gpt_config,
+            train_samples=train_samples,
+        )
+        trainer.train(
+            num_iterations=int(args.num_iterations),
+            save_dir=args.out_dir,
+            save_every=int(args.save_every),
+            log_every=int(args.log_every),
         )
     else:
         raise ValueError(f"Unsupported algorithm: {algo}")
