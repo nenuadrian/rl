@@ -37,9 +37,9 @@ from matplotlib.ticker import AutoMinorLocator
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-DEFAULT_PROJECT = "minerva-rl-benchmark-6"
+DEFAULT_PROJECT = "minerva-rl-benchmark-7"
 DEFAULT_ENTITY = "adrian-research"
-DEFAULT_MIN_STEPS = 1
+DEFAULT_MIN_STEPS = 1000
 DEFAULT_STEP_KEY = "_step"
 DEFAULT_METRIC_KEY = "eval/return_mean"
 DEFAULT_POINTS = 200
@@ -52,6 +52,9 @@ DEFAULT_VIDEOS_DIR = "videos"
 DEFAULT_VIDEO_MAX_STEPS = 1000
 DEFAULT_VIDEO_FPS = 30
 DEFAULT_VIDEO_ATTEMPTS = 10
+DEFAULT_PDF_FONT_SIZE = "10pt"
+DEFAULT_PDF_TABLE_FONT_SIZE = "scriptsize"
+DEFAULT_HPARAM_ENVS_PER_TABLE = 4
 CACHE_VERSION = "v1"
 _KNOWN_ALGOS_FOR_NAME_PARSE = ("ppo", "vmpo", "mpo", "vmpo-gtrxl", "r2d2-gtrxl", "ppo-gtrxl")
 _STEP_KEY_ALIASES = (
@@ -187,14 +190,14 @@ def _normalize_env_fallback(env_text: str) -> str:
     return text
 
 
-def _default_optimizer_for_algorithm(algorithm: str | None) -> str:
+def _default_optimizer_for_algorithm(algorithm: str | None) -> str | None:
     algo = (algorithm or "").strip().lower()
     if algo in {"ppo", "vmpo", "mpo"}:
         return "adam"
-    return "unknown"
+    return None
 
 
-def _default_adv_type_for_algorithm(algorithm: str | None) -> str:
+def _default_adv_type_for_algorithm(algorithm: str | None) -> str  | None:
     algo = (algorithm or "").strip().lower()
     if algo == "vmpo":
         return "returns"
@@ -202,10 +205,10 @@ def _default_adv_type_for_algorithm(algorithm: str | None) -> str:
         return "gae"
     if algo == "mpo":
         return "none"
-    return "unknown"
+    return None
 
 
-def _normalize_meta_value(value: str | None, *, fallback: str) -> str:
+def _normalize_meta_value(value: str | None, *, fallback: str | None) -> str | None:
     if value is None:
         return fallback
     text = str(value).strip().lower()
@@ -214,11 +217,13 @@ def _normalize_meta_value(value: str | None, *, fallback: str) -> str:
     return text
 
 
-def _make_env_key(env_id: str, optimizer: str, adv_type: str) -> str:
-    return f"{env_id} || opt={optimizer} || adv={adv_type}"
+def _make_env_key(env_id: str, optimizer: str | None, adv_type: str | None) -> str:
+    if optimizer is not None and adv_type is not None:
+        return f"{env_id} || opt={optimizer} || adv={adv_type}"
+    return env_id
 
 
-def _split_env_key(env_key: str) -> tuple[str, str, str]:
+def _split_env_key(env_key: str) -> tuple[str, str | None, str | None]:
     env = (env_key or "").strip()
     marker_opt = " || opt="
     marker_adv = " || adv="
@@ -226,7 +231,7 @@ def _split_env_key(env_key: str) -> tuple[str, str, str]:
         env_id, rest = env.split(marker_opt, 1)
         optimizer, adv_type = rest.split(marker_adv, 1)
         return env_id.strip(), optimizer.strip(), adv_type.strip()
-    return env, "unknown", "unknown"
+    return env, None, None
 
 
 def _parse_run_name(
@@ -433,28 +438,53 @@ def _rows_to_step_value_arrays(
     return np.asarray(dedup_steps, dtype=float), np.asarray(dedup_values, dtype=float)
 
 
+def _history_query_key_sets(step_key: str, metric_key: str) -> list[tuple[str, ...]]:
+    step_candidates = _step_key_candidates(step_key)
+    metric_candidates = _metric_key_candidates(metric_key)
+    key_sets: list[tuple[str, ...]] = [
+        _ordered_unique([*step_candidates, *metric_candidates])
+    ]
+
+    # W&B history queries can return empty when requesting many aliases at once.
+    # Fall back to minimal (step, metric) pairs to maximize row recall.
+    for step_candidate in step_candidates:
+        for metric_candidate in metric_candidates:
+            keys = _ordered_unique([step_candidate, metric_candidate])
+            if keys not in key_sets:
+                key_sets.append(keys)
+    return key_sets
+
+
 def _load_full_history_series(
     run: Any, *, step_key: str, metric_key: str
 ) -> tuple[np.ndarray, np.ndarray]:
-    rows: list[dict[str, Any]] = []
-    keys = list(
-        _ordered_unique(
-            [
-                *_step_key_candidates(step_key),
-                *_metric_key_candidates(metric_key),
-            ]
+    last_exc: Exception | None = None
+    for idx, key_set in enumerate(_history_query_key_sets(step_key, metric_key)):
+        rows: list[dict[str, Any]] = []
+        try:
+            for row in run.scan_history(keys=list(key_set), page_size=1000):
+                if isinstance(row, dict):
+                    rows.append(row)
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+        steps, values = _rows_to_step_value_arrays(
+            rows, step_key=step_key, metric_key=metric_key
         )
-    )
-    try:
-        for row in run.scan_history(keys=keys, page_size=1000):
-            if isinstance(row, dict):
-                rows.append(row)
-    except Exception as exc:
+        if steps.size > 0:
+            if idx > 0:
+                print(
+                    f"Info: recovered full history for run '{run.name}' ({run.id}) "
+                    f"using keys={list(key_set)}"
+                )
+            return steps, values
+
+    if last_exc is not None:
         print(
-            f"Warning: failed to scan full history for run '{run.name}' ({run.id}): {exc}"
+            f"Warning: failed to scan full history for run '{run.name}' ({run.id}): {last_exc}"
         )
-        return np.asarray([], dtype=float), np.asarray([], dtype=float)
-    return _rows_to_step_value_arrays(rows, step_key=step_key, metric_key=metric_key)
+    return np.asarray([], dtype=float), np.asarray([], dtype=float)
 
 
 def load_run_series(
@@ -469,33 +499,33 @@ def load_run_series(
     if full_history:
         return _load_full_history_series(run, step_key=step_key, metric_key=metric_key)
 
-    keys = list(
-        _ordered_unique(
-            [
-                *_step_key_candidates(step_key),
-                *_metric_key_candidates(metric_key),
-            ]
-        )
-    )
-    try:
-        sampled_rows = run.history(
-            keys=keys,
-            samples=history_samples,
-            pandas=False,
-        )
-    except Exception as exc:
-        print(f"Warning: failed to sample history for run '{run.name}' ({run.id}): {exc}")
-        if fallback_scan_history:
-            return _load_full_history_series(
-                run, step_key=step_key, metric_key=metric_key
+    last_exc: Exception | None = None
+    for idx, key_set in enumerate(_history_query_key_sets(step_key, metric_key)):
+        try:
+            sampled_rows = run.history(
+                keys=list(key_set),
+                samples=history_samples,
+                pandas=False,
             )
-        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+        except Exception as exc:
+            last_exc = exc
+            continue
 
-    sampled_steps, sampled_values = _rows_to_step_value_arrays(
-        sampled_rows, step_key=step_key, metric_key=metric_key
-    )
-    if sampled_steps.size > 0:
-        return sampled_steps, sampled_values
+        sampled_steps, sampled_values = _rows_to_step_value_arrays(
+            sampled_rows, step_key=step_key, metric_key=metric_key
+        )
+        if sampled_steps.size > 0:
+            if idx > 0:
+                print(
+                    f"Info: recovered sampled history for run '{run.name}' ({run.id}) "
+                    f"using keys={list(key_set)}"
+                )
+            return sampled_steps, sampled_values
+
+    if last_exc is not None:
+        print(
+            f"Warning: failed to sample history for run '{run.name}' ({run.id}): {last_exc}"
+        )
 
     if fallback_scan_history:
         return _load_full_history_series(run, step_key=step_key, metric_key=metric_key)
@@ -708,15 +738,45 @@ def save_overview_plot(
     metric_key: str,
     output_path: Path,
 ) -> str | None:
-    envs = sorted(aggregated.keys())
+    overview_grouped: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for env_key, by_algorithm in aggregated.items():
+        env_id, optimizer, adv_type = _split_env_key(env_key)
+        for algorithm, curve in by_algorithm.items():
+            if optimizer is not None and adv_type is not None:
+                line_label = f"{algorithm}[{optimizer},{adv_type}]"
+            else:
+                line_label = algorithm
+
+            existing = overview_grouped[env_id].get(line_label)
+            if existing is None:
+                overview_grouped[env_id][line_label] = {
+                    "x": np.asarray(curve["x"], dtype=float),
+                    "y": np.asarray(curve["y"], dtype=float).copy(),
+                    "num_runs": int(curve["num_runs"]),
+                    "total_weight_steps": float(curve["total_weight_steps"]),
+                }
+                continue
+
+            existing_weight = float(existing["total_weight_steps"])
+            incoming_weight = float(curve["total_weight_steps"])
+            total_weight = existing_weight + incoming_weight
+            if total_weight > 0:
+                existing["y"] = (
+                    existing["y"] * existing_weight
+                    + np.asarray(curve["y"], dtype=float) * incoming_weight
+                ) / total_weight
+                existing["total_weight_steps"] = total_weight
+            existing["num_runs"] = int(existing["num_runs"]) + int(curve["num_runs"])
+
+    envs = sorted(overview_grouped.keys())
     if not envs:
         return None
 
-    algorithms = sorted(
+    line_labels = sorted(
         {
-            algorithm
+            line_label
             for env in envs
-            for algorithm in aggregated.get(env, {}).keys()
+            for line_label in overview_grouped.get(env, {}).keys()
         }
     )
     palette = [
@@ -727,7 +787,10 @@ def save_overview_plot(
         "#b8722f",  # amber
         "#4f6d8f",  # muted blue
     ]
-    colors = {algorithm: palette[i % len(palette)] for i, algorithm in enumerate(algorithms)}
+    colors = {
+        line_label: palette[i % len(palette)]
+        for i, line_label in enumerate(line_labels)
+    }
 
     n_envs = len(envs)
     n_cols = 2 if n_envs > 1 else 1
@@ -738,26 +801,26 @@ def save_overview_plot(
         figsize=(7.2 * n_cols, 4.2 * n_rows),
         squeeze=False,
         sharex=True,
-        facecolor="#d9d9d9",
+        facecolor="#ffffff",
     )
-    fig.patch.set_facecolor("#d9d9d9")
+    fig.patch.set_facecolor("#ffffff")
 
     for idx, env in enumerate(envs):
         row, col = divmod(idx, n_cols)
         ax = axes[row][col]
-        ax.set_facecolor("#d9d9d9")
-        env_curves = aggregated[env]
+        ax.set_facecolor("#ffffff")
+        env_curves = overview_grouped[env]
         final_points: list[tuple[float, str]] = []
-        for algorithm in sorted(env_curves.keys()):
-            curve = env_curves[algorithm]
+        for line_label in sorted(env_curves.keys()):
+            curve = env_curves[line_label]
             x_vals = curve["x"]
             y_vals = curve["y"]
             n_runs = int(curve["num_runs"])
-            color = colors[algorithm]
+            color = colors[line_label]
             ax.plot(
                 x_vals,
                 y_vals,
-                label=f"{algorithm} (n={n_runs})",
+                label=f"{line_label} (n={n_runs})",
                 color=color,
                 linewidth=2.8,
             )
@@ -785,7 +848,7 @@ def save_overview_plot(
                     color="#111111",
                     fontweight="semibold",
                     bbox={
-                        "facecolor": "#d9d9d9",
+                        "facecolor": "#ffffff",
                         "alpha": 0.9,
                         "edgecolor": "none",
                         "pad": 0.1,
@@ -819,7 +882,7 @@ def save_overview_plot(
             fancybox=False,
             loc="upper left",
         )
-        legend.get_frame().set_facecolor("#d9d9d9")
+        legend.get_frame().set_facecolor("#ffffff")
         legend.get_frame().set_edgecolor("#444444")
         legend.get_frame().set_linewidth(0.9)
 
@@ -863,7 +926,9 @@ def _display_env_name(env: str) -> str:
         name = name[len("dm_control/") :]
     if name.endswith("-v5"):
         name = name[: -len("-v5")]
-    return f"{name} [opt={optimizer}, adv={adv_type}]"
+    if optimizer and adv_type:
+        return f"{name}[{optimizer},{adv_type}]"
+    return name
 
 
 _CONFIG_EXCLUDED_KEYS = {
@@ -936,30 +1001,40 @@ def _write_algorithm_hparam_tables(
             continue
 
         handle.write(f"### `{algorithm}`\n\n")
-        handle.write(
-            "| Hyperparameter | "
-            + " | ".join(
-                f"`{_escape_md_cell(_display_env_name(env))}`" for env in envs
-            )
-            + " |\n"
-        )
-        handle.write("|" + "---|" * (1 + len(envs)) + "\n")
+        for chunk_start in range(0, len(envs), DEFAULT_HPARAM_ENVS_PER_TABLE):
+            env_chunk = envs[chunk_start : chunk_start + DEFAULT_HPARAM_ENVS_PER_TABLE]
+            if len(envs) > DEFAULT_HPARAM_ENVS_PER_TABLE:
+                first = chunk_start + 1
+                last = chunk_start + len(env_chunk)
+                handle.write(
+                    f"Environments {first}-{last} of {len(envs)}.\n\n"
+                )
 
-        for hparam in all_hparams:
-            row: list[str] = [f"`{_escape_md_cell(hparam)}`"]
-            for env in envs:
-                values = sorted(env_map[env].get(hparam, set()))
-                if not values:
-                    row.append("-")
-                elif len(values) == 1:
-                    row.append(_escape_md_cell(values[0]))
-                else:
-                    joined = " / ".join(_escape_md_cell(v) for v in values[:4])
-                    if len(values) > 4:
-                        joined += " / ..."
-                    row.append(joined)
-            handle.write("| " + " | ".join(row) + " |\n")
-        handle.write("\n")
+            handle.write(
+                "| Hyperparameter | "
+                + " | ".join(
+                    f"`{_escape_md_cell(_display_env_name(env))}`"
+                    for env in env_chunk
+                )
+                + " |\n"
+            )
+            handle.write("|" + "---|" * (1 + len(env_chunk)) + "\n")
+
+            for hparam in all_hparams:
+                row: list[str] = [f"`{_escape_md_cell(hparam)}`"]
+                for env in env_chunk:
+                    values = sorted(env_map[env].get(hparam, set()))
+                    if not values:
+                        row.append("-")
+                    elif len(values) == 1:
+                        row.append(_escape_md_cell(values[0]))
+                    else:
+                        joined = " / ".join(_escape_md_cell(v) for v in values[:4])
+                        if len(values) > 4:
+                            joined += " / ..."
+                        row.append(joined)
+                handle.write("| " + " | ".join(row) + " |\n")
+            handle.write("\n")
 
 
 def _build_max_achieved_table(
@@ -1251,16 +1326,6 @@ def write_readme(
 ) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _md_rel_path(path_text: str | None) -> str | None:
-        if not path_text:
-            return None
-        path_obj = Path(path_text)
-        try:
-            rel = path_obj.relative_to(readme_path.parent)
-        except ValueError:
-            rel = Path(os.path.relpath(path_obj, readme_path.parent))
-        return rel.as_posix()
-
     with readme_path.open("w", encoding="utf-8") as handle:
         handle.write(f"# Report: `{entity}/{project}`\n\n")
         handle.write(f"- Generated: {timestamp}\n")
@@ -1272,7 +1337,9 @@ def write_readme(
         handle.write(f"- Metric: `{metric_key}`\n\n")
 
         if overview_image_name:
+            handle.write("<div align=\"center\">\n\n")
             handle.write(f"![overview]({overview_image_name})\n\n")
+            handle.write("</div>\n\n")
             handle.write(
                 "Each line is a time-weighted average across runs for a single "
                 "environment/optimizer/advantage-type and algorithm. "
@@ -1296,100 +1363,7 @@ def write_readme(
                 "No plottable metric history was found for the selected runs.\n\n"
             )
 
-        handle.write("## Summary\n\n")
-        handle.write("| Environment / Optimizer / Adv Type | Algorithms | Runs |\n")
-        handle.write("|---|---|---:|\n")
-        for env in sorted(grouped_runs.keys()):
-            algorithms = sorted(grouped_runs[env].keys())
-            run_count = sum(len(grouped_runs[env][algo]) for algo in algorithms)
-            algo_display = ", ".join(f"`{algo}`" for algo in algorithms)
-            handle.write(
-                f"| `{_display_env_name(env)}` | {algo_display} | {run_count} |\n"
-            )
         handle.write("\n")
-
-        for env in sorted(grouped_runs.keys()):
-            handle.write(f"## {_display_env_name(env)}\n\n")
-            env_aggregated = aggregated.get(env, {})
-            if env_aggregated:
-                handle.write("| Algorithm | Averaged Runs | Total Weight (_step) |\n")
-                handle.write("|---|---:|---:|\n")
-                for algorithm in sorted(env_aggregated.keys()):
-                    curve = env_aggregated[algorithm]
-                    handle.write(
-                        f"| `{algorithm}` | {int(curve['num_runs'])} | {int(curve['total_weight_steps'])} |\n"
-                    )
-                handle.write("\n")
-
-            handle.write(f"| Run | Algorithm | {step_key} | {metric_key} |\n")
-            handle.write("|---|---|---:|---:|\n")
-            env_records: list[RunRecord] = []
-            for algorithm in sorted(grouped_runs[env].keys()):
-                env_records.extend(grouped_runs[env][algorithm])
-            env_records.sort(key=lambda rec: (rec.algorithm, rec.name))
-
-            for record in env_records:
-                metric_value = _first_float(
-                    (record.run.summary or {}),
-                    keys=_metric_key_candidates(metric_key),
-                )
-                handle.write(
-                    f"| [{record.name}]({record.url}) | `{record.algorithm}` | "
-                    f"{_format_step(record.step)} | {_format_metric(metric_value)} |\n"
-                )
-            handle.write("\n")
-
-            env_video_results = sorted(
-                (result for result in video_results if result.env == env),
-                key=lambda item: (
-                    item.algorithm,
-                    item.run_name if item.run_name is not None else "",
-                ),
-            )
-            env_gif_results: list[tuple[BestRunVideoResult, str]] = []
-            for result in env_video_results:
-                if result.status != "generated" or not result.gif_path:
-                    continue
-                gif_path_obj = Path(result.gif_path)
-                if not gif_path_obj.is_file():
-                    continue
-                gif_rel_path = _md_rel_path(result.gif_path)
-                if not gif_rel_path:
-                    continue
-                env_gif_results.append((result, gif_rel_path))
-
-            if env_gif_results:
-                handle.write("### Best-Run GIFs\n\n")
-                handle.write(
-                    "Best run per algorithm by `eval/return_max` "
-                    f"(fallback `{metric_key}`).\n\n"
-                )
-                handle.write("| Algorithm | Run | Best Metric | Preview |\n")
-                handle.write("|---|---|---:|---|\n")
-                for result, gif_rel_path in env_gif_results:
-                    run_cell = "-"
-                    if result.run_name and result.run_url:
-                        run_cell = (
-                            f"[{_escape_md_cell(result.run_name)}]"
-                            f"({result.run_url})"
-                        )
-                    elif result.run_name:
-                        run_cell = f"`{_escape_md_cell(result.run_name)}`"
-
-                    preview_cell = f"![preview]({gif_rel_path})"
-                    handle.write(
-                        "| "
-                        + " | ".join(
-                            [
-                                f"`{_escape_md_cell(result.algorithm)}`",
-                                run_cell,
-                                _format_metric(result.metric_value),
-                                preview_cell,
-                            ]
-                        )
-                        + " |\n"
-                    )
-                handle.write("\n")
 
 
 def create_report_folder(output_dir: Path) -> Path:
@@ -1399,7 +1373,52 @@ def create_report_folder(output_dir: Path) -> Path:
     return report_dir
 
 
-def copy_latest_and_build_pdf(output_dir: Path, report_dir: Path) -> None:
+def _validate_latex_size_command(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if not re.fullmatch(r"[A-Za-z]+", text):
+        raise ValueError(
+            f"Invalid LaTeX size command '{value}'. "
+            "Use names like 'small', 'footnotesize', 'scriptsize', or 'tiny'."
+        )
+    return text
+
+
+def _write_table_style_include(latest_dir: Path, table_font_size: str) -> Path | None:
+    latex_size_cmd = _validate_latex_size_command(table_font_size)
+
+    include_path = latest_dir / "table_style.tex"
+    lines = [
+        r"\usepackage{etoolbox}",
+        r"\makeatletter",
+        r"\@ifundefined{pandocbounded}{}{%",
+        r"  \let\oldpandocbounded\pandocbounded",
+        r"  \renewcommand{\pandocbounded}[1]{\begin{center}\oldpandocbounded{#1}\end{center}}",
+        r"}",
+        r"\makeatother",
+    ]
+    if latex_size_cmd:
+        lines.extend(
+            [
+                rf"\BeforeBeginEnvironment{{longtable}}{{\begingroup\{latex_size_cmd}}}",
+                r"\AfterEndEnvironment{longtable}{\endgroup}",
+                rf"\BeforeBeginEnvironment{{tabular}}{{\begingroup\{latex_size_cmd}}}",
+                r"\AfterEndEnvironment{tabular}{\endgroup}",
+            ]
+        )
+    lines.append("")
+    include_path.write_text("\n".join(lines), encoding="utf-8")
+    return include_path
+
+
+def copy_latest_and_build_pdf(
+    output_dir: Path,
+    report_dir: Path,
+    *,
+    pdf_font_size: str,
+    pdf_table_font_size: str,
+) -> None:
     latest_dir = output_dir / "latest"
     if latest_dir.exists():
         shutil.rmtree(latest_dir)
@@ -1407,20 +1426,38 @@ def copy_latest_and_build_pdf(output_dir: Path, report_dir: Path) -> None:
     print(f"Copied report to latest: {latest_dir}")
 
     try:
+        table_include_path = _write_table_style_include(latest_dir, pdf_table_font_size)
         pandoc_cmd = [
             "pandoc",
             "--from=gfm",
             "--toc",
             f"--resource-path={latest_dir}",
             "-V",
-            "fontsize=10pt",
+            f"fontsize={pdf_font_size}",
             "-V",
             "geometry:margin=1.5cm",
+            "-V",
+            "colorlinks=true",
+            "-V",
+            "linkcolor=blue",
+            "-V",
+            "urlcolor=blue",
             "--pdf-engine=xelatex",
+        ]
+        if table_include_path is not None:
+            pandoc_cmd.extend(
+                [
+                    "-H",
+                    table_include_path.name,
+                ]
+            )
+        pandoc_cmd.extend(
+            [
             "-o",
             "report.pdf",
             "README.md",
-        ]
+            ]
+        )
         subprocess.run(pandoc_cmd, check=True, cwd=latest_dir)
         print(f"Generated PDF report: {latest_dir / 'report.pdf'}")
     except Exception as exc:
@@ -1447,6 +1484,8 @@ def generate_report(
     video_max_steps: int,
     video_fps: int,
     video_attempts: int,
+    pdf_font_size: str,
+    pdf_table_font_size: str,
 ) -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1514,7 +1553,12 @@ def generate_report(
     )
     print(f"Report generated: {report_dir / 'README.md'}")
 
-    copy_latest_and_build_pdf(output_path, report_dir)
+    copy_latest_and_build_pdf(
+        output_path,
+        report_dir,
+        pdf_font_size=pdf_font_size,
+        pdf_table_font_size=pdf_table_font_size,
+    )
     return report_dir
 
 
@@ -1628,6 +1672,23 @@ def main() -> None:
         default=DEFAULT_VIDEO_ATTEMPTS,
         help="Number of rollout attempts; the highest-return attempt is saved.",
     )
+    parser.add_argument(
+        "--pdf-font-size",
+        default=DEFAULT_PDF_FONT_SIZE,
+        help=(
+            "Main PDF text size passed to Pandoc/LaTeX "
+            "(e.g. 10pt, 11pt, 12pt)."
+        ),
+    )
+    parser.add_argument(
+        "--pdf-table-font-size",
+        default=DEFAULT_PDF_TABLE_FONT_SIZE,
+        help=(
+            "LaTeX size command applied only to table environments "
+            "(e.g. small, footnotesize, scriptsize, tiny). "
+            "Set to empty string to disable."
+        ),
+    )
     args = parser.parse_args()
 
     if args.points < 2:
@@ -1644,6 +1705,12 @@ def main() -> None:
         parser.error("--video-fps must be >= 1")
     if args.video_attempts < 1:
         parser.error("--video-attempts must be >= 1")
+    if not re.fullmatch(r"(10|11|12)pt", args.pdf_font_size.strip()):
+        parser.error("--pdf-font-size must look like 10pt, 11pt, or 12pt")
+    try:
+        _validate_latex_size_command(args.pdf_table_font_size)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     generate_report(
         project=args.project,
@@ -1664,6 +1731,8 @@ def main() -> None:
         video_max_steps=int(args.video_max_steps),
         video_fps=int(args.video_fps),
         video_attempts=int(args.video_attempts),
+        pdf_font_size=args.pdf_font_size.strip(),
+        pdf_table_font_size=args.pdf_table_font_size.strip(),
     )
 
 

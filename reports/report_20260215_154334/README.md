@@ -1,16 +1,12 @@
 # Report: `adrian-research/minerva-rl-benchmark-7`
 
-- Generated: 2026-02-15 15:44:45
+- Generated: 2026-02-15 15:43:34
 - Included runs: 17 (`_step` > 1000)
 - Algorithm key source: run config `command`
 - Environment key source: run config `env` + `optimizer_type` + `advantage_estimator`
 - Metric: `eval/return_mean`
 
-<div align="center">
-
 ![overview](overview.png)
-
-</div>
 
 Each line is a time-weighted average across runs for a single environment/optimizer/advantage-type and algorithm. Every run timeline is normalized to `[0, 1]`.
 
@@ -18,19 +14,19 @@ Max achieved table (`eval/return_max`, fallback to selected metric), reported as
 
 | Environment | `mpo` | `ppo` | `r2d2-gtrxl` | `vmpo` | `vmpo-gtrxl` |
 |---|---|---|---|---|---|
-| `HalfCheetah[adam,dae]` | - | - | - | -485.4 +/- 0.0 | - |
-| `HalfCheetah[adam,gae]` | - | 1819.0 +/- 0.0 | - | 553.1 +/- 0.0 | - |
+| `HalfCheetah[adam,dae]` | - | - | - | -421.2 +/- 0.0 | - |
+| `HalfCheetah[adam,gae]` | - | 1819.0 +/- 0.0 | - | 672.2 +/- 0.0 | - |
 | `HalfCheetah[adam,returns]` | - | - | - | 1746.4 +/- 0.0 | - |
 | `Humanoid[adam,gae]` | - | 1413.6 +/- 0.0 | - | - | - |
-| `Humanoid[adam,returns]` | - | - | - | 939.7 +/- 0.0 | - |
+| `Humanoid[adam,returns]` | - | - | - | 955.4 +/- 0.0 | - |
 | `PongNoFrameskip-v4` | - | - | 11.0 +/- 0.0 | - | 18.0 +/- 0.0 |
 | `SpaceInvadersNoFrameskip-v4` | - | - | - | - | 175.0 +/- 0.0 |
 | `Walker2d[adam,gae]` | - | 1013.6 +/- 0.0 | - | - | - |
 | `Walker2d[adam,returns]` | - | - | - | 1165.7 +/- 0.0 | - |
 | `cheetah/run[adam,gae]` | - | 438.4 +/- 0.0 | - | - | - |
 | `cheetah/run[adam,none]` | 530.9 +/- 0.0 | - | - | - | - |
-| `humanoid/walk[adam,gae]` | - | 2.1 +/- 0.0 | - | - | - |
-| `humanoid/walk[adam,none]` | 2.0 +/- 0.0 | - | - | - | - |
+| `humanoid/walk[adam,gae]` | - | 2.7 +/- 0.0 | - | - | - |
+| `humanoid/walk[adam,none]` | 2.4 +/- 0.0 | - | - | - | - |
 | `pendulum` | - | - | -3.1 +/- 0.0 | - | -3.0 +/- 0.0 |
 
 ## Hyperparameters by Algorithm

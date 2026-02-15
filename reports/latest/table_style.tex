@@ -1,0 +1,11 @@
+\usepackage{etoolbox}
+\makeatletter
+\@ifundefined{pandocbounded}{}{%
+  \let\oldpandocbounded\pandocbounded
+  \renewcommand{\pandocbounded}[1]{\begin{center}\oldpandocbounded{#1}\end{center}}
+}
+\makeatother
+\BeforeBeginEnvironment{longtable}{\begingroup\scriptsize}
+\AfterEndEnvironment{longtable}{\endgroup}
+\BeforeBeginEnvironment{tabular}{\begingroup\scriptsize}
+\AfterEndEnvironment{tabular}{\endgroup}
