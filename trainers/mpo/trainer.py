@@ -40,6 +40,13 @@ def _make_env(
     return env
 
 
+def _to_device_tensor(value: np.ndarray, device: torch.device) -> torch.Tensor:
+    arr = np.asarray(value, dtype=np.float32)
+    if not arr.flags.c_contiguous:
+        arr = np.ascontiguousarray(arr)
+    return torch.from_numpy(arr).to(device=device, non_blocking=True)
+
+
 class MPOTrainer:
     def __init__(
         self,
@@ -340,7 +347,7 @@ class MPOTrainer:
             self.env.close()
             self.eval_envs.close()
 
-@torch.no_grad()
+@torch.inference_mode()
 def _evaluate_vectorized(
     agent: MPOAgent,
     eval_envs: gym.vector.VectorEnv,
@@ -360,8 +367,7 @@ def _evaluate_vectorized(
     dones = np.zeros(n_episodes, dtype=bool)
 
     while len(final_returns) < n_episodes:
-        obs = np.asarray(obs, dtype=np.float32)
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device)
+        obs_t = _to_device_tensor(obs, agent.device)
 
         mean, log_std = agent.policy(obs_t)
         action = (

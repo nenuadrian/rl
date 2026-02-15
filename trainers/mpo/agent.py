@@ -419,19 +419,33 @@ class MPOAgent:
         integrand = torch.log(n * weights + 1e-8)
         return (weights * integrand).sum(dim=1)
 
+    def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -> torch.Tensor:
+        """Fast path for float32 host arrays -> device tensors."""
+        if isinstance(value, torch.Tensor):
+            return value.to(
+                device=self.device,
+                dtype=torch.float32,
+                non_blocking=True,
+            )
+
+        arr = np.asarray(value, dtype=np.float32)
+        if not arr.flags.c_contiguous:
+            arr = np.ascontiguousarray(arr)
+        return torch.from_numpy(arr).to(device=self.device, non_blocking=True)
+
     def act_with_logp(
         self, obs: np.ndarray, deterministic: bool = False
     ) -> tuple[np.ndarray, np.ndarray, float]:
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-        with torch.no_grad():
+        obs_t = self._to_device_tensor(obs).unsqueeze(0)
+        with torch.inference_mode():
             mean, log_std = self.policy(obs_t)
             action_raw, action_exec = self.policy.sample_action_raw_and_exec(
                 mean, log_std, deterministic
             )
             logp = self.policy.log_prob(mean, log_std, action_raw)
         return (
-            action_exec.detach().cpu().numpy().squeeze(0),
-            action_raw.detach().cpu().numpy().squeeze(0),
+            action_exec.cpu().numpy().squeeze(0),
+            action_raw.cpu().numpy().squeeze(0),
             float(logp.item()),
         )
 
@@ -456,25 +470,13 @@ class MPOAgent:
             )
 
     def _retrace_q_target(self, batch: dict) -> torch.Tensor:
-        obs_seq = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
-        actions_exec_seq = torch.tensor(
-            batch["actions_exec"], dtype=torch.float32, device=self.device
-        )
-        actions_raw_seq = torch.tensor(
-            batch["actions_raw"], dtype=torch.float32, device=self.device
-        )
-        rewards_seq = torch.tensor(
-            batch["rewards"], dtype=torch.float32, device=self.device
-        )
-        next_obs_seq = torch.tensor(
-            batch["next_obs"], dtype=torch.float32, device=self.device
-        )
-        dones_seq = torch.tensor(
-            batch["dones"], dtype=torch.float32, device=self.device
-        )
-        behaviour_logp_seq = torch.tensor(
-            batch["behaviour_logp"], dtype=torch.float32, device=self.device
-        )
+        obs_seq = self._to_device_tensor(batch["obs"])
+        actions_exec_seq = self._to_device_tensor(batch["actions_exec"])
+        actions_raw_seq = self._to_device_tensor(batch["actions_raw"])
+        rewards_seq = self._to_device_tensor(batch["rewards"])
+        next_obs_seq = self._to_device_tensor(batch["next_obs"])
+        dones_seq = self._to_device_tensor(batch["dones"])
+        behaviour_logp_seq = self._to_device_tensor(batch["behaviour_logp"])
 
         batch_size, seq_len, obs_dim = obs_seq.shape
         act_dim = actions_exec_seq.shape[-1]
@@ -536,26 +538,14 @@ class MPOAgent:
 
         if use_retrace and is_sequence_batch and self.retrace_steps > 1:
             target = self._retrace_q_target(batch)
-            obs = torch.tensor(
-                batch["obs"][:, 0, :], dtype=torch.float32, device=self.device
-            )
-            actions = torch.tensor(
-                batch["actions_exec"][:, 0, :], dtype=torch.float32, device=self.device
-            )
+            obs = self._to_device_tensor(batch["obs"][:, 0, :])
+            actions = self._to_device_tensor(batch["actions_exec"][:, 0, :])
         else:
-            obs = torch.tensor(batch["obs"], dtype=torch.float32, device=self.device)
-            actions = torch.tensor(
-                batch["actions"], dtype=torch.float32, device=self.device
-            )
-            rewards = torch.tensor(
-                batch["rewards"], dtype=torch.float32, device=self.device
-            )
-            next_obs = torch.tensor(
-                batch["next_obs"], dtype=torch.float32, device=self.device
-            )
-            dones = torch.tensor(
-                batch["dones"], dtype=torch.float32, device=self.device
-            )
+            obs = self._to_device_tensor(batch["obs"])
+            actions = self._to_device_tensor(batch["actions"])
+            rewards = self._to_device_tensor(batch["rewards"])
+            next_obs = self._to_device_tensor(batch["next_obs"])
+            dones = self._to_device_tensor(batch["dones"])
 
             with torch.no_grad():
                 next_actions = self.policy_target.sample_actions(
