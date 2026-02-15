@@ -7,7 +7,7 @@ from hyperparameters._common import get_preset
 
 PRESETS: dict[str, dict[str, Any]] = {
     "math/addition": {
-        "model_name": "distilgpt2",
+        "model_name": "facebook/opt-125m",
         "num_iterations": 500,
         "batch_size": 8,
         "mini_batch_size": 4,
@@ -23,9 +23,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "normalize_advantages": True,
         "max_prompt_length": 96,
         "max_response_length": 4,
-        "temperature": 1.0,
-        "top_p": 1.0,
-        "top_k": 0,
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "top_k": 50,
         "target_kl": 0.08,
         "max_grad_norm": 1.0,
         "reward_type": "exact",
