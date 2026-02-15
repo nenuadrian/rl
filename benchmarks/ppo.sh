@@ -8,12 +8,12 @@ environments=(
     "HalfCheetah-v5"
     "Walker2d-v5"
     "Humanoid-v5"
-    "Ant-v5"
     "dm_control/cheetah/run"
     "dm_control/humanoid/walk"
     "dm_control/humanoid/run"
     "dm_control/walker/walk"
     "dm_control/walker/run"
+    "Ant-v5"
 )
 
 if [[ $# -lt 1 ]]; then
