@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT_DIR"
+JOBS_DIR="$ROOT_DIR/jobs"
+mkdir -p "$JOBS_DIR"
 
 environments=(
     "dm_control/cheetah/run"
@@ -17,23 +18,56 @@ environments=(
 )
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <benchmark-suffix> [extra main.py args...]" >&2
+    echo "Usage: $0 <benchmark-suffix>" >&2
     exit 1
 fi
+
 BENCHMARK_SUFFIX="$1"
-shift
 WANDB_PROJECT_NAME="minerva-rl-benchmark-${BENCHMARK_SUFFIX}"
 SEEDS="${SEEDS:-3}"
 SEED_START="${SEED_START:-42}"
+SBATCH_PARTITION="${SBATCH_PARTITION:-multicore}"
+SBATCH_NTASKS="${SBATCH_NTASKS:-12}"
+SBATCH_TIME="${SBATCH_TIME:-4-0}"
 
-for seed in $(seq "$SEED_START" "$((SEED_START + SEEDS - 1))"); do
-    for env in "${environments[@]}"; do
-        echo "[vmpo_gae] env=${env} seed=${seed}"
-        python main.py vmpo \
-        --env "$env" \
-        --wandb_project "$WANDB_PROJECT_NAME" \
-        --seed "$seed" --advantage_estimator gae 
+if ! [[ "$SEEDS" =~ ^[0-9]+$ ]] || [[ "$SEEDS" -lt 1 ]]; then
+    echo "SEEDS must be a positive integer (got: $SEEDS)" >&2
+    exit 1
+fi
 
-    done
+benchmark_slug="${BENCHMARK_SUFFIX//\//-}"
+benchmark_slug="${benchmark_slug// /-}"
+
+for env in "${environments[@]}"; do
+    env_slug="${env//\//-}"
+    env_slug="${env_slug// /-}"
+    job_file="$JOBS_DIR/vmpo_gae_${benchmark_slug}_${env_slug}.sbatch.sh"
+
+    cat > "$job_file" <<EOF
+#!/bin/bash --login
+#SBATCH -p ${SBATCH_PARTITION}          
+#SBATCH -n ${SBATCH_NTASKS}
+#SBATCH -t ${SBATCH_TIME}              # Each task has a maximum 4-day (0 hours) runtime
+#SBATCH -a 1-${SEEDS}
+
+WANDB_PROJECT_NAME="${WANDB_PROJECT_NAME}"
+env="${env}"
+SEED_START="${SEED_START}"
+seed=\$((SEED_START + \${SLURM_ARRAY_TASK_ID:-0}))
+WORKDIR="\${WORKDIR:-\$HOME/scratch/rl}"
+CONDA_ENV="\${CONDA_ENV:-minerva}"
+
+cd "\$WORKDIR"
+conda activate "\$CONDA_ENV"
+python main.py vmpo \\
+        --env "\$env" \\
+        --wandb_project "\$WANDB_PROJECT_NAME" \\
+        --seed "\$seed" \\
+        --advantage_estimator gae
+EOF
+
+    chmod +x "$job_file"
+    echo "Created $job_file"
 done
 
+echo "Done. Submit jobs with: sbatch jobs/<job-file>.sbatch.sh"
