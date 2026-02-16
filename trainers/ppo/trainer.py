@@ -175,8 +175,8 @@ def log_episode_stats(infos, global_step: int):
             print(f"global_step={global_step}, episodic_return={episodic_return}")
             log_wandb(
                 {
-                    "charts/episodic_return": episodic_return,
-                    "charts/episodic_length": episodic_length,
+                    "train/episodic_return": episodic_return,
+                    "train/episodic_length": episodic_length,
                 },
                 step=global_step,
                 silent=True,
@@ -191,8 +191,8 @@ def log_episode_stats(infos, global_step: int):
                 print(f"global_step={global_step}, episodic_return={episodic_return}")
                 log_wandb(
                     {
-                        "charts/episodic_return": episodic_return,
-                        "charts/episodic_length": episodic_length,
+                        "train/episodic_return": episodic_return,
+                        "train/episodic_length": episodic_length,
                     },
                     step=global_step,
                     silent=True,
