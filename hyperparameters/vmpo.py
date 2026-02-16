@@ -158,7 +158,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "HalfCheetah-v5": {
         "num_envs": 1,
         "rollout_steps": 2048,
-        "updates_per_step": 2,
+        "updates_per_step": 1,
         "total_steps": 1_000_000,
         "policy_layer_sizes": (256, 256, 256),
         "value_layer_sizes": (512, 512, 256),
