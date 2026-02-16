@@ -166,7 +166,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "policy_lr": 2e-4,
         "value_lr": 3e-4,
         "topk_fraction": 0.25,
-        "temperature_init": 1.0,
+        "temperature_init": 10.0,
         "temperature_lr": 1e-3,
         "alpha_lr": 3e-4,
         "epsilon_eta": 0.15,
