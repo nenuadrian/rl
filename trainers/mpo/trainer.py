@@ -77,6 +77,8 @@ class MPOTrainer:
         retrace_lambda: float = 0.95,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
+        init_log_alpha_mean: float = 10.0,
+        init_log_alpha_stddev: float = 1000.0,
     ):
         self.seed = seed
         self.use_retrace = bool(use_retrace)
@@ -131,6 +133,8 @@ class MPOTrainer:
             retrace_lambda=retrace_lambda,
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
+            init_log_alpha_mean=init_log_alpha_mean,
+            init_log_alpha_stddev=init_log_alpha_stddev,
         )
 
         self.replay_capacity = int(replay_size)
@@ -140,6 +144,8 @@ class MPOTrainer:
         self._obs_dim = obs_dim
         self._act_dim = act_dim
         self._sequence_offsets: dict[int, torch.Tensor] = {}
+        self._dropped_nonfinite_transitions = 0
+        self._skipped_nonfinite_batches = 0
 
         self.episode_return = 0.0
 
@@ -158,6 +164,11 @@ class MPOTrainer:
     ) -> torch.Tensor:
         return torch.as_tensor(value, dtype=torch.float32, device="cpu").reshape(shape)
 
+    @staticmethod
+    def _is_finite_value(value: np.ndarray | float) -> bool:
+        arr = np.asarray(value, dtype=np.float32)
+        return bool(np.isfinite(arr).all())
+
     def _add_transition(
         self,
         obs: np.ndarray,
@@ -167,12 +178,39 @@ class MPOTrainer:
         reward: float,
         next_obs: np.ndarray,
         done: float,
-    ) -> None:
+    ) -> bool:
+        fields = {
+            "obs": obs,
+            "action_exec": action_exec,
+            "action_raw": action_raw,
+            "behaviour_logp": behaviour_logp,
+            "reward": reward,
+            "next_obs": next_obs,
+            "done": done,
+        }
+        bad_fields = [
+            name for name, value in fields.items() if not self._is_finite_value(value)
+        ]
+        if bad_fields:
+            self._dropped_nonfinite_transitions += 1
+            if (
+                self._dropped_nonfinite_transitions <= 5
+                or self._dropped_nonfinite_transitions % 100 == 0
+            ):
+                print(
+                    "[MPO][warn] "
+                    f"dropped non-finite transition fields={bad_fields} "
+                    f"count={self._dropped_nonfinite_transitions}"
+                )
+            return False
+
         transition = TensorDict(
             {
                 "obs": self._as_cpu_float_tensor(obs, (self._obs_dim,)),
                 "next_obs": self._as_cpu_float_tensor(next_obs, (self._obs_dim,)),
-                "actions_exec": self._as_cpu_float_tensor(action_exec, (self._act_dim,)),
+                "actions_exec": self._as_cpu_float_tensor(
+                    action_exec, (self._act_dim,)
+                ),
                 "actions_raw": self._as_cpu_float_tensor(action_raw, (self._act_dim,)),
                 "behaviour_logp": self._as_cpu_float_tensor(behaviour_logp, (1,)),
                 "rewards": self._as_cpu_float_tensor(reward, (1,)),
@@ -181,6 +219,7 @@ class MPOTrainer:
             batch_size=[],
         )
         self.replay.add(transition)
+        return True
 
     def _get_sequence_offsets(self, seq_len: int) -> torch.Tensor:
         offsets = self._sequence_offsets.get(seq_len)
@@ -231,9 +270,7 @@ class MPOTrainer:
         update_after = int(update_after)
         batch_size = int(batch_size)
         eval_interval = max(1, total_steps // 150)
-        console_log_interval = max(
-            1, min(1_000, eval_interval)
-        )
+        console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[MPO] training started: "
             f"total_steps={total_steps}, "
@@ -282,7 +319,8 @@ class MPOTrainer:
                 )
                 obs = next_obs
 
-                self.episode_return += reward_f
+                if np.isfinite(reward_f):
+                    self.episode_return += reward_f
 
                 if terminated or truncated:
                     episode_return = float(self.episode_return)
@@ -319,15 +357,19 @@ class MPOTrainer:
                             batch = self.replay.sample(batch_size=int(batch_size))
 
                         metrics = self.agent.update(batch)
+                        if metrics is None:
+                            self._skipped_nonfinite_batches += 1
+                            continue
+
                         for key, value in metrics.items():
                             step_metric_sums[key] = step_metric_sums.get(
                                 key, 0.0
                             ) + float(value)
                         step_update_count += 1
                         for key, value in metrics.items():
-                            interval_metric_sums[key] = (
-                                interval_metric_sums.get(key, 0.0) + float(value)
-                            )
+                            interval_metric_sums[key] = interval_metric_sums.get(
+                                key, 0.0
+                            ) + float(value)
                         interval_update_count += 1
                         total_update_count += 1
 
@@ -338,7 +380,7 @@ class MPOTrainer:
                         }
                         log_wandb(step_mean_metrics, step=step, silent=True)
 
-                if step % eval_interval == 0:
+                if step % eval_interval == 0 and step >= update_after:
                     metrics = _evaluate_vectorized(
                         agent=self.agent,
                         eval_envs=self.eval_envs,
@@ -380,12 +422,14 @@ class MPOTrainer:
 
                     progress = 100.0 * float(step) / float(total_steps)
                     print(
-                            "[MPO][progress] "
-                            f"step={step}/{total_steps} ({progress:.2f}%), "
-                            f"replay={self.replay_size}/{self.replay_capacity}, "
-                            f"updates={total_update_count}, "
-                            f"sps={steps_window / elapsed_window:.2f}, "
-                            f"ups={updates_window / elapsed_window:.2f}, "
+                        "[MPO][progress] "
+                        f"step={step}/{total_steps} ({progress:.2f}%), "
+                        f"replay={self.replay_size}/{self.replay_capacity}, "
+                        f"updates={total_update_count}, "
+                        f"dropped={self._dropped_nonfinite_transitions}, "
+                        f"skipped_batches={self._skipped_nonfinite_batches}, "
+                        f"sps={steps_window / elapsed_window:.2f}, "
+                        f"ups={updates_window / elapsed_window:.2f}, "
                         f"sps_total={step / elapsed_total:.2f}"
                     )
                     last_progress_time = now
@@ -424,6 +468,7 @@ class MPOTrainer:
         finally:
             self.env.close()
             self.eval_envs.close()
+
 
 @torch.inference_mode()
 def _evaluate_vectorized(

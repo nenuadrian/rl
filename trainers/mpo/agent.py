@@ -222,6 +222,8 @@ class MPOAgent:
         retrace_lambda: float = 0.95,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
+        init_log_alpha_mean: float = 10.0,
+        init_log_alpha_stddev: float = 1000.0,
     ):
         self.device = device
         self.gamma = float(gamma)
@@ -246,6 +248,7 @@ class MPOAgent:
 
         # Learner step counter for periodic target synchronization.
         self._num_steps = 0
+        self._skipped_nonfinite_batches = 0
 
         self.policy = DiagonalGaussianPolicy(
             obs_dim,
@@ -281,22 +284,18 @@ class MPOAgent:
         self.q_opt = self._build_optimizer(self.q.parameters(), lr=self.q_lr)
 
         # Dual variables (temperature + KL multipliers) in log-space.
-        temperature_init_t = torch.tensor(self.temperature_init, device=device)
-        temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
-        self.log_temperature = nn.Parameter(torch.log(torch.expm1(temperature_init_t)))
+        self.log_temperature = nn.Parameter(
+            torch.tensor(self.temperature_init, device=device)        )
 
         lambda_init_t = torch.tensor(self.lambda_init, device=device)
         lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
         dual_shape = (act_dim,)
         self.log_alpha_mean = nn.Parameter(
-            torch.full(
-                dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device
-            )
+            torch.full(dual_shape, init_log_alpha_mean, device=device)
         )
+
         self.log_alpha_stddev = nn.Parameter(
-            torch.full(
-                dual_shape, torch.log(torch.expm1(lambda_init_t)).item(), device=device
-            )
+            torch.full(dual_shape, init_log_alpha_stddev, device=device)
         )
 
         # Dual optimizer uses separate LRs for temperature vs alphas.
@@ -383,6 +382,25 @@ class MPOAgent:
         if not arr.flags.c_contiguous:
             arr = np.ascontiguousarray(arr)
         return torch.from_numpy(arr).to(device=self.device, non_blocking=True)
+
+    def _assert_finite_tensors(self, tensors: dict[str, torch.Tensor]) -> bool:
+        try:
+            for name, tensor in tensors.items():
+                assert bool(
+                    torch.isfinite(tensor).all()
+                ), f"non-finite values in '{name}'"
+        except AssertionError as exc:
+            self._skipped_nonfinite_batches += 1
+            if (
+                self._skipped_nonfinite_batches <= 5
+                or self._skipped_nonfinite_batches % 100 == 0
+            ):
+                print(
+                    "[MPO][warn] "
+                    f"{exc}; skipped batch #{self._skipped_nonfinite_batches}"
+                )
+            return False
+        return True
 
     def act_with_logp(
         self, obs: np.ndarray, deterministic: bool = False
@@ -475,7 +493,7 @@ class MPOAgent:
 
         return q_ret
 
-    def update(self, batch: dict) -> dict:
+    def update(self, batch: dict) -> dict | None:
         if self._num_steps % self.target_networks_update_period == 0:
             self.policy_target.load_state_dict(self.policy.state_dict())
             self.q_target.load_state_dict(self.q.state_dict())
@@ -487,16 +505,60 @@ class MPOAgent:
         use_retrace = self.use_retrace
 
         if use_retrace and is_sequence_batch and self.retrace_steps > 1:
-            target = self._retrace_q_target(batch)
-            obs = self._to_device_tensor(batch["obs"][:, 0, :])
-            actions = self._to_device_tensor(batch["actions_exec"][:, 0, :])
+            obs_seq = self._to_device_tensor(batch["obs"])
+            actions_exec_seq = self._to_device_tensor(batch["actions_exec"])
+            actions_raw_seq = self._to_device_tensor(batch["actions_raw"])
+            rewards_seq = self._to_device_tensor(batch["rewards"])
+            next_obs_seq = self._to_device_tensor(batch["next_obs"])
+            dones_seq = self._to_device_tensor(batch["dones"])
+            behaviour_logp_seq = self._to_device_tensor(batch["behaviour_logp"])
+
+            if not self._assert_finite_tensors(
+                {
+                    "obs": obs_seq,
+                    "actions_exec": actions_exec_seq,
+                    "actions_raw": actions_raw_seq,
+                    "rewards": rewards_seq,
+                    "next_obs": next_obs_seq,
+                    "dones": dones_seq,
+                    "behaviour_logp": behaviour_logp_seq,
+                }
+            ):
+                return None
+
+            target = self._retrace_q_target(
+                {
+                    "obs": obs_seq,
+                    "actions_exec": actions_exec_seq,
+                    "actions_raw": actions_raw_seq,
+                    "rewards": rewards_seq,
+                    "next_obs": next_obs_seq,
+                    "dones": dones_seq,
+                    "behaviour_logp": behaviour_logp_seq,
+                }
+            )
+            obs = obs_seq[:, 0, :]
+            actions = actions_exec_seq[:, 0, :]
         else:
             obs = self._to_device_tensor(batch["obs"])
-            actions_key = "actions_exec" if "actions_exec" in batch.keys() else "actions"
+            actions_key = (
+                "actions_exec" if "actions_exec" in batch.keys() else "actions"
+            )
             actions = self._to_device_tensor(batch[actions_key])
             rewards = self._to_device_tensor(batch["rewards"])
             next_obs = self._to_device_tensor(batch["next_obs"])
             dones = self._to_device_tensor(batch["dones"])
+
+            if not self._assert_finite_tensors(
+                {
+                    "obs": obs,
+                    "actions": actions,
+                    "rewards": rewards,
+                    "next_obs": next_obs,
+                    "dones": dones,
+                }
+            ):
+                return None
 
             with torch.no_grad():
                 next_actions = self.policy_target.sample_actions(
@@ -514,8 +576,15 @@ class MPOAgent:
                 )
                 target = rewards + (1.0 - dones) * self.gamma * q_target
 
+        if not self._assert_finite_tensors(
+            {"obs": obs, "actions": actions, "target": target}
+        ):
+            return None
+
         q = self.q(obs, actions)
         q_loss = F.mse_loss(q, target)
+        if not self._assert_finite_tensors({"q": q, "q_loss": q_loss}):
+            return None
 
         # Phase A: critic update
         self.q_opt.zero_grad()
@@ -550,7 +619,12 @@ class MPOAgent:
                 batch_size, num_samples
             )
 
-        temperature = F.softplus(self.log_temperature) + 1e-8
+        if not self._assert_finite_tensors({"q_vals": q_vals}):
+            return None
+
+        min_log = torch.tensor(-18.0, device=self.device)
+        log_temp = torch.maximum(self.log_temperature, min_log)
+        temperature = F.softplus(log_temp) + 1e-8
         weights, loss_temperature = self._compute_weights_and_temperature_loss(
             q_vals, self.kl_epsilon, temperature
         )
@@ -600,8 +674,11 @@ class MPOAgent:
         mean_kl_mean = kl_mean.mean(dim=0)
         mean_kl_std = kl_std.mean(dim=0)
 
-        alpha_mean = F.softplus(self.log_alpha_mean) + 1e-8
-        alpha_std = F.softplus(self.log_alpha_stddev) + 1e-8
+        log_alpha_mean = torch.maximum(self.log_alpha_mean, min_log)
+        log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)
+
+        alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
 
         loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
         loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
@@ -646,6 +723,8 @@ class MPOAgent:
         temperature_val = float(
             (F.softplus(self.log_temperature) + 1e-8).detach().item()
         )
+        
+        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
 
         return {
             "loss/q": float(q_loss.item()),
@@ -666,4 +745,5 @@ class MPOAgent:
             "q/max": float(q_vals.max().detach().item()),
             "pi/std_min": float(std_online.min().detach().item()),
             "pi/std_max": float(std_online.max().detach().item()),
+            "entropy": float(entropy.detach().item()),
         }
