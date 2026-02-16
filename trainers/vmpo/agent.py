@@ -97,10 +97,6 @@ class VMPOAgent:
                 },
             ],
         )
-        # Backward-compatibility alias for tests/external callers that still
-        # reference `opt` as the primary optimizer handle.
-        self.opt = self.policy_opt
-
         # Cache explicit parameter lists for per-network gradient clipping.
         self._policy_params = [
             *self.policy.policy_encoder.parameters(),
@@ -151,26 +147,6 @@ class VMPOAgent:
         if optimizer_type == "sgd":
             kwargs["momentum"] = float(self.sgd_momentum)
             return torch.optim.SGD(params, **kwargs)
-
-        raise ValueError(
-            f"Unsupported VMPO optimizer_type '{self.optimizer_type}'. "
-            "Expected one of: adam, sgd."
-        )
-
-    def compute_gae(self, rewards, values, dones, gamma, lam):
-        """
-        Compute Generalized Advantage Estimation (GAE) and returns.
-        """
-        T = rewards.shape[0]
-        advantages = torch.zeros(T, dtype=values.dtype, device=values.device)
-        lastgaelam = 0
-        for t in reversed(range(T)):
-            next_nonterminal = 1.0 - dones[t]
-            delta = rewards[t] + gamma * values[t + 1] * next_nonterminal - values[t]
-            lastgaelam = delta + gamma * lam * next_nonterminal * lastgaelam
-            advantages[t] = lastgaelam
-        returns = advantages + values[:-1]
-        return advantages, returns
 
     def act(
         self,
