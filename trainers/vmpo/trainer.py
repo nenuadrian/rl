@@ -472,7 +472,7 @@ class VMPOTrainer:
         updates_per_step: int = 1,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 150)
+        eval_interval = max(1, total_steps // 100)
         console_log_interval = max(
             1, min(1_000, eval_interval)
         )
