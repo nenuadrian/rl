@@ -165,7 +165,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, obs_dim: int, act_dim: int, action_low: np.ndarray, action_high: np.ndarray, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], gamma: float = 0.99, target_policy_update_period: int = 100, target_critic_update_period: int = 100, policy_lr: float = 0.0003, q_lr: float = 0.0003, kl_epsilon: float = 0.1, mstep_kl_epsilon: float = 0.1, per_dim_constraining: bool = True, temperature_init: float = 1.0, temperature_lr: float = 0.0003, lambda_init: float = 1.0, lambda_lr: float = 0.0003, action_penalization: bool = False, epsilon_penalty: float = 0.001, max_grad_norm: float = 1.0, action_samples: int = 20, use_retrace: bool = False, retrace_steps: int = 2, retrace_mc_actions: int = 8, retrace_lambda: float = 0.95, optimizer_type: str = 'adam', sgd_momentum: float = 0.9)
+def __init__(self, obs_dim: int, act_dim: int, action_low: np.ndarray, action_high: np.ndarray, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], gamma: float = 0.99, target_networks_update_period: int = 100, policy_lr: float = 0.0003, q_lr: float = 0.0003, kl_epsilon: float = 0.1, mstep_kl_epsilon: float = 0.1, temperature_init: float = 1.0, temperature_lr: float = 0.0003, lambda_init: float = 1.0, lambda_lr: float = 0.0003, epsilon_penalty: float = 0.001, max_grad_norm: float = 1.0, action_samples: int = 20, use_retrace: bool = False, retrace_steps: int = 2, retrace_mc_actions: int = 8, retrace_lambda: float = 0.95, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, init_log_alpha_mean: float = 10.0, init_log_alpha_stddev: float = 1000.0)
 ```
 
 _No docstring provided._
@@ -178,23 +178,13 @@ def _build_optimizer(self, params, lr: float | None = None) -> torch.optim.Optim
 
 _No docstring provided._
 
-##### `_forward_kl_diag_gaussians`
-
-```python
-def _forward_kl_diag_gaussians(self, mean0: torch.Tensor, log_std0: torch.Tensor, mean1: torch.Tensor, log_std1: torch.Tensor) -> torch.Tensor
-```
-
-_No docstring provided._
-
 ##### `_kl_diag_gaussian_per_dim`
 
 ```python
-def _kl_diag_gaussian_per_dim(self, mean_p: torch.Tensor, log_std_p: torch.Tensor, mean_q: torch.Tensor, log_std_q: torch.Tensor) -> torch.Tensor
+def _kl_diag_gaussian_per_dim(self, mean_p, log_std_p, mean_q, log_std_q)
 ```
 
-KL( p || q ) for diagonal Gaussians, returned per-dimension.
-
-Shapes: mean/log_std are (B,D). Returns (B,D).
+_No docstring provided._
 
 ##### `_compute_weights_and_temperature_loss`
 
@@ -215,6 +205,22 @@ def _compute_nonparametric_kl_from_weights(self, weights: torch.Tensor) -> torch
 Estimates KL(nonparametric || target) like Acme's diagnostics.
 
 weights shape (B,N). Returns (B,) KL.
+
+##### `_to_device_tensor`
+
+```python
+def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -> torch.Tensor
+```
+
+Fast path for float32 host arrays -> device tensors.
+
+##### `_assert_finite_tensors`
+
+```python
+def _assert_finite_tensors(self, tensors: dict[str, torch.Tensor]) -> bool
+```
+
+_No docstring provided._
 
 ##### `act_with_logp`
 
@@ -251,15 +257,7 @@ _No docstring provided._
 ##### `update`
 
 ```python
-def update(self, batch: dict) -> dict
-```
-
-_No docstring provided._
-
-##### `_sync_module`
-
-```python
-def _sync_module(self, net: nn.Module, target: nn.Module) -> None
+def update(self, batch: dict) -> dict | None
 ```
 
 _No docstring provided._

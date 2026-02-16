@@ -4,14 +4,6 @@ _Source: `trainers/ppo/trainer.py`_
 
 ## Functions
 
-### `_format_metrics`
-
-```python
-def _format_metrics(metrics: Mapping[str, float]) -> str
-```
-
-_No docstring provided._
-
 ### `_transform_observation`
 
 ```python
@@ -28,32 +20,111 @@ def _transform_reward(env: gym.Env, fn)
 
 Gymnasium compatibility shim across wrapper signatures.
 
-### `_extract_final_observations`
+### `_resolve_env_id`
 
 ```python
-def _extract_final_observations(infos, num_envs: int) -> list[np.ndarray | None]
-```
-
-Extract per-env terminal observations from vector-env info dict.
-
-### `_make_env`
-
-```python
-def _make_env(env_id: str, *, seed: int | None = None, render_mode: str | None = None, gamma: float = 0.99, normalize_observation: bool = True, clip_observation: float | None = 10.0, normalize_reward: bool = True, clip_reward: float | None = 10.0) -> gym.Env
+def _resolve_env_id(env_id: str) -> str
 ```
 
 _No docstring provided._
 
-### `_evaluate_vectorized`
+### `make_env`
 
 ```python
-def _evaluate_vectorized(agent: PPOAgent, env_id: str, n_episodes: int = 10, seed: int = 42, gamma: float = 0.99, normalize_observation: bool = True) -> Dict[str, float]
+def make_env(gym_id: str, seed: int, normalize_observation: bool = True)
 ```
 
-High-performance vectorized evaluation.
-Runs all n_episodes in parallel using a SyncVectorEnv.
+_No docstring provided._
+
+### `make_eval_env`
+
+```python
+def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True)
+```
+
+_No docstring provided._
+
+### `find_wrapper`
+
+```python
+def find_wrapper(env, wrapper_type)
+```
+
+_No docstring provided._
+
+### `sync_obs_rms`
+
+```python
+def sync_obs_rms(train_env, eval_env)
+```
+
+_No docstring provided._
+
+### `evaluate`
+
+```python
+def evaluate(agent: 'Agent', eval_env: gym.Env, device: torch.device, num_episodes: int, deterministic: bool = True)
+```
+
+_No docstring provided._
+
+### `log_episode_stats`
+
+```python
+def log_episode_stats(infos, global_step: int)
+```
+
+_No docstring provided._
+
+### `layer_init`
+
+```python
+def layer_init(layer, std = np.sqrt(2), bias_const = 0.0)
+```
+
+_No docstring provided._
 
 ## Classes
+
+### `Agent`
+
+Base classes: `nn.Module`
+
+_No docstring provided._
+
+#### Methods in `Agent`
+
+##### `__init__`
+
+```python
+def __init__(self, obs_dim: int, act_dim: int, policy_layer_sizes: Tuple[int, ...], value_layer_sizes: Tuple[int, ...])
+```
+
+_No docstring provided._
+
+##### `_build_mlp`
+
+```python
+def _build_mlp(input_dim: int, hidden_layer_sizes: Tuple[int, ...], output_dim: int, output_std: float) -> nn.Sequential
+```
+
+_No docstring provided._
+
+##### `get_value`
+
+```python
+def get_value(self, x)
+```
+
+_No docstring provided._
+
+##### `get_action_and_value`
+
+```python
+def get_action_and_value(self, x, action = None)
+```
+
+_No docstring provided._
 
 ### `PPOTrainer`
 
@@ -64,15 +135,15 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], rollout_steps: int, gamma: float = 0.99, gae_lambda: float = 0.95, update_epochs: int = 10, minibatch_size: int = 64, policy_lr: float = 0.0003, value_lr: float = 0.0001, clip_ratio: float = 0.2, ent_coef: float = 0.001, vf_coef: float = 0.5, max_grad_norm: float = 0.5, target_kl: float = 0.02, norm_adv: bool = True, clip_vloss: bool = True, anneal_lr: bool = True, normalize_obs: bool = False, num_envs: int = 1, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, capture_video: bool = False, run_name: str | None = None)
+def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], rollout_steps: int, gamma: float = 0.99, gae_lambda: float = 0.95, update_epochs: int = 10, minibatch_size: int = 64, policy_lr: float = 0.0003, clip_ratio: float = 0.2, ent_coef: float = 0.0, vf_coef: float = 0.5, max_grad_norm: float = 0.5, target_kl: float = 0.02, norm_adv: bool = True, clip_vloss: bool = True, anneal_lr: bool = True, normalize_obs: bool = True, num_envs: int = 1, optimizer_type: str = 'adam', sgd_momentum: float = 0.9)
 ```
 
 _No docstring provided._
 
-##### `_make_train_env`
+##### `_build_optimizer`
 
 ```python
-def _make_train_env(self, *, env_id: str, seed: int, env_index: int, gamma: float, normalize_obs: bool)
+def _build_optimizer(self) -> torch.optim.Optimizer
 ```
 
 _No docstring provided._
@@ -80,7 +151,7 @@ _No docstring provided._
 ##### `train`
 
 ```python
-def train(self, total_steps: int, eval_interval: int, save_interval: int, out_dir: str)
+def train(self, total_steps: int, out_dir: str)
 ```
 
 _No docstring provided._

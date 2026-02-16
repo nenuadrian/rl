@@ -26,14 +26,6 @@ def _build_optimizer(self, params, lr: float | None = None) -> torch.optim.Optim
 
 _No docstring provided._
 
-##### `compute_gae`
-
-```python
-def compute_gae(self, rewards, values, dones, gamma, lam)
-```
-
-Compute Generalized Advantage Estimation (GAE) and returns.
-
 ##### `act`
 
 ```python
