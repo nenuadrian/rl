@@ -48,10 +48,6 @@ PRESETS: dict[str, dict[str, Any]] = {
         "total_steps": 1_000_000,
         **SHARED_PPO_PARAMS,
     },
-    "dm_control/cartpole/swingup": {
-        "total_steps": 500_000,
-        **SHARED_PPO_PARAMS,
-    },
     "Humanoid-v5": {
         "total_steps": 500_000,
         **SHARED_PPO_PARAMS,
