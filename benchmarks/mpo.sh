@@ -28,7 +28,7 @@ SEEDS="${SEEDS:-3}"
 SEED_START="${SEED_START:-42}"
 SBATCH_PARTITION="${SBATCH_PARTITION:-multicore}"
 SBATCH_NTASKS="${SBATCH_NTASKS:-12}"
-SBATCH_TIME="${SBATCH_TIME:-4-0}"
+SBATCH_TIME="${SBATCH_TIME:-0-6}"
 
 if ! [[ "$SEEDS" =~ ^[0-9]+$ ]] || [[ "$SEEDS" -lt 1 ]]; then
     echo "SEEDS must be a positive integer (got: $SEEDS)" >&2
