@@ -2,7 +2,6 @@ import argparse
 import os
 import importlib
 import re
-import json
 from datetime import datetime
 from pprint import pformat
 
@@ -125,23 +124,11 @@ def _resolve_run_adv_type(algo: str, args: argparse.Namespace) -> str:
             if text and text != "none":
                 return text
         return "returns"
-    if algo in {"ppo", "trpo", "gpt_ppo"}:
+    if algo in {"ppo", "trpo"}:
         return "gae"
     if algo == "mpo":
         return "none"
     return "unknown"
-
-
-def _save_math_samples(path: str, samples: list[MathSample]) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        for sample in samples:
-            f.write(
-                json.dumps(
-                    {"prompt": sample.prompt, "answer": sample.answer},
-                    ensure_ascii=False,
-                )
-            )
-            f.write("\n")
 
 
 if __name__ == "__main__":
@@ -154,7 +141,6 @@ if __name__ == "__main__":
             "ppo",
             "vmpo",
             "mpo",
-            "gpt_ppo",
         ],
     )
 
