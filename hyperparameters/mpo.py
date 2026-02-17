@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from hyperparameters._common import get_preset
+from hyperparameters.vmpo import SHARED_VMPO_PARAMS
 
 
 SHARED_MPO_PARAMS: dict[str, Any] = {
@@ -41,6 +42,9 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "dm_control/humanoid/run": {
         **SHARED_MPO_PARAMS,
+    },
+    "dm_control/humanoid/run_pure_state": {
+        **SHARED_VMPO_PARAMS,
     },
     "dm_control/humanoid/walk": {
         **SHARED_MPO_PARAMS,

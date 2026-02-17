@@ -37,6 +37,10 @@ PRESETS: dict[str, dict[str, Any]] = {
         "total_steps": 2_000_000,
         **SHARED_VMPO_PARAMS,
     },
+    "dm_control/humanoid/run_pure_state": {
+        "total_steps": 2_000_000,
+        **SHARED_VMPO_PARAMS,
+    },
     "dm_control/humanoid/walk": {
         "total_steps": 2_000_000,
         **SHARED_VMPO_PARAMS,

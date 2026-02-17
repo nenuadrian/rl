@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from hyperparameters._common import get_preset
+from hyperparameters.vmpo import SHARED_VMPO_PARAMS
 
 
 SHARED_PPO_PARAMS: dict[str, Any] = {
@@ -35,6 +36,10 @@ PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/humanoid/run": {
         "total_steps": 500_000,
         **SHARED_PPO_PARAMS,
+    },
+    "dm_control/humanoid/run_pure_state": {
+        "total_steps": 1_000_000,
+        **SHARED_VMPO_PARAMS,
     },
     "dm_control/humanoid/walk": {
         "total_steps": 500_000,
