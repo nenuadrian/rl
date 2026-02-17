@@ -61,10 +61,6 @@ PRESETS: dict[str, dict[str, Any]] = {
         "total_steps": 500_000,
         **SHARED_PPO_PARAMS,
     },
-    "Ant-v5": {
-        "total_steps": 500_000,
-        **SHARED_PPO_PARAMS,
-    },
     "Walker2d-v5": {
         "total_steps": 500_000,
         **SHARED_PPO_PARAMS,

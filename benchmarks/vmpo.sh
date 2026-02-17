@@ -13,7 +13,6 @@ environments=(
     "HalfCheetah-v5"
     "Walker2d-v5"
     "Humanoid-v5"
-    "Ant-v5"
 )
 
 if [[ $# -lt 1 ]]; then

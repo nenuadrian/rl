@@ -64,9 +64,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Walker2d-v5": {
         **SHARED_MPO_PARAMS,
     },
-    "Ant-v5": {
-        **SHARED_MPO_PARAMS,
-    },
 }
 
 
