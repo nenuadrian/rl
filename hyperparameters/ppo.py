@@ -9,7 +9,7 @@ from hyperparameters.vmpo import SHARED_VMPO_PARAMS
 SHARED_PPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "policy_layer_sizes": (512, 256),
-    "value_layer_sizes": (512, 256),
+    "critic_layer_sizes": (512, 256),
     "rollout_steps": 2048,
     "update_epochs": 10,
     "minibatch_size": 32,
