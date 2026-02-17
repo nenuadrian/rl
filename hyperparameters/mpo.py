@@ -12,9 +12,9 @@ SHARED_MPO_PARAMS: dict[str, Any] = {
     "update_after": 10_000,
     "batch_size": 256,
     "updates_per_step": 1,
-    "policy_layer_sizes": (256, 256, 256),
-    "critic_layer_sizes": (512, 512, 256),
-    "gamma": 0.99,
+    "policy_layer_sizes": (512, 256),
+    "value_layer_sizes": (512, 256),
+    "gamma": 0.98,
     "target_networks_update_period": 100,
     "policy_lr": 1e-4,
     "q_lr": 1e-4,
@@ -44,7 +44,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_MPO_PARAMS,
     },
     "dm_control/humanoid/run_pure_state": {
-        **SHARED_VMPO_PARAMS,
+        **SHARED_MPO_PARAMS,
     },
     "dm_control/humanoid/walk": {
         **SHARED_MPO_PARAMS,
