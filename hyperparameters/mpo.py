@@ -13,7 +13,7 @@ SHARED_MPO_PARAMS: dict[str, Any] = {
     "batch_size": 256,
     "updates_per_step": 1,
     "policy_layer_sizes": (512, 256),
-    "value_layer_sizes": (512, 256),
+    "critic_layer_sizes": (512, 256),
     "gamma": 0.98,
     "target_networks_update_period": 100,
     "policy_lr": 1e-4,
