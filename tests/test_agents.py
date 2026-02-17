@@ -34,7 +34,7 @@ def test_vmpo_agent_act_and_update():
         alpha_lr=1e-3,
         max_grad_norm=0.5,
     )
-    assert isinstance(agent.policy_opt, torch.optim.Adam)
+    assert isinstance(agent.opt, torch.optim.Adam)
     assert isinstance(agent.eta_opt, torch.optim.Adam)
     assert isinstance(agent.alpha_opt, torch.optim.Adam)
 
@@ -85,7 +85,7 @@ def test_vmpo_agent_supports_sgd_optimizer():
         optimizer_type="sgd",
     )
 
-    assert isinstance(agent.policy_opt, torch.optim.SGD)
+    assert isinstance(agent.opt, torch.optim.SGD)
     assert isinstance(agent.eta_opt, torch.optim.SGD)
     assert isinstance(agent.alpha_opt, torch.optim.SGD)
 
@@ -173,8 +173,7 @@ def test_mpo_agent_act_and_update():
         "kl/mean",
         "kl/std",
         "eta",
-        "alpha_mean",
-        "alpha_std",
+        "lambda",
     }
     assert expected_keys.issubset(metrics.keys())
 
@@ -185,8 +184,7 @@ def test_mpo_agent_act_and_update():
         assert np.isfinite(float(value))
 
     assert metrics["eta"] > 0.0
-    assert metrics["alpha_mean"] > 0.0
-    assert metrics["alpha_std"] > 0.0
+    assert metrics["lambda"] > 0.0
 
     # Update should actually modify parameters.
     assert _any_param_changed(q_before, agent.q)

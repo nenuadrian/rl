@@ -108,55 +108,53 @@ def sync_obs_rms(train_env, eval_env):
 
 def evaluate(
     agent: "Agent",
-    eval_envs: gym.vector.VectorEnv,
+    eval_env: gym.Env,
     device: torch.device,
     num_episodes: int,
     deterministic: bool = True,
 ):
-    """
-    Vectorized evaluation for PPO, similar to VMPO/MPO style.
-    Returns a dict of statistics.
-    """
-    n_envs = int(eval_envs.num_envs)
     was_training = agent.training
     agent.eval()
-    obs, _ = eval_envs.reset()
-    episode_returns = np.zeros(n_envs, dtype=np.float32)
-    final_returns = []
-    dones = np.zeros(n_envs, dtype=bool)
+    episode_returns = []
+    episode_lengths = []
 
-    while len(final_returns) < num_episodes:
-        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
-        action_mean = agent.actor_mean(obs_tensor)
-        if deterministic:
-            action = action_mean
-        else:
-            action_std = torch.exp(agent.actor_logstd.expand_as(action_mean))
-            action = action_mean + action_std * torch.randn_like(action_mean)
-        action_np = action.cpu().numpy()
-        action_np = np.clip(
-            action_np,
-            eval_envs.single_action_space.low,
-            eval_envs.single_action_space.high,
-        )
-        next_obs, reward, terminated, truncated, _ = eval_envs.step(action_np)
-        episode_returns += np.asarray(reward, dtype=np.float32)
-        done = np.asarray(terminated) | np.asarray(truncated)
-        for i in range(n_envs):
-            if not dones[i] and done[i]:
-                final_returns.append(episode_returns[i])
-                dones[i] = True
-        obs = next_obs
+    eval_obs_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
+    old_update_running_mean = None
+    if eval_obs_norm is not None and hasattr(eval_obs_norm, "update_running_mean"):
+        old_update_running_mean = eval_obs_norm.update_running_mean
+        eval_obs_norm.update_running_mean = False
+
+    with torch.no_grad():
+        for _ in range(num_episodes):
+            obs, _ = eval_env.reset()
+            done = False
+            episodic_return = 0.0
+            episodic_length = 0
+            while not done:
+                obs_tensor = torch.as_tensor(
+                    obs, dtype=torch.float32, device=device
+                ).unsqueeze(0)
+                action_mean = agent.actor_mean(obs_tensor)
+                if deterministic:
+                    action = action_mean
+                else:
+                    action_std = torch.exp(agent.actor_logstd.expand_as(action_mean))
+                    action = Normal(action_mean, action_std).sample()
+                obs, reward, terminated, truncated, _ = eval_env.step(
+                    action.squeeze(0).cpu().numpy()
+                )
+                done = terminated or truncated
+                episodic_return += float(reward)
+                episodic_length += 1
+            episode_returns.append(episodic_return)
+            episode_lengths.append(episodic_length)
+
+    if old_update_running_mean is not None:
+        eval_obs_norm.update_running_mean = old_update_running_mean
     if was_training:
         agent.train()
-    final_returns = np.array(final_returns[:num_episodes], dtype=np.float32)
-    return {
-        "eval/return_median": float(np.median(final_returns)),
-        "eval/return_mean": float(np.mean(final_returns)),
-        "eval/return_std": float(np.std(final_returns)),
-        "eval/return_min": float(np.min(final_returns)),
-        "eval/return_max": float(np.max(final_returns)),
-    }
+
+    return np.array(episode_returns), np.array(episode_lengths)
 
 
 def log_episode_stats(infos, global_step: int):
