@@ -337,6 +337,7 @@ class VMPOTrainer:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
+        shared_encoder: bool = False,
     ):
         self.num_envs = int(num_envs)
         self.env_id = env_id
@@ -399,6 +400,7 @@ class VMPOTrainer:
             max_grad_norm=max_grad_norm,
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
+            shared_encoder=shared_encoder,
         )
 
         self.rollout_steps = rollout_steps
@@ -423,14 +425,16 @@ class VMPOTrainer:
         self.eval_seed = self.seed + 1000
         self.eval_env = gym.vector.SyncVectorEnv(
             [
-                (lambda i=i: _make_env(
-                    self.env_id,
-                    seed=self.eval_seed + i,
-                    gamma=self.gamma,
-                    # Evaluate on raw environment reward so returns are comparable
-                    # across checkpoints/runs. Training can still use reward norm.
-                    normalize_reward=False,
-                ))
+                (
+                    lambda i=i: _make_env(
+                        self.env_id,
+                        seed=self.eval_seed + i,
+                        gamma=self.gamma,
+                        # Evaluate on raw environment reward so returns are comparable
+                        # across checkpoints/runs. Training can still use reward norm.
+                        normalize_reward=False,
+                    )
+                )
                 for i in range(self.eval_episodes)
             ]
         )
@@ -473,9 +477,7 @@ class VMPOTrainer:
     ):
         total_steps = int(total_steps)
         eval_interval = max(1, total_steps // 50)
-        console_log_interval = max(
-            1, min(1_000, eval_interval)
-        )
+        console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[VMPO] training started: "
             f"total_steps={total_steps}, "
@@ -817,6 +819,7 @@ def _evaluate_vectorized(
         agent.policy.train()
 
     return {
+        "eval/return_median": float(np.median(final_returns)),
         "eval/return_mean": float(np.mean(final_returns)),
         "eval/return_std": float(np.std(final_returns)),
         "eval/return_min": float(np.min(final_returns)),

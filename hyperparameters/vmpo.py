@@ -9,9 +9,9 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 2048,
     "updates_per_step": 1,
-    "policy_layer_sizes": (256, 256, 256),
-    "value_layer_sizes": (512, 512, 256),
-    "gamma": 0.99,
+    "policy_layer_sizes": (512, 256),
+    "value_layer_sizes": (512, 256),
+    "gamma": 0.98,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
     "topk_fraction": 0.5,
@@ -21,9 +21,10 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "epsilon_eta": 0.15,
     "epsilon_mu": 0.05,
     "epsilon_sigma": 1e-5,
-    "max_grad_norm": 1.0,
+    "max_grad_norm": 0.5,
     "normalize_advantages": True,
     "optimizer_type": "adam",
+    "shared_encoder": False,
 }
 
 
@@ -53,7 +54,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_VMPO_PARAMS,
     },
     "HalfCheetah-v5": {
-        "total_steps": 1_000_000,
+        "total_steps": 1_500_000,
         **SHARED_VMPO_PARAMS,
     },
     "Ant-v5": {

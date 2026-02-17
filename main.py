@@ -304,6 +304,7 @@ if __name__ == "__main__":
             "normalize_advantages": bool(args.normalize_advantages),
             "optimizer_type": str(args.optimizer_type),
             "sgd_momentum": float(args.sgd_momentum),
+            "shared_encoder": bool(args.shared_encoder),
         }
         _print_config("VMPO config", vmpo_params)
 
@@ -330,6 +331,7 @@ if __name__ == "__main__":
             normalize_advantages=bool(args.normalize_advantages),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
+            shared_encoder=bool(args.shared_encoder),
             num_envs=int(args.num_envs),
         )
         trainer.train(

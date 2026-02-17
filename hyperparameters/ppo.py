@@ -18,7 +18,7 @@ SHARED_PPO_PARAMS: dict[str, Any] = {
     "gamma": 0.98,
     "gae_lambda": 0.92,
     "vf_coef": 0.5,
-    "max_grad_norm": 0.8,
+    "max_grad_norm": 0.5,
     "target_kl": 0,
     "norm_adv": True,
     "clip_vloss": True,

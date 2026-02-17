@@ -37,6 +37,7 @@ class VMPOAgent:
         max_grad_norm: float = 10.0,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
+        shared_encoder: bool = False,
     ):
         self.device = device
         self.normalize_advantages = bool(normalize_advantages)
@@ -63,7 +64,7 @@ class VMPOAgent:
             value_layer_sizes=value_layer_sizes,
             action_low=action_low,
             action_high=action_high,
-            shared_encoder=False,  # Explicitly using separate encoders
+            shared_encoder=shared_encoder,
         ).to(device)
 
         # Policy optimizer (actor only).

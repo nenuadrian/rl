@@ -45,11 +45,11 @@ class SquashedGaussianPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        policy_layer_sizes: Tuple[int, ...] = (256, 256),
-        value_layer_sizes: Tuple[int, ...] = (256, 256),
+        policy_layer_sizes: Tuple[int, ...] = (256, 256, 256),
+        value_layer_sizes: Tuple[int, ...] = (512, 512, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
-        shared_encoder: bool = False,  # Default to False for research quality
+        shared_encoder: bool = False, 
     ):
         super().__init__()
 
