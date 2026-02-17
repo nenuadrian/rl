@@ -45,8 +45,8 @@ class SquashedGaussianPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        policy_layer_sizes: Tuple[int, ...] = (256, 256, 256),
-        value_layer_sizes: Tuple[int, ...] = (512, 512, 256),
+        policy_layer_sizes: Tuple[int, ...] = (256, 256),
+        value_layer_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
         shared_encoder: bool = False, 
@@ -64,7 +64,8 @@ class SquashedGaussianPolicy(nn.Module):
         self.policy_mean = nn.Linear(policy_layer_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(policy_layer_sizes[-1], act_dim)
 
-        self.value_head = nn.Linear(value_layer_sizes[-1], 1)
+        value_head_in_dim = policy_layer_sizes[-1] if shared_encoder else value_layer_sizes[-1]
+        self.value_head = nn.Linear(value_head_in_dim, 1)
 
         # 3. Action Scaling
         if action_low is None or action_high is None:
@@ -101,7 +102,10 @@ class SquashedGaussianPolicy(nn.Module):
         return self.get_policy_dist_params(obs)
 
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
-        h = self.value_encoder(obs)
+        if self.shared_encoder:
+            h = self.policy_encoder(obs).detach()  # stop grad into shared encoder
+        else:
+            h = self.value_encoder(obs)
         return self.value_head(h)
 
     def forward_all(

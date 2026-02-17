@@ -85,19 +85,22 @@ class VMPOAgent:
             ],
         )
 
-        # Value optimizer (critic only).
-        self.value_opt = self._build_optimizer(
-            [
+        value_opt_param_groups = []
+        if not self.policy.shared_encoder:
+            value_opt_param_groups.append(
                 {
                     "params": self.policy.value_encoder.parameters(),
                     "lr": self.value_lr,
-                },
-                {
-                    "params": self.policy.value_head.parameters(),
-                    "lr": self.value_lr,
-                },
-            ],
+                }
+            )
+        value_opt_param_groups.append(
+            {
+                "params": self.policy.value_head.parameters(),
+                "lr": self.value_lr,
+            }
         )
+        self.value_opt = self._build_optimizer(value_opt_param_groups)
+
         # Cache explicit parameter lists for per-network gradient clipping.
         self._policy_params = [
             *self.policy.policy_encoder.parameters(),
@@ -105,7 +108,11 @@ class VMPOAgent:
             *self.policy.policy_logstd.parameters(),
         ]
         self._value_params = [
-            *self.policy.value_encoder.parameters(),
+            *(
+                []
+                if self.policy.shared_encoder
+                else list(self.policy.value_encoder.parameters())
+            ),
             *self.policy.value_head.parameters(),
         ]
 
@@ -116,9 +123,7 @@ class VMPOAgent:
             self.temperature_init, dtype=torch.float32, device=device
         )
         temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
-        self.log_temperature = nn.Parameter(
-            torch.log(torch.expm1(temperature_init_t))
-        )
+        self.log_temperature = nn.Parameter(torch.log(torch.expm1(temperature_init_t)))
         self.eta_opt = self._build_optimizer(
             [self.log_temperature], lr=self.temperature_lr
         )
@@ -136,7 +141,9 @@ class VMPOAgent:
             [self.log_alpha_mu, self.log_alpha_sigma], lr=self.alpha_lr
         )
 
-    def _build_optimizer(self, params, lr: float | None = None) -> torch.optim.Optimizer:
+    def _build_optimizer(
+        self, params, lr: float | None = None
+    ) -> torch.optim.Optimizer:
         optimizer_type = self.optimizer_type.strip().lower()
         kwargs: dict[str, float] = {}
         if lr is not None:
@@ -281,9 +288,7 @@ class VMPOAgent:
         weights_detached = weights.detach()
 
         log_mean_weights = (
-            torch.log(sum_weights)
-            + max_scaled_advantage
-            - torch.log(num_samples)
+            torch.log(sum_weights) + max_scaled_advantage - torch.log(num_samples)
         )
         dual_loss = eta * (self.epsilon_eta + log_mean_weights)
 
@@ -325,10 +330,11 @@ class VMPOAgent:
                 .mean()
             )
             kl_std_all = (
-                (
-                    (current_log_std - old_log_stds)
-                    + (old_std**2) / (2.0 * (new_std**2 + 1e-8))
-                    - 0.5
+                0.5
+                * (
+                    (old_std**2) / (new_std**2 + 1e-8)
+                    - 1.0
+                    + 2.0 * (current_log_std - old_log_stds)
                 )
                 .sum(dim=-1)
                 .mean()
@@ -351,9 +357,12 @@ class VMPOAgent:
         )
         kl_sigma_sel = (
             (
-                (log_std_sel - old_log_std_sel)
-                + (old_std_sel**2) / (2.0 * (new_std_sel**2 + 1e-8))
-                - 0.5
+                0.5
+                * (
+                    (old_std_sel**2) / (new_std_sel**2 + 1e-8)
+                    - 1.0
+                    + 2.0 * (log_std_sel - old_log_std_sel)
+                )
             )
             .sum(dim=-1)
             .mean()
@@ -364,9 +373,9 @@ class VMPOAgent:
         alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
 
         # We minimize: alpha * (epsilon - KL)
-        alpha_loss = alpha_mu * (
-            self.epsilon_mu - kl_mu_sel.detach()
-        ) + alpha_sigma * (self.epsilon_sigma - kl_sigma_sel.detach())
+        alpha_loss = alpha_mu * (self.epsilon_mu - kl_mu_sel.detach()) + alpha_sigma * (
+            self.epsilon_sigma - kl_sigma_sel.detach()
+        )
 
         self.alpha_opt.zero_grad()
         alpha_loss.backward()
@@ -385,22 +394,13 @@ class VMPOAgent:
         v_pred = self.policy.get_value(obs).squeeze(-1)
         value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
 
-        total_loss = policy_loss + value_loss
-
-        # -- Update Actor Weights --
         self.policy_opt.zero_grad()
-        policy_loss.backward()
-        policy_grad_norm = nn.utils.clip_grad_norm_(
-            self._policy_params, self.max_grad_norm
-        )
-        self.policy_opt.step()
-
-        # -- Update Critic Weights --
         self.value_opt.zero_grad()
+        policy_loss.backward()
         value_loss.backward()
-        value_grad_norm = nn.utils.clip_grad_norm_(
-            self._value_params, self.max_grad_norm
-        )
+        policy_grad_norm = nn.utils.clip_grad_norm_(self._policy_params, self.max_grad_norm)
+        value_grad_norm = nn.utils.clip_grad_norm_(self._value_params, self.max_grad_norm)
+        self.policy_opt.step()
         self.value_opt.step()
 
         policy_grad_norm_f = float(
@@ -442,7 +442,7 @@ class VMPOAgent:
             )
 
         return {
-            "loss/total": float(total_loss.item()),
+            "loss/value": float(value_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
             "loss/policy_kl_mean_pen": float((alpha_mu_det * kl_mu_sel).item()),

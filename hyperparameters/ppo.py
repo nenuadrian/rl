@@ -54,7 +54,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_PPO_PARAMS,
     },
     "Humanoid-v5": {
-        "total_steps": 500_000,
+        "total_steps": 700_000,
         **SHARED_PPO_PARAMS,
     },
     "HalfCheetah-v5": {
@@ -62,7 +62,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_PPO_PARAMS,
     },
     "Walker2d-v5": {
-        "total_steps": 500_000,
+        "total_steps": 700_000,
         **SHARED_PPO_PARAMS,
     },
 }

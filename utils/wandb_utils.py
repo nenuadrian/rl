@@ -55,7 +55,7 @@ def log_wandb(metrics: Mapping[str, Any], step: int | None = None, silent: bool 
     }
     wandb.log(payload, step=step)
     if not silent:
-        print(f"step {step}: " + ", ".join(f"{k}={v:.3f}" for k, v in payload.items()))
+        print(f"step {step}: " + ", ".join(f"{k}={v:.5f}" for k, v in payload.items()))
 
 
 def finish_wandb() -> None:
