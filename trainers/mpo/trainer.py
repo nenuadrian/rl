@@ -520,7 +520,6 @@ def _evaluate_vectorized(
 
     return {
         "eval/return_mean": float(np.mean(final_returns)),
-        "eval/length_mean": float(np.mean([len(final_returns)])),
         "eval/return_std": float(np.std(final_returns)),
         "eval/return_min": float(np.min(final_returns)),
         "eval/return_max": float(np.max(final_returns)),
