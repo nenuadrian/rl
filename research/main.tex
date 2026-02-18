@@ -617,24 +617,24 @@ More generally, label smoothing, n-best targets, or distillation from a teacher 
 
 \subsection{E-step / M-step for RL Fine-Tuning (KL-Regularised)}
 
-Consider RL fine-tuning on prompts $x\sim \mathcal{D}_x$ with reward $R(x,\tau)$ and a reference policy $\pi_{\text{ref}}(\tau\mid x)$. A common objective is the KL-regularised expected reward
+Consider RL fine-tuning on prompts $x\sim \mathcal{D}_x$ with reward $R(x,\tau)$ and a reference policy $\pi_{\mathrm{ref}}(\tau\mid x)$. A common objective is the KL-regularised expected reward
 \begin{equation*}
   J(\theta) = \mathbb{E}_{x}\,\mathbb{E}_{\tau\sim \pi_\theta(\cdot\mid x)}
-  \Big[ R(x,\tau) - \beta\,\mathrm{KL}\!\big(\pi_\theta(\cdot\mid x)\,\|\,\pi_{\text{ref}}(\cdot\mid x)\big)\Big],
+  \Big[ R(x,\tau) - \beta\,\mathrm{KL}\!\big(\pi_\theta(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)\big)\Big],
 \end{equation*}
-with $\beta>0$ controlling the trust region to $\pi_{\text{ref}}$.
+with $\beta>0$ controlling the trust region to $\pi_{\mathrm{ref}}$.
 
 The E-step constructs an energy-based target distribution from rollouts and advantage estimates:
 \begin{equation*}
   \text{(E-step)}\quad
-  q(\tau\mid x) \propto \pi_{\text{ref}}(\tau\mid x)\exp\!\left(\frac{R(x,\tau)}{\beta}\right).
+  q(\tau\mid x) \propto \pi_{\mathrm{ref}}(\tau\mid x)\exp\!\left(\frac{R(x,\tau)}{\beta}\right).
 \end{equation*}
 The M-step then fits the model to $q$ by weighted maximum likelihood:
 \begin{equation*}
   \text{(M-step)}\quad
   \max_\theta \; \mathbb{E}_{x}\,\mathbb{E}_{\tau\sim q(\cdot\mid x)}\left[\log \pi_\theta(\tau\mid x)\right],
 \end{equation*}
-optionally with an explicit constraint/penalty on $\mathrm{KL}(\pi_\theta\,\|\,\pi_{\text{ref}})$ to stabilise optimisation.
+optionally with an explicit constraint/penalty on $\mathrm{KL}(\pi_\theta\,\|\,\pi_{\mathrm{ref}})$ to stabilise optimisation.
 
 \subsection{Token-Level Form}
 
@@ -667,7 +667,7 @@ Rather than fixing $\eta$ as a hyperparameter, V-MPO treats it as a dual variabl
 \]
 The temperature dual objective is
 \[
-  L_\eta(\eta)
+  \mathcal{L}_\eta(\eta)
   =
   \eta\,\varepsilon_\eta
   +
@@ -675,11 +675,11 @@ The temperature dual objective is
   =
   \eta\,\varepsilon_\eta + \eta\, g(\eta),
 \]
-where $g(\eta)=\log(Z(\eta)/k)$ and $\varepsilon_\eta > 0$ is the target entropy/KL budget. Minimising $L_\eta$ with respect to $\eta$ automatically tunes the temperature so that the E-step distribution does not collapse or spread too widely.
+where $g(\eta)=\log(Z(\eta)/k)$ and $\varepsilon_\eta > 0$ is the target entropy/KL budget. Minimising $\mathcal{L}_\eta$ with respect to $\eta$ automatically tunes the temperature so that the E-step distribution does not collapse or spread too widely.
 
 Taking the derivative, and using $g'(\eta) = -\frac{1}{\eta^2}\mathbb{E}_{p_\eta}[A]$ where $p_\eta$ is the softmax distribution over scaled advantages, gives
 \[
-  \frac{dL_\eta}{d\eta}
+  \frac{d\mathcal{L}_\eta}{d\eta}
   =
   \varepsilon_\eta + g(\eta) - \frac{1}{\eta}\,\mathbb{E}_{p_\eta}[A].
 \]
@@ -691,6 +691,7 @@ Directly computing $Z(\eta)$ for large $|A^{(i)}|/\eta$ causes floating-point ov
   g(\eta)
   =
   m + \log\!\Big(\frac{1}{k}\sum_{i\in S}\exp(u_i - m)\Big),
+  \label{eq:seq_logsumexp}
 \]
 with normalised weights
 \[
@@ -713,14 +714,14 @@ To ensure $\eta > 0$ throughout optimisation, an unconstrained scalar $\xi\in\ma
 \[
   \eta(\xi) = \operatorname{softplus}(\xi) + \epsilon, \qquad \epsilon>0.
 \]
-Gradient updates are applied to $\xi$ via the chain rule $\nabla_\xi L_\eta = (dL_\eta/d\eta)(d\eta/d\xi)$.
+Gradient updates are applied to $\xi$ via the chain rule $\nabla_\xi \mathcal{L}_\eta = (d\mathcal{L}_\eta/d\eta)(d\eta/d\xi)$.
 
 \subsubsection{Sequence-Level M-Step}
 
 Once the weights are computed, the M-step minimises the weighted teacher-forced cross-entropy over selected sequences:
 \begin{equation}
   \label{eq:seq_weighted_mstep}
-  L_\pi(\theta)
+  \mathcal{L}_\pi(\theta)
   =
   -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
   \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
@@ -728,11 +729,11 @@ Once the weights are computed, the M-step minimises the weighted teacher-forced 
 
 \section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
-Online AI Feedback (OAIF) presents a promising alternative to Reinforcement Learning from Human Feedback (RLHF) by utilizing online AI preference in aligning language models (LLMs). However, the straightforward replacement of humans with AI deprives LLMs from learning more fine-grained AI supervision beyond binary signals. In their paper \parencite{he2025directadvantageregressionaligning}, authors propose Direct Advantage Regression (DAR), a simple alignment algorithm using online AI reward to optimize policy improvement through weighted supervised fine-tuning. As an RL-free approach, DAR maintains theoretical consistency with online RLHF pipelines while significantly reducing implementation complexity and improving learning efficiency. The empirical results underscore that AI reward is a better form of AI supervision consistently achieving higher human-AI agreement as opposed to AI preference. Additionally, evaluations using GPT-4-Turbo and MT-bench show that DAR outperforms both OAIF and online RLHF baselines.
+Direct Advantage Regression (DAR) \parencite{he2025directadvantageregressionaligning} studies online alignment with AI-generated reward signals. The method preserves the regularised online RLHF objective while replacing iterative policy-gradient updates with a closed-form advantage-weighted target followed by supervised projection. This section summarises that objective and its relation to V-MPO.
 
 \subsection{RL Fine-tuning}
 
-Given a language model $\pi_\theta$ to be aligned, a prompt dataset $\mathcal{D}(x)$ and a reward model $r$, online RL fine-tuning aims to optimize:
+Given a language model $\pi_\theta$ to be aligned, a prompt dataset $\mathcal{D}(x)$ and a reward model $r$, online RL fine-tuning aims to optimise:
 
 \begin{equation*}
   J_{\mathrm{RLHF}}(\pi_\theta; \pi_{\mathrm{ref}})
@@ -823,7 +824,7 @@ maximization objective above with strictly positive KL coefficients, the
 optimal policy is:
 
 \begin{equation*}
-  \pi^*(y\mid x)
+  \pi^\star(y\mid x)
   =
   \frac{1}{Z(x)}\,
   \pi_{\mathrm{ref}}(y\mid x)^{\frac{\alpha}{\alpha+\beta}}
@@ -872,7 +873,7 @@ is the partition function.
   \exp\!\big(\frac{1}{\alpha+\beta}A(x,y)\big)}-\log Z(x)\Big].
 \end{dmath*}
 
-As the partition function is not dependent on $\pi$, $\log Z(x)$ is a constant in our optimization objective. We can remove it and obtain:
+Because the partition function does not depend on $\pi$, $\log Z(x)$ is constant with respect to the optimisation variable and can be dropped:
 \begin{dmath*}
   \min_{\pi}\mathbb{E}_{x,y\sim\pi}\Big[\log\frac{\pi(y|x)}
     {\frac{1}{Z(x)}\pi_{\mathrm{ref}}(y|x)^{\frac{\alpha}{\alpha+\beta}}
@@ -886,9 +887,9 @@ As the partition function is not dependent on $\pi$, $\log Z(x)$ is a constant i
 \end{dmath*}
 \endgroup
 
-Based on Gibbs' inequality, Equation (11) is minimized when the two distributions are identical. We have:
+By Gibbs' inequality, the KL term is minimised when the two distributions are identical:
 \begin{equation}
-  \pi^{*}(y|x)
+  \pi^\star(y|x)
   \;=\;
   \frac{1}{Z(x)}\,
   \pi_{\mathrm{ref}}(y|x)^{\frac{\alpha}{\alpha+\beta}}
@@ -896,14 +897,12 @@ Based on Gibbs' inequality, Equation (11) is minimized when the two distribution
   \exp\!\Big(\frac{1}{\alpha+\beta}A(x,y)\Big).
 \end{equation}
 
-That ends the proof.
-
-We can now obtain an improved policy by minimizing the KL-divergence between itself and the optimal policy defined above.
+The improved parametric policy is then obtained by minimising the KL divergence to the target distribution above:
 
 \[
-  \min_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)} D_{\mathrm{KL}}\!\big[\pi^*(\cdot\mid s)\;\|\;\pi_\theta(\cdot\mid s)\big],
+  \min_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)} D_{\mathrm{KL}}\!\big[\pi^\star(\cdot\mid x)\;\|\;\pi_\theta(\cdot\mid x)\big],
 \]
-and substitute to get:
+Substituting $\pi^\star$ gives:
 \[
   \min_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)} D_{\mathrm{KL}}\!\Bigg[
     \frac{1}{Z(x)}\pi_{\mathrm{ref}}(y\mid x)^{\frac{\alpha}{\alpha+\beta}}
@@ -912,7 +911,7 @@ and substitute to get:
     \;\Big\|\;
   \pi_\theta(\cdot\mid x)\Bigg],
 \]
-after expanding the KL-divergence term, we can further reduce the objective by dropping out the terms not dependent on $\pi_\theta$:
+Expanding the KL divergence and dropping terms independent of $\pi_\theta$ yields:
 \[
   \min_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)}\Bigg[-\sum_y
     \frac{1}{Z(x)}\,
@@ -921,7 +920,7 @@ after expanding the KL-divergence term, we can further reduce the objective by d
     \exp\!\Big(\frac{1}{\alpha+\beta}A(x,y)\Big)\,
   \log\pi_\theta(y\mid x)\Bigg],
 \]
-we can factor out the partition function term as it is a positive constant not shifting the optimal policy:
+Since $Z(x)$ is a positive constant with respect to $\pi_\theta$, it can be removed without changing the optimum:
 \[
   \min_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)}\Big[-\sum_y
     \pi_{\mathrm{ref}}(y\mid x)^{\frac{\alpha}{\alpha+\beta}}
@@ -929,7 +928,7 @@ we can factor out the partition function term as it is a positive constant not s
     \exp\!\Big(\frac{1}{\alpha+\beta}A(x,y)\Big)\,
   \log\pi_\theta(y\mid x)\Big],
 \]
-we obtain our final optimization objective by taking $\pi_t$ as our sampling policy:
+Using $\pi_t$ as the sampling policy gives the final practical objective:
 \[
   \max_{\pi_\theta}\mathbb{E}_{x\sim d_{\pi_t}(x)}\mathbb{E}_{y\sim\pi_t(y\mid x)}
   \left[\left(\frac{\pi_{\mathrm{ref}}(y\mid x)}{\pi_t(y\mid x)}\right)^{\frac{\alpha}{\alpha+\beta}}
@@ -950,7 +949,7 @@ sequence-level variant of the V-MPO/AWR family.
 DAR yields a closed-form optimal
 policy of the form
 \begin{equation}\label{eq:dar_opt}
-  \pi^\ast(y\!\mid\!x)
+  \pi^\star(y\!\mid\!x)
   \;=\;
   \frac{1}{Z(x)}
   \;\pi_{\mathrm{ref}}(y\!\mid\!x)^{\frac{\alpha}{\alpha+\beta}}
@@ -968,7 +967,7 @@ Define the shorthand
 \]
 Taking logarithms of \eqref{eq:dar_opt} produces the additive form used below:
 \begin{equation}\label{eq:dar_log}
-  \log \pi^\ast(y\!\mid\!x) = -\log Z(x)
+  \log \pi^\star(y\!\mid\!x) = -\log Z(x)
   + \frac{\alpha}{t}\log\pi_{\mathrm{ref}}(y\!\mid\!x)
   + \frac{\beta}{t}\log\pi_t(y\!\mid\!x)
   + \frac{1}{t}A(x,y).
@@ -993,7 +992,7 @@ collapse:
 \]
 Substituting into \eqref{eq:dar_opt} gives
 \[
-  \pi^\ast(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big).
+  \pi^\star(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big).
 \]
 Comparing with \eqref{eq:vmpo_form} we identify the V-MPO temperature as
 \[
@@ -1006,7 +1005,7 @@ sampling policy; the DAR temperature is the sum of the two KL coefficients.
 Examine the limit $\alpha\to 0$ while holding $t=\alpha+\beta$ finite (equivalently,
 let $\beta\to t$). From \eqref{eq:dar_log},
 \[
-  \lim_{\alpha\to 0}\log\pi^\ast(y\!\mid\!x)
+  \lim_{\alpha\to 0}\log\pi^\star(y\!\mid\!x)
   =
   -\log Z(x) + \underbrace{\tfrac{\alpha}{t}}_{\to 0}\log\pi_{\mathrm{ref}}
   + \underbrace{\tfrac{\beta}{t}}_{\to 1}\log\pi_t
@@ -1014,7 +1013,7 @@ let $\beta\to t$). From \eqref{eq:dar_log},
 \]
 so
 \[
-  \pi^\ast(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big),
+  \pi^\star(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big),
 \]
 again matching \eqref{eq:vmpo_form} with $\eta=t$. The algebraic limit is well-defined
 because the coefficients $\alpha/t$ and $\beta/t$ converge to $(0,1)$ respectively.
@@ -1080,7 +1079,6 @@ The per-sequence weights differ only by the base factor:
 \]
 
 \section{Generalized EM Policy Improvement (GEMPI)}
-
 
 \paragraph{The GEMPI tuple.}
 A Generalized EM Policy Improvement method is specified by
@@ -1227,7 +1225,7 @@ where $\gamma \ge 0$ controls the M-step trust region. The three main variants a
 \paragraph{Importance-weighted practical form.}
 When samples are drawn from the sampling policy $\pi_t$ but $q^\star \neq \pi_t$, the M-step loss uses importance weights:
 \[
-  L_\pi(\theta)
+  \mathcal{L}_\pi(\theta)
   =
   -\sum_{i\in S} w_i
   \sum_{t=1}^{T_i}
@@ -1235,7 +1233,115 @@ When samples are drawn from the sampling policy $\pi_t$ but $q^\star \neq \pi_t$
 \]
 where $w_i \propto q^\star(y^{(i)}\mid x^{(i)})/\pi_t(y^{(i)}\mid x^{(i)})$. When $\pi_t$ is one of the anchors, the corresponding factor in the geometric mixture cancels partially, simplifying the weights.
 
-% ============================================================
+% \subsection{Finite-Sample Approximation in the M-Step}
+
+The closed-form target \eqref{eq:gempi_closedform} is a population-level object: the
+partition function
+\[
+  Z(x) = \sum_y \prod_{j=1}^m \pi_j(y\mid x)^{\lambda_j/\Lambda}
+  \exp\!\Big(\frac{A(x,y)}{\Lambda}\Big)
+\]
+sums over the entire output space, which is intractable for large vocabulary sequence
+models. In practice, $Z(x)$ is estimated from a finite batch
+$\mathcal{B} = \{y^{(i)}\}_{i=1}^N$ drawn from the sampling policy $\pi_t$, giving
+\[
+  \hat Z(x) = \frac{1}{N}\sum_{i=1}^N
+  \frac{\prod_j \pi_j(y^{(i)}\mid x)^{\lambda_j/\Lambda}
+  \exp\!\big(\frac{1}{\Lambda}A(x,y^{(i)})\big)}
+  {\pi_t(y^{(i)}\mid x)},
+\]
+a self-normalised importance-weighted estimate. Three distinct approximation errors arise.
+
+\paragraph{1. Partition function bias.}
+
+$\hat Z(x)$ is a ratio estimator and is therefore \emph{biased}. By the delta method,
+\[
+  \mathbb{E}[\hat Z(x)] = Z(x)
+  \Big(1 + O\!\big(N^{-1}\big)\big),
+\]
+so the bias is $O(N^{-1})$ and vanishes as the batch grows. The self-normalised
+importance weights
+\[
+  \hat w_i
+  = \frac{
+    \prod_j \pi_j(y^{(i)}\mid x)^{\lambda_j/\Lambda}
+    \exp\!\big(\frac{1}{\Lambda}A(x,y^{(i)})\big)
+    /\,\pi_t(y^{(i)}\mid x)
+  }{
+    \sum_{i'} \prod_j \pi_j(y^{(i')}\mid x)^{\lambda_j/\Lambda}
+    \exp\!\big(\frac{1}{\Lambda}A(x,y^{(i')})\big)
+    /\,\pi_t(y^{(i')}\mid x)
+  }
+\]
+converge to $q^\star(y^{(i)}\mid x)/\pi_t(y^{(i)}\mid x)$ almost surely as $N\to\infty$
+by the strong law, provided $q^\star \ll \pi_t$ (absolute continuity).
+
+\paragraph{2. Effective sample size and weight degeneracy.}
+
+The quality of the finite-sample approximation is governed by the effective sample size
+\[
+  \mathrm{ESS} = \frac{\big(\sum_i \hat w_i\big)^2}{\sum_i \hat w_i^2},
+\]
+which equals $N$ when all weights are equal and degrades toward $1$ when a single
+sample dominates. The ESS is controlled by the mismatch between $q^\star$ and $\pi_t$,
+quantified by their $\chi^2$-divergence:
+\[
+  \mathrm{ESS} \approx \frac{N}{1 + \chi^2(q^\star \| \pi_t)}.
+\]
+Within the GEMPI parameterisation, increasing $\Lambda$ (i.e.\ raising regularisation
+coefficients or lowering the effective temperature) shrinks the advantage tilt, bringing
+$q^\star$ closer to the geometric anchor mixture and hence to $\pi_t$. This directly
+improves ESS, providing a formal justification for the practical observation that lower
+temperature produces more stable weighted updates.
+
+\paragraph{3. M-step gradient bias under finite ESS.}
+
+The M-step objective \eqref{eq:gempi_mstep} evaluated with self-normalised weights is
+\[
+  \hat{\mathcal{L}}_\pi(\theta)
+  =
+  -\sum_{i\in S} \hat w_i
+  \sum_{t=1}^{T_i}
+  \log\pi_\theta\!\big(y_t^{(i)}\mid y_{<t}^{(i)},x^{(i)}\big).
+\]
+The gradient $\nabla_\theta \hat{\mathcal{L}}_\pi$ is a biased estimator of
+$\nabla_\theta \mathbb{E}_{q^\star}[-\log\pi_\theta]$ because the self-normalised
+weights themselves depend on the sample. The bias is of order $O(N^{-1})$ and has been
+analysed in the self-normalised IS literature \parencite{Hesterberg1995,
+mcbook}; it does not affect consistency but does affect the finite-sample
+variance of the gradient.
+
+\paragraph{Connection to GEMPI stabilisers.}
+
+The three structural stabilisers discussed above can be understood as
+direct mitigations of the above errors.
+
+\begin{itemize}
+  \item \textbf{Adaptive temperature} (dual optimisation of $\lambda_j$) minimises
+    $\chi^2(q^\star \| \pi_t)$, maximising ESS and reducing partition function bias.
+  \item \textbf{Top-$k$ filtering} replaces soft self-normalised weighting over all $N$
+    samples with hard selection of the $k$ samples where $q^\star / \pi_t$ is largest.
+    This acts as a variance-reduction strategy: by concentrating mass on the samples
+    most likely under $q^\star$, it reduces the second moment of the importance weights
+    at the cost of introducing a support truncation bias of order
+    $O\big(\mathbb{E}_{q^\star}[q^\star/\pi_t \cdot \mathbf{1}_{i \notin S}]\big)$,
+    which is small when the top-$k$ fraction $\rho$ is chosen so that the omitted tail
+    of $q^\star$ is negligible.
+  \item \textbf{Log-sum-exp normalisation} (Eq.~\eqref{eq:seq_logsumexp}) addresses floating-point
+    representation of $\hat Z$ rather than its statistical properties, but is a
+    necessary precondition for the estimates above to be numerically meaningful at
+    large $|\!A|/\Lambda$.
+\end{itemize}
+
+\paragraph{Remark on the population vs.\ sample limit.}
+In the limit $N \to \infty$ with $\pi_t$ having full support over the output space,
+$\hat w_i \to q^\star(y^{(i)}\mid x)/\pi_t(y^{(i)}\mid x)$ and the M-step recovers the
+population KL minimization $\min_\theta D_{\mathrm{KL}}(q^\star \| \pi_\theta)$ exactly.
+At finite $N$, the M-step minimizes the same KL subject to the support constraint imposed
+by the batch, which is a strictly easier problem and can lead to underfitting of the
+tails of $q^\star$. This finite-support effect is distinct from, and additive with,
+the self-normalisation bias above.
+
 \subsection{Recovering Existing Methods}
 
 The GEMPI framework subsumes the EM-style methods derived in the preceding sections. Each method corresponds to a specific instantiation of the tuple $\mathcal{G}$.
@@ -1304,7 +1410,7 @@ Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$. The closed form \eqref{eq:gempi_clo
 \[
   q^\star(y\mid x) \propto \pi_t(y\mid x)\,\exp\!\Big(\frac{A(x,y)}{\eta}\Big),
 \]
-with $\Lambda = \eta$. The temperature is treated as a dual variable optimized via the scalar dual \eqref{eq:gempi_dual} (which reduces to $L_\eta = \eta\varepsilon_\eta + \eta\log(Z/k)$). Top-$k$ filtering restricts the support. The M-step adds a KL trust region with dual $\alpha$. This recovers the full V-MPO of Section~5.
+with $\Lambda = \eta$. The temperature is treated as a dual variable optimised via the scalar dual \eqref{eq:gempi_dual} (which reduces to $\mathcal{L}_\eta = \eta\varepsilon_\eta + \eta\log(Z/k)$). Top-$k$ filtering restricts the support. The M-step adds a KL trust region with dual $\alpha$. This recovers the V-MPO formulation derived earlier in this document.
 
 \paragraph{DAR.}
 Set $m=2$, $D_1=D_2=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$ with coefficient $\alpha$, $\pi_2=\pi_t$ with coefficient $\beta$. The closed form \eqref{eq:gempi_closedform} becomes
@@ -1315,7 +1421,7 @@ Set $m=2$, $D_1=D_2=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$ with coefficient $\
   \pi_t(y\mid x)^{\beta/(\alpha+\beta)}\;
   \exp\!\Big(\frac{A(x,y)}{\alpha+\beta}\Big),
 \]
-with $\Lambda = \alpha+\beta$. This is precisely the DAR optimal policy from Section~7.
+with $\Lambda = \alpha+\beta$. This is precisely the DAR optimal policy in Eq.~\eqref{eq:dar_opt}.
 
 \paragraph{AWR.}
 Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual optimization, no filtering, unconstrained M-step. The target is $q^\star \propto \pi_t\exp(A/\beta)$, recovering standard Advantage Weighted Regression \parencite{peng2019advantageweightedregression}.
@@ -1324,7 +1430,7 @@ Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual op
 The degenerate case with no E-step optimization: $q(\tau\mid x) = \delta(\tau=y)$ places all mass on demonstrated responses, and the M-step is pure maximum likelihood. This corresponds to $m=0$ in the GEMPI tuple.
 
 \paragraph{DAR$\to$V-MPO as corollary.}
-The reduction derived in Section~7.4 is now a trivial consequence of the GEMPI parameterization: collapsing two anchors to one ($\pi_{\mathrm{ref}}=\pi_t$) merges the geometric mixture powers $\pi_{\mathrm{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda} = \pi_t^{1} = \pi_t$, recovering the single-anchor form with $\eta = \alpha+\beta$. Alternatively, sending $\alpha\to 0$ zeros out the $\pi_{\mathrm{ref}}$ contribution, yielding the same result.
+The reduction derived in the DAR-to-V-MPO mapping above is now a direct consequence of the GEMPI parameterisation: collapsing two anchors to one ($\pi_{\mathrm{ref}}=\pi_t$) merges the geometric mixture powers $\pi_{\mathrm{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda} = \pi_t^{1} = \pi_t$, recovering the single-anchor form with $\eta = \alpha+\beta$. Alternatively, sending $\alpha\to 0$ zeros out the $\pi_{\mathrm{ref}}$ contribution, yielding the same result.
 
 % ============================================================
 \subsection{The Role of Divergence Choice}
@@ -1352,7 +1458,7 @@ The preceding derivations use KL divergence exclusively in the E-step. This is a
 The GEMPI decomposition reveals that the practical stabilization mechanisms used across the various methods are not ad-hoc engineering choices but follow from specific structural decisions within the framework.
 
 \paragraph{Adaptive temperature.}
-Treating the coefficients $\lambda_j$ as dual variables (Section~8.2, Eq.~\eqref{eq:gempi_dual}) rather than fixed hyperparameters gives automatic temperature adaptation. V-MPO exercises this with a single dual variable ($m=1$); DAR currently uses fixed $(\alpha,\beta)$ but could, within GEMPI, optimize both as a two-temperature dual, gaining adaptive stability while retaining the dual-anchor structure.
+Treating the coefficients $\lambda_j$ as dual variables (Eq.~\eqref{eq:gempi_dual}) rather than fixed hyperparameters gives automatic temperature adaptation. V-MPO exercises this with a single dual variable ($m=1$); DAR currently uses fixed $(\alpha,\beta)$ but could, within GEMPI, optimise both as a two-temperature dual, gaining adaptive stability while retaining the dual-anchor structure.
 
 \paragraph{Trust regions in the M-step.}
 The M-step constraint $D_M(\pi_{\theta_k}\|\pi_\theta) < \varepsilon_M$ is an independent axis of variation: any E-step target can be paired with any M-step trust-region policy. V-MPO uses a KL trust region; DAR and AWR do not. The framework makes explicit that adding or removing M-step constraints is orthogonal to the E-step design.
@@ -1363,11 +1469,11 @@ Restricting the support of $q^\star$ to the top-$k$ samples by advantage before 
 \paragraph{Dropout compatibility.}
 The GEMPI template guarantees dropout compatibility whenever the M-step uses detached (stop-gradient) weights from the E-step. In this case the M-step gradient
 \[
-  \nabla_\theta L_\pi
+  \nabla_\theta \mathcal{L}_\pi
   =
   -\sum_{i\in S} w_i \sum_t \nabla_\theta\log\pi_\theta^{(\mathrm{mask})}(y_t^{(i)}\mid\cdot\,)
 \]
-is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property upgrades the dropout analysis of Section~10 from an observation about specific methods to a consequence of the GEMPI decomposition: any method instantiated within GEMPI inherits dropout compatibility in its M-step.
+is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property generalises the later dropout discussion to a consequence of the GEMPI decomposition: any method instantiated within GEMPI inherits dropout compatibility in its M-step.
 
 % ============================================================
 \subsection{Novel Instantiations}
@@ -1393,7 +1499,7 @@ Applying V-MPO's top-$k$ filtering to the DAR E-step. Currently DAR uses all sam
 
 \section{Transformers - TrXL}
 
-Authors of V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} showed empirical results on transformers in atari games using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, architecture which was further enhanced for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
+The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
 
 \subsection{Implementation}
 \begin{itemize}
@@ -1503,7 +1609,7 @@ The key structural difference is summarised in the following table:
 
 Because the E-step weights $w_i$ are \emph{detached} from the current parameters, the M-step gradient with dropout active is
 \[
-  \nabla_\theta L_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
+  \nabla_\theta \mathcal{L}_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
 \]
 which is an unbiased estimate of the true weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. No eval-mode forward pass needs to be compared against this quantity.
 

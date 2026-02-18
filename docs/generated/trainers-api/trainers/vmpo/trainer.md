@@ -112,7 +112,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], value_layer_sizes: Tuple[int, ...], rollout_steps: int, normalize_advantages: bool = True, gamma: float = 0.99, advantage_estimator: str = 'returns', gae_lambda: float = 0.95, policy_lr: float = 0.0005, value_lr: float = 0.001, topk_fraction: float = 0.5, temperature_init: float = 1.0, temperature_lr: float = 0.0001, epsilon_eta: float = 0.1, epsilon_mu: float = 0.01, epsilon_sigma: float = 0.01, alpha_lr: float = 0.0001, max_grad_norm: float = 10.0, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, num_envs: int = 1, shared_encoder: bool = False)
+def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], value_layer_sizes: Tuple[int, ...], rollout_steps: int, normalize_advantages: bool = True, gamma: float = 0.99, advantage_estimator: str = 'returns', gae_lambda: float = 0.95, policy_lr: float = 0.0005, value_lr: float = 0.001, topk_fraction: float = 0.5, temperature_init: float = 1.0, temperature_lr: float = 0.0001, epsilon_eta: float = 0.1, epsilon_mu: float = 0.01, epsilon_sigma: float = 0.01, alpha_lr: float = 0.0001, max_grad_norm: float = 10.0, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, num_envs: int = 1, shared_encoder: bool = False, m_steps: int = 1)
 ```
 
 _No docstring provided._
@@ -144,7 +144,7 @@ _No docstring provided._
 ##### `train`
 
 ```python
-def train(self, total_steps: int, out_dir: str, m_steps: int = 1)
+def train(self, total_steps: int, out_dir: str)
 ```
 
 _No docstring provided._

@@ -109,7 +109,9 @@ def find_wrapper(env, wrapper_type):
     return None
 
 
-def _sync_obs_rms_to_eval_envs(train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv):
+def _sync_obs_rms_to_eval_envs(
+    train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv
+):
     """Copy obs RMS stats from the first training env to all eval envs."""
     train_norm = find_wrapper(train_envs.envs[0], gym.wrappers.NormalizeObservation)
     if train_norm is None:
@@ -185,13 +187,13 @@ def log_episode_stats(infos, global_step: int):
             infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
         ).reshape(-1)
         for idx in np.where(ep_mask)[0]:
-            episodic_return = float(ep_returns[idx])
-            episodic_length = float(ep_lengths[idx])
-            print(f"global_step={global_step}, episodic_return={episodic_return}")
+            episode_return = float(ep_returns[idx])
+            episode_length = float(ep_lengths[idx])
+            print(f"global_step={global_step}, episode_return={episode_return}")
             log_wandb(
                 {
-                    "train/episodic_return": episodic_return,
-                    "train/episodic_length": episodic_length,
+                    "train/episode_return": episode_return,
+                    "train/episode_length": episode_length,
                 },
                 step=global_step,
                 silent=True,
@@ -201,13 +203,13 @@ def log_episode_stats(infos, global_step: int):
     elif "final_info" in infos:
         for item in infos["final_info"]:
             if item and "episode" in item:
-                episodic_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
-                episodic_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
-                print(f"global_step={global_step}, episodic_return={episodic_return}")
+                episode_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
+                episode_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
+                print(f"global_step={global_step}, episode_return={episode_return}")
                 log_wandb(
                     {
-                        "train/episodic_return": episodic_return,
-                        "train/episodic_length": episodic_length,
+                        "train/episode_return": episode_return,
+                        "train/episode_length": episode_length,
                     },
                     step=global_step,
                     silent=True,

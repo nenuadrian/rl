@@ -153,6 +153,69 @@
       \verb https://arxiv.org/abs/2504.14177
       \endverb
     \endentry
+    \entry{Hesterberg1995}{article}{}{}
+      \name{author}{1}{}{%
+        {{un=0,uniquepart=base,hash=b9f1bc646af034c4db95bc4721aedfb9}{%
+           family={Hesterberg},
+           familyi={H\bibinitperiod},
+           given={Tim},
+           giveni={T\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{fullhash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{fullhashraw}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{bibnamehash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{authorbibnamehash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{authornamehash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{authorfullhash}{b9f1bc646af034c4db95bc4721aedfb9}
+      \strng{authorfullhashraw}{b9f1bc646af034c4db95bc4721aedfb9}
+      \field{sortinit}{H}
+      \field{sortinithash}{23a3aa7c24e56cfa16945d55545109b5}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Technometrics}
+      \field{number}{2}
+      \field{title}{Weighted average importance sampling and defensive mixture distributions}
+      \field{volume}{37}
+      \field{year}{1995}
+      \field{pages}{185\bibrangedash 194}
+      \range{pages}{10}
+      \verb{doi}
+      \verb 10.2307/1269620
+      \endverb
+    \endentry
+    \entry{mcbook}{book}{}{}
+      \name{author}{1}{}{%
+        {{un=0,uniquepart=base,hash=e37bc334c8895d799ce53f05285d5836}{%
+           family={Owen},
+           familyi={O\bibinitperiod},
+           given={Art\bibnamedelima B.},
+           giveni={A\bibinitperiod\bibinitdelim B\bibinitperiod},
+           givenun=0}}%
+      }
+      \list{publisher}{1}{%
+        {\url{https://artowen.su.domains/mc/}}%
+      }
+      \strng{namehash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{fullhash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{fullhashraw}{e37bc334c8895d799ce53f05285d5836}
+      \strng{bibnamehash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{authorbibnamehash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{authornamehash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{authorfullhash}{e37bc334c8895d799ce53f05285d5836}
+      \strng{authorfullhashraw}{e37bc334c8895d799ce53f05285d5836}
+      \field{sortinit}{O}
+      \field{sortinithash}{2cd7140a07aea5341f9e2771efe90aae}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{title}{Monte Carlo theory, methods and examples}
+      \field{year}{2013}
+    \endentry
     \entry{parisotto2019stabilizingtransformersreinforcementlearning}{misc}{}{}
       \name{author}{13}{}{%
         {{un=0,uniquepart=base,hash=f432a700f86fcb79a7721a1f2475f36c}{%

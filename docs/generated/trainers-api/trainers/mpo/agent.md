@@ -165,7 +165,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, obs_dim: int, act_dim: int, action_low: np.ndarray, action_high: np.ndarray, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], gamma: float = 0.99, target_networks_update_period: int = 100, policy_lr: float = 0.0003, q_lr: float = 0.0003, kl_epsilon: float = 0.1, mstep_kl_epsilon: float = 0.1, temperature_init: float = 1.0, temperature_lr: float = 0.0003, lambda_init: float = 1.0, lambda_lr: float = 0.0003, epsilon_penalty: float = 0.001, max_grad_norm: float = 1.0, action_samples: int = 20, use_retrace: bool = False, retrace_steps: int = 2, retrace_mc_actions: int = 8, retrace_lambda: float = 0.95, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, init_log_alpha_mean: float = 10.0, init_log_alpha_stddev: float = 1000.0)
+def __init__(self, obs_dim: int, act_dim: int, action_low: np.ndarray, action_high: np.ndarray, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], gamma: float = 0.99, target_networks_update_period: int = 100, policy_lr: float = 0.0003, q_lr: float = 0.0003, kl_epsilon: float = 0.1, mstep_kl_epsilon: float = 0.1, temperature_init: float = 1.0, temperature_lr: float = 0.0003, lambda_init: float = 1.0, lambda_lr: float = 0.0003, epsilon_penalty: float = 0.001, max_grad_norm: float = 1.0, action_samples: int = 20, use_retrace: bool = False, retrace_steps: int = 2, retrace_mc_actions: int = 8, retrace_lambda: float = 0.95, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, init_log_alpha_mean: float = 10.0, init_log_alpha_stddev: float = 1000.0, m_steps: int = 1)
 ```
 
 _No docstring provided._

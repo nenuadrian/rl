@@ -76,7 +76,7 @@ def get(env_id: str) -> dict[str, Any]:
         defaults={
             "optimizer_type": "adam",
             "sgd_momentum": 0.9,
-            "advantage_estimator": "returns",
+            "advantage_estimator": "gae",
             "gae_lambda": 0.95,
         },
     )
