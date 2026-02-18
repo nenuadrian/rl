@@ -143,9 +143,8 @@ This gives the standard monotonic-improvement template: construct a target distr
 
 \subsection{EM-Style Policy Iteration vs Policy Gradients}
 
-It is useful to distinguish two update styles for RL fine-tuning.
 
-\paragraph{Policy-gradient update (direct parameter-space step).}
+Policy-gradient update (direct parameter-space step).
 
 \[
   J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)].
@@ -193,14 +192,12 @@ Then the M-step projects back to the parametric family:
 \]
 often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$.
 
-\paragraph{Interpretation.}
 Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform \emph{policy improvement} in distribution space first, then do weighted maximum-likelihood fitting. This is why V-MPO is naturally viewed as regularized policy iteration in EM form rather than as a pure policy-gradient method.
 
 \section{PPO}
 
 Proximal Policy Optimisation (PPO) is an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
 
-\subsection{Setup}
 
 A trajectory $\tau = (s_0,a_0,\dots,s_{T-1},a_{T-1})$ is collected under the current policy $\pi_{\theta_{\mathrm{old}}}$. Per-step log-probabilities and their sum are
 \[
@@ -337,16 +334,7 @@ and is often added to the objective or used as an early-stopping criterion to ke
 
 \section{V-MPO}
 
-V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} decomposes optimisation into two conceptual phases:
-
-\begin{itemize}
-  \item \textbf{Policy Evaluation} (critic update)
-  \item \textbf{Policy Improvement}, implemented via an EM procedure:
-    \begin{itemize}
-      \item E-step (non-parametric policy)
-      \item M-step (parametric projection with KL constraint)
-    \end{itemize}
-\end{itemize}
+V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} decomposes optimisation into EM phases.
 
 The total objective is
 \begin{equation*}
@@ -401,7 +389,6 @@ Advantages are defined as
   G_t^{(n)} - V^\pi_\phi(s_t).
 \]
 
-This completes the evaluation phase.
 
 % ============================================================
 \subsection{Policy Improvement via EM}
@@ -527,7 +514,6 @@ The temperature dual is
   \Big).
 \end{equation*}
 
-This completes the E-step.
 
 % ============================================================
 \subsection{M-Step: Parametric Projection with KL Constraint}
@@ -615,7 +601,7 @@ In implementation, the loss becomes
 
 \section{EM for Fine-Tuning and LLM-Scale Adaptive Temperature}
 
-Both SFT and RL fine-tuning fit naturally into an EM template: the E-step constructs a target distribution over sequences, and the M-step fits the model to it by weighted maximum likelihood. This section develops the template from first principles and then shows how it specialises into a numerically stable, adaptive-temperature procedure for sequence-level V-MPO at LLM scale.
+Both SFT and RL fine-tuning fit naturally into an EM template: the E-step constructs a target distribution over sequences, and the M-step fits the model to it by weighted maximum likelihood.
 
 \subsection{E-step / M-step for SFT}
 
@@ -742,25 +728,6 @@ Once the weights are computed, the M-step minimises the weighted teacher-forced 
   \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
 \end{equation}
 
-\subsubsection{Full Adaptive EM Procedure}
-
-Putting it all together, one update step proceeds as follows:
-\[
-  \begin{aligned}
-    &\textbf{E-step:} \\
-    &\quad 1.\ \eta_{\mathrm{det}} = \operatorname{stopgrad}(\eta(\xi)),\\
-    &\quad 2.\ u_i = A^{(i)} / \eta_{\mathrm{det}},\\
-    &\quad 3.\ S = \operatorname{Top-}k(u_i),\\
-    &\quad 4.\ m=\max_{i\in S} u_i,\\
-    &\quad 5.\ g(\eta) = m + \log\!\Big(\tfrac{1}{k}\sum_{i\in S}\exp(u_i-m)\Big),\\
-    &\quad 6.\ L_\eta = \eta(\xi)\big(\varepsilon_\eta + g(\eta)\big),\\
-    &\quad 7.\ \xi \leftarrow \xi - \lambda_\eta \nabla_\xi L_\eta.\\[6pt]
-    &\textbf{Weight computation:}\\
-    &\quad w_i = \frac{\exp(u_i-m)}{\sum_{j\in S}\exp(u_j-m)}.\\[6pt]
-    &\textbf{M-step:}\\
-    &\quad \theta \leftarrow \theta - \lambda_\theta \nabla_\theta L_\pi.
-  \end{aligned}
-\]
 
 \section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
@@ -1104,10 +1071,6 @@ The per-sequence weights differ only by the base factor:
   w_i^{\mathrm{V\!-\!MPO}} \propto \exp\!\Big(\log\pi_t^{(i)} + \tfrac{1}{\eta}A^{(i)}\Big).
 \]
 
-\paragraph{Numerical sanity check (illustrative).}
-A short numerical test can confirm convergence of DAR weights to V-MPO weights as
-$\alpha\to 0$ or $\pi_{\mathrm{ref}}=\pi_t$; include a compact reference implementation
-in experimental code.
 
 \section{Transformers - TrXL}
 
@@ -1154,7 +1117,6 @@ For single-task Atari with TrXL, the shared policy–value network consists of a
 
 \section{The Case for Dropout}
 
-\subsection{Dropout in LLMs}
 
 Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training and scales the remaining activations by $1/(1-p)$:
 \[
