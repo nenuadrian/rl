@@ -25,9 +25,9 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python main.py mpo --env dm_control/cheetah/run
-python main.py ppo --env HalfCheetah-v5
-python main.py vmpo --env dm_control/cheetah/run
+python -m main mpo --env dm_control/cheetah/run
+python -m main ppo --env HalfCheetah-v5
+python -m main vmpo --env dm_control/cheetah/run
 ```
 
 ## video
@@ -35,13 +35,13 @@ python main.py vmpo --env dm_control/cheetah/run
 Generate a rollout video from the latest saved checkpoint:
 
 ```bash
-python generate_video.py ppo --env dm_control/cheetah/run
+python -m scripts.generate_video ppo --env dm_control/cheetah/run
 ```
 
 Optionally specify a checkpoint path and output file:
 
 ```bash
-python generate_video.py ppo --env dm_control/cheetah/run \
+python -m scripts.generate_video ppo --env dm_control/cheetah/run \
 	--checkpoint checkpoints/ppo/dm_control-cheetah-run/ppo_step_50000.pt \
 	--video_out videos/ppo-dm_control-cheetah-run.mp4
 ```
@@ -55,13 +55,13 @@ Hyperparameters are defined in the `hyperparameters/*.py` files for each algorit
 ![Benchmark Results](reports/latest/overview.png)
 
 ```bash
-bash benchmarks/mpo.sh
+bash scripts/benchmarks/mpo.sh
 ```
 
 ## Reports
 
 ```bash
-python generate_report.py
+python -m scripts.generate_report
 ```
 
 By default this also tries to render a video for the best run of each environment/algorithm pair using:
@@ -70,5 +70,5 @@ By default this also tries to render a video for the best run of each environmen
 Skip that step with:
 
 ```bash
-python generate_report.py --skip-videos
+python -m scripts.generate_report --skip-videos
 ```
