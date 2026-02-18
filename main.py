@@ -338,7 +338,6 @@ if __name__ == "__main__":
         )
         trainer.train(
             total_steps=args.total_steps,
-            m_steps=int(args.m_steps),
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
@@ -363,6 +362,7 @@ if __name__ == "__main__":
             "use_retrace": bool(args.use_retrace),
             "optimizer_type": str(args.optimizer_type),
             "sgd_momentum": float(args.sgd_momentum),
+            "m_steps": int(args.m_steps),
         }
         _print_config("MPO config", mpo_params)
 
@@ -392,13 +392,13 @@ if __name__ == "__main__":
             use_retrace=bool(args.use_retrace),
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
+            m_steps=int(args.m_steps),
         )
         trainer.train(
             total_steps=args.total_steps,
             update_after=args.update_after,
             batch_size=args.batch_size,
             out_dir=args.out_dir,
-            m_steps=int(args.m_steps),
         )
 
     finish_wandb()
