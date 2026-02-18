@@ -6,6 +6,7 @@ site_dir: site
 
 theme:
   name: mkdocs
+  custom_dir: overrides
 
 nav:
   - Home: index.md
@@ -21,7 +22,3 @@ markdown_extensions:
       generic: true
   - toc:
       permalink: true
-
-extra_javascript:
-  - javascripts/mathjax.js
-  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

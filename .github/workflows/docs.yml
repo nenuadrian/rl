@@ -47,6 +47,13 @@ jobs:
           MKDOCS_SITE_URL: https://${{ github.repository_owner }}.github.io${{ steps.pages.outputs.base_url }}
         run: mkdocs build --strict
 
+      - name: Verify MathJax is present in built HTML
+        run: |
+          if ! grep -R -q "tex-mml-chtml.js" site; then
+            echo "MathJax script reference was not found in built site HTML."
+            exit 1
+          fi
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
