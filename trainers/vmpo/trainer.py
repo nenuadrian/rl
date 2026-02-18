@@ -338,6 +338,7 @@ class VMPOTrainer:
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
         shared_encoder: bool = False,
+        updates_per_step: int = 1,
     ):
         self.num_envs = int(num_envs)
         self.env_id = env_id
@@ -345,6 +346,7 @@ class VMPOTrainer:
         self.gamma = float(gamma)
         self.advantage_estimator = str(advantage_estimator)
         self.gae_lambda = float(gae_lambda)
+        self.updates_per_step = int(updates_per_step)
 
         env_fns = [
             (
@@ -401,6 +403,7 @@ class VMPOTrainer:
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
             shared_encoder=shared_encoder,
+            updates_per_step=updates_per_step,
         )
 
         self.rollout_steps = rollout_steps
@@ -473,7 +476,6 @@ class VMPOTrainer:
         self,
         total_steps: int,
         out_dir: str,
-        updates_per_step: int = 1,
     ):
         total_steps = int(total_steps)
         eval_interval = max(1, total_steps // 50)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
@@ -483,7 +485,7 @@ class VMPOTrainer:
             f"total_steps={total_steps}, "
             f"rollout_steps={self.rollout_steps}, "
             f"num_envs={self.num_envs}, "
-            f"updates_per_step={int(updates_per_step)}, "
+            f"updates_per_step={self.updates_per_step}, "
             f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
@@ -682,14 +684,12 @@ class VMPOTrainer:
                     ),
                 }
 
-                metrics = {}
-                for _ in range(updates_per_step):
-                    metrics = self.agent.update(batch)
-                    log_wandb(metrics, step=global_step, silent=True)
-                    for key, value in metrics.items():
-                        interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)  # LaTeX: M_k \leftarrow M_k + m_k
-                    interval_update_count += 1
-                    total_update_count += 1
+                metrics = self.agent.update(batch)
+                log_wandb(metrics, step=global_step, silent=True)
+                for key, value in metrics.items():
+                    interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)  # LaTeX: M_k \leftarrow M_k + m_k
+                interval_update_count += 1
+                total_update_count += 1
 
                 self._reset_rollout()
 

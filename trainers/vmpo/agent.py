@@ -38,6 +38,7 @@ class VMPOAgent:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         shared_encoder: bool = False,
+        updates_per_step: int = 1,
     ):
         self.device = device
         self.normalize_advantages = bool(normalize_advantages)
@@ -56,7 +57,8 @@ class VMPOAgent:
         self.max_grad_norm = float(max_grad_norm)
         self.optimizer_type = str(optimizer_type)
         self.sgd_momentum = float(sgd_momentum)
-
+        self.updates_per_step = int(updates_per_step)
+        
         self.policy = SquashedGaussianPolicy(
             obs_dim=obs_dim,
             act_dim=act_dim,
@@ -91,12 +93,14 @@ class VMPOAgent:
         )
 
         # KL Penalties (alpha) for trust region
-        # Initializing to 0.1 (log space) for a stronger initial penalty than 0
+        def inv_softplus(x):
+            return np.log(np.expm1(x))
+
         self.log_alpha_mu = nn.Parameter(
-            torch.tensor(np.log(1.0), dtype=torch.float32, device=device)
+            torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
         )
         self.log_alpha_sigma = nn.Parameter(
-            torch.tensor(np.log(1.0), dtype=torch.float32, device=device)
+            torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
         )
 
         self.alpha_opt = self._build_optimizer(
@@ -271,102 +275,103 @@ class VMPOAgent:
         # M-Step: Policy & Value Update
         # ================================================================
 
-        # Run forward pass on ALL observations
-        current_mean, current_log_std, v_pred_fw = self.policy.forward_all(obs)
-        v_pred = v_pred_fw.squeeze(-1)
+        for _ in range(self.updates_per_step):  # Multiple epochs of optimization per batch
+            # Run forward pass on ALL observations
+            current_mean, current_log_std, v_pred_fw = self.policy.forward_all(obs)
+            v_pred = v_pred_fw.squeeze(-1)
 
-        # -- Policy Loss --
-        log_prob = self.policy.log_prob(
-            current_mean, current_log_std, actions
-        ).squeeze(-1)
-        weighted_nll = -(weights_detached * log_prob).sum()
+            # -- Policy Loss --
+            log_prob = self.policy.log_prob(
+                current_mean, current_log_std, actions
+            ).squeeze(-1)
+            weighted_nll = -(weights_detached * log_prob).sum()
 
-        # -- KL Divergence (Full Batch Diagnostics) --
-        # We compute this for logging purposes to see global drift
-        with torch.no_grad():
-            old_std = old_log_stds.exp()
-            new_std = current_log_std.exp()
-            kl_mean_all = (
-                ((current_mean - old_means) ** 2 / (2.0 * old_std**2 + 1e-8))
+            # -- KL Divergence (Full Batch Diagnostics) --
+            # We compute this for logging purposes to see global drift
+            with torch.no_grad():
+                old_std = old_log_stds.exp()
+                new_std = current_log_std.exp()
+                kl_mean_all = (
+                    ((current_mean - old_means) ** 2 / (2.0 * old_std**2 + 1e-8))
+                    .sum(dim=-1)
+                    .mean()
+                )
+                kl_std_all = (
+                    0.5
+                    * (
+                        (old_std**2) / (new_std**2 + 1e-8)
+                        - 1.0
+                        + 2.0 * (current_log_std - old_log_stds)
+                    )
+                    .sum(dim=-1)
+                    .mean()
+                )
+
+            # -- KL Divergence (Selected Samples for Optimization) --
+            mean_sel = current_mean[mask_bool]
+            log_std_sel = current_log_std[mask_bool]
+            old_mean_sel = old_means[mask_bool]
+            old_log_std_sel = old_log_stds[mask_bool]
+
+            old_std_sel = old_log_std_sel.exp()
+            new_std_sel = log_std_sel.exp()
+
+            # Decoupled KL
+            kl_mu_sel = (
+                (0.5 * ((mean_sel - old_mean_sel) ** 2 / (old_std_sel**2 + 1e-8)))
                 .sum(dim=-1)
                 .mean()
             )
-            kl_std_all = (
-                0.5
-                * (
-                    (old_std**2) / (new_std**2 + 1e-8)
-                    - 1.0
-                    + 2.0 * (current_log_std - old_log_stds)
+            kl_sigma_sel = (
+                (
+                    0.5
+                    * (
+                        (old_std_sel**2) / (new_std_sel**2 + 1e-8)
+                        - 1.0
+                        + 2.0 * (log_std_sel - old_log_std_sel)
+                    )
                 )
                 .sum(dim=-1)
                 .mean()
             )
 
-        # -- KL Divergence (Selected Samples for Optimization) --
-        mean_sel = current_mean[mask_bool]
-        log_std_sel = current_log_std[mask_bool]
-        old_mean_sel = old_means[mask_bool]
-        old_log_std_sel = old_log_stds[mask_bool]
+            # -- Alpha Optimization --
+            alpha_mu = F.softplus(self.log_alpha_mu) + 1e-8
+            alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
 
-        old_std_sel = old_log_std_sel.exp()
-        new_std_sel = log_std_sel.exp()
-
-        # Decoupled KL
-        kl_mu_sel = (
-            (0.5 * ((mean_sel - old_mean_sel) ** 2 / (old_std_sel**2 + 1e-8)))
-            .sum(dim=-1)
-            .mean()
-        )
-        kl_sigma_sel = (
-            (
-                0.5
-                * (
-                    (old_std_sel**2) / (new_std_sel**2 + 1e-8)
-                    - 1.0
-                    + 2.0 * (log_std_sel - old_log_std_sel)
-                )
+            # We minimize: alpha * (epsilon - KL)
+            alpha_loss = alpha_mu * (self.epsilon_mu - kl_mu_sel.detach()) + alpha_sigma * (
+                self.epsilon_sigma - kl_sigma_sel.detach()
             )
-            .sum(dim=-1)
-            .mean()
-        )
 
-        # -- Alpha Optimization --
-        alpha_mu = F.softplus(self.log_alpha_mu) + 1e-8
-        alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
+            self.alpha_opt.zero_grad()
+            alpha_loss.backward()
+            self.alpha_opt.step()
 
-        # We minimize: alpha * (epsilon - KL)
-        alpha_loss = alpha_mu * (self.epsilon_mu - kl_mu_sel.detach()) + alpha_sigma * (
-            self.epsilon_sigma - kl_sigma_sel.detach()
-        )
+            # -- Final Policy Loss --
+            with torch.no_grad():
+                alpha_mu_det = F.softplus(self.log_alpha_mu).detach() + 1e-8
+                alpha_sigma_det = F.softplus(self.log_alpha_sigma).detach() + 1e-8
 
-        self.alpha_opt.zero_grad()
-        alpha_loss.backward()
-        self.alpha_opt.step()
+            policy_loss = (
+                weighted_nll + (alpha_mu_det * kl_mu_sel) + (alpha_sigma_det * kl_sigma_sel)
+            )
 
-        # -- Final Policy Loss --
-        with torch.no_grad():
-            alpha_mu_det = F.softplus(self.log_alpha_mu).detach() + 1e-8
-            alpha_sigma_det = F.softplus(self.log_alpha_sigma).detach() + 1e-8
+            # -- Critic Loss --
+            value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
 
-        policy_loss = (
-            weighted_nll + (alpha_mu_det * kl_mu_sel) + (alpha_sigma_det * kl_sigma_sel)
-        )
-
-        # -- Critic Loss --
-        value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
-
-        total_loss = policy_loss + value_loss
-        self.combined_opt.zero_grad()
-        total_loss.backward()
-        nn.utils.clip_grad_norm_(
-            list(self.policy.policy_encoder.parameters()) +
-            list(self.policy.policy_mean.parameters()) +
-            list(self.policy.policy_logstd.parameters()) +
-            ([] if self.policy.shared_encoder else list(self.policy.value_encoder.parameters())) +
-            list(self.policy.value_head.parameters()),
-            self.max_grad_norm,
-        )
-        self.combined_opt.step()
+            total_loss = policy_loss + value_loss
+            self.combined_opt.zero_grad()
+            total_loss.backward()
+            nn.utils.clip_grad_norm_(
+                list(self.policy.policy_encoder.parameters()) +
+                list(self.policy.policy_mean.parameters()) +
+                list(self.policy.policy_logstd.parameters()) +
+                ([] if self.policy.shared_encoder else list(self.policy.value_encoder.parameters())) +
+                list(self.policy.value_head.parameters()),
+                self.max_grad_norm,
+            )
+            self.combined_opt.step()
 
         # ================================================================
         # Post-Update Diagnostics
