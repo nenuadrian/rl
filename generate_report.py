@@ -126,6 +126,25 @@ def _as_int(value: Any) -> int | None:
     return int(out)
 
 
+def _as_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        maybe_float = _as_float(value)
+        if maybe_float is None:
+            return None
+        return bool(int(maybe_float))
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "y", "on"}:
+            return True
+        if text in {"0", "false", "no", "n", "off"}:
+            return False
+    return None
+
+
 def _ordered_unique(values: list[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     out: list[str] = []
@@ -1248,6 +1267,9 @@ def generate_best_run_videos(
             config,
             algorithm=best_record.algorithm,
         )
+        shared_encoder = _as_bool(config.get("shared_encoder"))
+        if shared_encoder is None:
+            shared_encoder = False
         seed = _as_int(config.get("seed"))
         if seed is None:
             seed = 42
@@ -1266,6 +1288,7 @@ def generate_best_run_videos(
                 ),
                 policy_layer_sizes=policy_layer_sizes,
                 value_layer_sizes=value_layer_sizes,
+                shared_encoder=shared_encoder,
                 device=device,
                 num_attempts=int(video_attempts),
             )

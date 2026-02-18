@@ -141,6 +141,7 @@ def main() -> None:
             if hasattr(args, "value_layer_sizes")
             else None
         ),
+        shared_encoder=bool(getattr(args, "shared_encoder", False)),
         device=device,
     )
     print(f"Saved video to: {saved_path}")
