@@ -779,7 +779,9 @@ def _evaluate_vectorized(
     obs, _ = eval_envs.reset(seed=seed)
 
     episode_returns = np.zeros(n_episodes)
+    episode_lengths = np.zeros(n_episodes, dtype=np.int64)
     final_returns = []
+    final_lengths = []
 
     # Track which envs have finished their first episode
     dones = np.zeros(n_episodes, dtype=bool)
@@ -801,15 +803,19 @@ def _evaluate_vectorized(
 
         # Step environment
         next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
+        reward_arr = np.asarray(reward, dtype=np.float32)
+        active_mask = ~dones
 
         # Accumulate rewards for envs that haven't finished yet
-        episode_returns += reward  # LaTeX: G_i \leftarrow G_i + r_{t,i}
+        episode_returns[active_mask] += reward_arr[active_mask]  # LaTeX: G_i \leftarrow G_i + r_{t,i}
+        episode_lengths[active_mask] += 1
 
         # Check for completions
         # Gymnasium VectorEnv resets automatically; we catch the return in infos
         for i in range(n_episodes):
             if not dones[i] and (terminated[i] or truncated[i]):
                 final_returns.append(episode_returns[i])  # LaTeX: \mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}
+                final_lengths.append(int(episode_lengths[i]))
                 dones[i] = True
 
         obs = next_obs
@@ -819,6 +825,7 @@ def _evaluate_vectorized(
     return {
         "eval/return_median": float(np.median(final_returns)),  # LaTeX: \tilde{G} = \operatorname{median}(\mathcal{G})
         "eval/return_mean": float(np.mean(final_returns)),  # LaTeX: \bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g
+        "eval/length_mean": float(np.mean(final_lengths)),
         "eval/return_std": float(np.std(final_returns)),  # LaTeX: \sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}
         "eval/return_min": float(np.min(final_returns)),  # LaTeX: G_{\min} = \min(\mathcal{G})
         "eval/return_max": float(np.max(final_returns)),  # LaTeX: G_{\max} = \max(\mathcal{G})

@@ -486,7 +486,9 @@ def _evaluate_vectorized(
     obs, _ = eval_envs.reset(seed=seed)
 
     episode_returns = np.zeros(n_episodes, dtype=np.float32)
+    episode_lengths = np.zeros(n_episodes, dtype=np.int64)
     final_returns = []
+    final_lengths = []
     dones = np.zeros(n_episodes, dtype=bool)
 
     while len(final_returns) < n_episodes:
@@ -505,12 +507,16 @@ def _evaluate_vectorized(
         )
 
         next_obs, reward, terminated, truncated, _ = eval_envs.step(action)
-        episode_returns += np.asarray(reward, dtype=np.float32)
+        reward_arr = np.asarray(reward, dtype=np.float32)
+        active_mask = ~dones
+        episode_returns[active_mask] += reward_arr[active_mask]
+        episode_lengths[active_mask] += 1
 
         done = np.asarray(terminated) | np.asarray(truncated)
         for i in range(n_episodes):
             if not dones[i] and done[i]:
                 final_returns.append(float(episode_returns[i]))
+                final_lengths.append(int(episode_lengths[i]))
                 dones[i] = True
 
         obs = next_obs
@@ -520,7 +526,7 @@ def _evaluate_vectorized(
 
     return {
         "eval/return_mean": float(np.mean(final_returns)),
-        "eval/length_mean": float(np.mean([len(final_returns)])),
+        "eval/length_mean": float(np.mean(final_lengths)),
         "eval/return_std": float(np.std(final_returns)),
         "eval/return_min": float(np.min(final_returns)),
         "eval/return_max": float(np.max(final_returns)),
