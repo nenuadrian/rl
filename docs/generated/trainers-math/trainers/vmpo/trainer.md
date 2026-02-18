@@ -12,9 +12,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         total = count_acc + count_i
 ```
 
-$$
+<div class="arithmatex">\[
 n = n_{acc} + n_i
-$$
+\]</div>
 
 ### Line 209
 
@@ -22,9 +22,9 @@ $$
         delta = mean_i - mean_acc
 ```
 
-$$
+<div class="arithmatex">\[
 \delta = \mu_i - \mu_{acc}
-$$
+\]</div>
 
 ### Line 210
 
@@ -32,9 +32,9 @@ $$
         mean_new = mean_acc + delta * (count_i / total)
 ```
 
-$$
+<div class="arithmatex">\[
 \mu' = \mu_{acc} + \delta\frac{n_i}{n}
-$$
+\]</div>
 
 ### Line 211
 
@@ -42,9 +42,9 @@ $$
         m2_acc = var_acc * count_acc
 ```
 
-$$
+<div class="arithmatex">\[
 M_{2,acc} = \sigma_{acc}^2 n_{acc}
-$$
+\]</div>
 
 ### Line 212
 
@@ -52,9 +52,9 @@ $$
         m2_i = var_i * count_i
 ```
 
-$$
+<div class="arithmatex">\[
 M_{2,i} = \sigma_i^2 n_i
-$$
+\]</div>
 
 ### Line 213
 
@@ -62,9 +62,9 @@ $$
         m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
 ```
 
-$$
+<div class="arithmatex">\[
 M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}
-$$
+\]</div>
 
 ### Line 216
 
@@ -72,9 +72,9 @@ $$
         var_acc = m2_total / total
 ```
 
-$$
+<div class="arithmatex">\[
 \sigma^2 = \frac{M_2}{n}
-$$
+\]</div>
 
 ### Line 479
 
@@ -82,9 +82,9 @@ $$
         eval_interval = max(1, total_steps // 50)
 ```
 
-$$
+<div class="arithmatex">\[
 \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
-$$
+\]</div>
 
 ### Line 508
 
@@ -92,9 +92,9 @@ $$
             global_step += self.num_envs
 ```
 
-$$
+<div class="arithmatex">\[
 t \leftarrow t + N
-$$
+\]</div>
 
 ### Line 509
 
@@ -102,9 +102,9 @@ $$
             restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
 ```
 
-$$
+<div class="arithmatex">\[
 w_t^{restart} = 1 - \mathbf{1}_{episode\_start}
-$$
+\]</div>
 
 ### Line 517
 
@@ -112,9 +112,9 @@ $$
             done = terminated | truncated
 ```
 
-$$
+<div class="arithmatex">\[
 d_t = d_t^{term} \lor d_t^{trunc}
-$$
+\]</div>
 
 ### Line 524
 
@@ -122,9 +122,9 @@ $$
             timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
 ```
 
-$$
+<div class="arithmatex">\[
 m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}
-$$
+\]</div>
 
 ### Line 561
 
@@ -132,9 +132,9 @@ $$
             self.episode_return += reward
 ```
 
-$$
+<div class="arithmatex">\[
 G_i \leftarrow G_i + r_{t,i}
-$$
+\]</div>
 
 ### Line 625
 
@@ -142,9 +142,9 @@ $$
                 rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
 ```
 
-$$
+<div class="arithmatex">\[
 r_t' = r_t + \gamma b_t^{timeout}
-$$
+\]</div>
 
 ### Line 628
 
@@ -152,9 +152,9 @@ $$
                 last_value = last_value * (1.0 - dones_arr[-1])
 ```
 
-$$
+<div class="arithmatex">\[
 V_T = V(s_T)(1 - d_T)
-$$
+\]</div>
 
 ### Line 632
 
@@ -162,9 +162,9 @@ $$
                 obs_flat = obs_arr.reshape(T * N, -1)
 ```
 
-$$
+<div class="arithmatex">\[
 \mathbf{S} \in \mathbb{R}^{(TN)\times d_s}
-$$
+\]</div>
 
 ### Line 633
 
@@ -172,9 +172,9 @@ $$
                 actions_flat = actions_arr.reshape(T * N, -1)
 ```
 
-$$
+<div class="arithmatex">\[
 \mathbf{A} \in \mathbb{R}^{(TN)\times d_a}
-$$
+\]</div>
 
 ### Line 639
 
@@ -182,9 +182,9 @@ $$
                 means_flat = means_arr.reshape(T * N, -1)
 ```
 
-$$
+<div class="arithmatex">\[
 \mu_{old} \in \mathbb{R}^{(TN)\times d_a}
-$$
+\]</div>
 
 ### Line 640
 
@@ -192,9 +192,9 @@ $$
                 log_stds_flat = log_stds_arr.reshape(T * N, -1)
 ```
 
-$$
+<div class="arithmatex">\[
 \log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}
-$$
+\]</div>
 
 ### Line 642
 
@@ -202,9 +202,9 @@ $$
                 returns, advantages = compute_rollout_targets(
 ```
 
-$$
+<div class="arithmatex">\[
 (R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)
-$$
+\]</div>
 
 ### Line 651
 
@@ -212,9 +212,9 @@ $$
                 returns_flat = returns.reshape(T * N, 1)
 ```
 
-$$
+<div class="arithmatex">\[
 \mathbf{R} \in \mathbb{R}^{(TN)\times 1}
-$$
+\]</div>
 
 ### Line 652
 
@@ -222,9 +222,9 @@ $$
                 advantages_flat = advantages.reshape(T * N, 1)
 ```
 
-$$
+<div class="arithmatex">\[
 \mathbf{A} \in \mathbb{R}^{(TN)\times 1}
-$$
+\]</div>
 
 ### Line 690
 
@@ -232,9 +232,9 @@ $$
                         interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
 ```
 
-$$
+<div class="arithmatex">\[
 M_k \leftarrow M_k + m_k
-$$
+\]</div>
 
 ### Line 728
 
@@ -242,9 +242,9 @@ $$
                 progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
 ```
 
-$$
+<div class="arithmatex">\[
 p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}
-$$
+\]</div>
 
 ### Line 748
 
@@ -252,9 +252,9 @@ $$
                     mean_metrics = {
 ```
 
-$$
+<div class="arithmatex">\[
 \bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}
-$$
+\]</div>
 
 ### Line 806
 
@@ -262,9 +262,9 @@ $$
         episode_returns += reward
 ```
 
-$$
+<div class="arithmatex">\[
 G_i \leftarrow G_i + r_{t,i}
-$$
+\]</div>
 
 ### Line 812
 
@@ -272,9 +272,9 @@ $$
                 final_returns.append(episode_returns[i])
 ```
 
-$$
+<div class="arithmatex">\[
 \mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}
-$$
+\]</div>
 
 ### Line 820
 
@@ -282,9 +282,9 @@ $$
         "eval/return_median": float(np.median(final_returns)),
 ```
 
-$$
+<div class="arithmatex">\[
 \tilde{G} = \operatorname{median}(\mathcal{G})
-$$
+\]</div>
 
 ### Line 821
 
@@ -292,9 +292,9 @@ $$
         "eval/return_mean": float(np.mean(final_returns)),
 ```
 
-$$
+<div class="arithmatex">\[
 \bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g
-$$
+\]</div>
 
 ### Line 822
 
@@ -302,9 +302,9 @@ $$
         "eval/return_std": float(np.std(final_returns)),
 ```
 
-$$
+<div class="arithmatex">\[
 \sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}
-$$
+\]</div>
 
 ### Line 823
 
@@ -312,9 +312,9 @@ $$
         "eval/return_min": float(np.min(final_returns)),
 ```
 
-$$
+<div class="arithmatex">\[
 G_{\min} = \min(\mathcal{G})
-$$
+\]</div>
 
 ### Line 824
 
@@ -322,9 +322,9 @@ $$
         "eval/return_max": float(np.max(final_returns)),
 ```
 
-$$
+<div class="arithmatex">\[
 G_{\max} = \max(\mathcal{G})
-$$
+\]</div>
 
 ## Full Source
 

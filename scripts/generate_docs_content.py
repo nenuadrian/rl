@@ -296,9 +296,9 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
                     code,
                     "```",
                     "",
-                    "$$",
+                    '<div class="arithmatex">\\[',
                     formula,
-                    "$$",
+                    "\\]</div>",
                     "",
                 ]
             )

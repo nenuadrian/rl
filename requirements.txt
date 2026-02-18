@@ -17,3 +17,4 @@ torchao
 transformers
 memory-gym
 mkdocs
+pymdown-extensions
