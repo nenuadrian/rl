@@ -72,19 +72,21 @@ def make_env(
 
 
 def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True):
-    resolved_env_id = _resolve_env_id(gym_id)
-    env = gym.make(resolved_env_id)
-    env = gym.wrappers.FlattenObservation(env)
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-    env = gym.wrappers.ClipAction(env)
-    if normalize_observation:
-        env = gym.wrappers.NormalizeObservation(env)
-        env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
+    def thunk():
+        resolved_env_id = _resolve_env_id(gym_id)
+        env = gym.make(resolved_env_id)
+        env = gym.wrappers.FlattenObservation(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.ClipAction(env)
+        if normalize_observation:
+            env = gym.wrappers.NormalizeObservation(env)
+            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
 
-    env.reset(seed=seed)
-    env.action_space.seed(seed)
-    env.observation_space.seed(seed)
-    return env
+    return thunk
 
 
 def find_wrapper(env, wrapper_type):
@@ -96,65 +98,67 @@ def find_wrapper(env, wrapper_type):
     return None
 
 
-def sync_obs_rms(train_env, eval_env):
-    train_obs_norm = find_wrapper(train_env, gym.wrappers.NormalizeObservation)
-    eval_obs_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
-    if train_obs_norm is None or eval_obs_norm is None:
+def _sync_obs_rms_to_eval_envs(train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv):
+    """Copy obs RMS stats from the first training env to all eval envs."""
+    train_norm = find_wrapper(train_envs.envs[0], gym.wrappers.NormalizeObservation)
+    if train_norm is None:
         return
-    eval_obs_norm.obs_rms.mean = np.copy(train_obs_norm.obs_rms.mean)
-    eval_obs_norm.obs_rms.var = np.copy(train_obs_norm.obs_rms.var)
-    eval_obs_norm.obs_rms.count = train_obs_norm.obs_rms.count
+    for eval_env in eval_envs.envs:
+        eval_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
+        if eval_norm is not None:
+            eval_norm.obs_rms.mean = np.copy(train_norm.obs_rms.mean)
+            eval_norm.obs_rms.var = np.copy(train_norm.obs_rms.var)
+            eval_norm.obs_rms.count = train_norm.obs_rms.count
 
 
-def evaluate(
+@torch.no_grad()
+def _evaluate_vectorized(
     agent: "Agent",
-    eval_env: gym.Env,
+    eval_envs: gym.vector.VectorEnv,
     device: torch.device,
-    num_episodes: int,
-    deterministic: bool = True,
-):
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized evaluation: runs all episodes in parallel across eval_envs."""
+    n_episodes = eval_envs.num_envs
     was_training = agent.training
     agent.eval()
-    episode_returns = []
-    episode_lengths = []
 
-    eval_obs_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
-    old_update_running_mean = None
-    if eval_obs_norm is not None and hasattr(eval_obs_norm, "update_running_mean"):
-        old_update_running_mean = eval_obs_norm.update_running_mean
-        eval_obs_norm.update_running_mean = False
+    # Freeze obs normalization updates during eval.
+    for env in eval_envs.envs:
+        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
+        if norm is not None and hasattr(norm, "update_running_mean"):
+            norm.update_running_mean = False
 
-    with torch.no_grad():
-        for _ in range(num_episodes):
-            obs, _ = eval_env.reset()
-            done = False
-            episodic_return = 0.0
-            episodic_length = 0
-            while not done:
-                obs_tensor = torch.as_tensor(
-                    obs, dtype=torch.float32, device=device
-                ).unsqueeze(0)
-                action_mean = agent.actor_mean(obs_tensor)
-                if deterministic:
-                    action = action_mean
-                else:
-                    action_std = torch.exp(agent.actor_logstd.expand_as(action_mean))
-                    action = Normal(action_mean, action_std).sample()
-                obs, reward, terminated, truncated, _ = eval_env.step(
-                    action.squeeze(0).cpu().numpy()
-                )
-                done = terminated or truncated
-                episodic_return += float(reward)
-                episodic_length += 1
-            episode_returns.append(episodic_return)
-            episode_lengths.append(episodic_length)
+    obs, _ = eval_envs.reset(seed=seed)
+    episode_returns = np.zeros(n_episodes, dtype=np.float64)
+    episode_lengths = np.zeros(n_episodes, dtype=np.int64)
+    final_returns = []
+    final_lengths = []
+    done_mask = np.zeros(n_episodes, dtype=bool)
 
-    if old_update_running_mean is not None:
-        eval_obs_norm.update_running_mean = old_update_running_mean
+    while len(final_returns) < n_episodes:
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
+        action = agent.actor_mean(obs_t).cpu().numpy()
+        obs, reward, terminated, truncated, _ = eval_envs.step(action)
+        episode_returns += np.asarray(reward, dtype=np.float64)
+        episode_lengths += 1
+        done = np.asarray(terminated) | np.asarray(truncated)
+        for i in range(n_episodes):
+            if not done_mask[i] and done[i]:
+                final_returns.append(float(episode_returns[i]))
+                final_lengths.append(int(episode_lengths[i]))
+                done_mask[i] = True
+
+    # Re-enable obs normalization updates.
+    for env in eval_envs.envs:
+        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
+        if norm is not None and hasattr(norm, "update_running_mean"):
+            norm.update_running_mean = True
+
     if was_training:
         agent.train()
 
-    return np.array(episode_returns), np.array(episode_lengths)
+    return np.array(final_returns), np.array(final_lengths)
 
 
 def log_episode_stats(infos, global_step: int):
@@ -343,10 +347,15 @@ class PPOTrainer:
                 for i in range(self.num_envs)
             ]
         )
-        self.eval_env = make_eval_env(
-            self.env_id,
-            self.seed + 10_000,
-            normalize_observation=self.normalize_obs,
+        self.eval_envs = gym.vector.SyncVectorEnv(
+            [
+                make_eval_env(
+                    self.env_id,
+                    self.seed + 10_000 + i,
+                    normalize_observation=self.normalize_obs,
+                )
+                for i in range(self.eval_episodes)
+            ]
         )
         assert isinstance(
             self.envs.single_action_space, gym.spaces.Box
@@ -469,13 +478,12 @@ class PPOTrainer:
 
                 if global_step // eval_interval > last_eval:
                     last_eval = global_step // eval_interval
-                    sync_obs_rms(self.envs.envs[0], self.eval_env)
-                    eval_returns, eval_lengths = evaluate(
+                    _sync_obs_rms_to_eval_envs(self.envs, self.eval_envs)
+                    eval_returns, eval_lengths = _evaluate_vectorized(
                         self.agent,
-                        self.eval_env,
+                        self.eval_envs,
                         self.device,
-                        self.eval_episodes,
-                        deterministic=self.eval_deterministic,
+                        seed=self.seed + 10_000,
                     )
                     metrics = {
                         "eval/return_max": float(np.max(eval_returns)),
@@ -657,4 +665,4 @@ class PPOTrainer:
             print("SPS:", sps)
 
         self.envs.close()
-        self.eval_env.close()
+        self.eval_envs.close()
