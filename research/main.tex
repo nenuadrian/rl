@@ -597,135 +597,83 @@ In implementation, the loss becomes
   \end{aligned}
 \end{equation}
 
-\section{EM for Fine-Tuning and LLM-Scale Adaptive Temperature}
+\section{The Case for Dropout}
+\label{sec:dropout_case}
 
-Both SFT and RL fine-tuning fit naturally into an EM template: the E-step constructs a target distribution over sequences, and the M-step fits the model to it by weighted maximum likelihood.
-
-\subsection{E-step / M-step for SFT}
-
-Let $\mathcal{D}_{\text{SFT}}=\{(x,y)\}$ be prompt--response pairs, and let $\tau=y$ denote the response sequence. Under teacher forcing, SFT minimizes token-level cross-entropy, equivalently maximizing $\log \pi_\theta(y\mid x)$.
-
-An EM view is obtained by defining an auxiliary distribution $q(\tau\mid x)$ that places all mass on the demonstrated response:
-\begin{equation}
-  \text{(E-step)}\quad q(\tau\mid x) := \delta(\tau=y).
-\end{equation}
-The M-step is then maximum likelihood under $q$:
-\begin{equation}
-  \text{(M-step)}\quad \max_\theta \; \mathbb{E}_{(x,y)\sim\mathcal{D}_{\text{SFT}}}\left[\log \pi_\theta(y\mid x)\right].
-\end{equation}
-More generally, label smoothing, n-best targets, or distillation from a teacher define non-degenerate $q(\tau\mid x)$ and preserve the same EM structure.
-
-\subsection{E-step / M-step for RL Fine-Tuning (KL-Regularised)}
-
-Consider RL fine-tuning on prompts $x\sim \mathcal{D}_x$ with reward $R(x,\tau)$ and a reference policy $\pi_{\mathrm{ref}}(\tau\mid x)$. A common objective is the KL-regularised expected reward
-\begin{equation*}
-  J(\theta) = \mathbb{E}_{x}\,\mathbb{E}_{\tau\sim \pi_\theta(\cdot\mid x)}
-  \Big[ R(x,\tau) - \beta\,\mathrm{KL}\!\big(\pi_\theta(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)\big)\Big],
-\end{equation*}
-with $\beta>0$ controlling the trust region to $\pi_{\mathrm{ref}}$.
-
-The E-step constructs an energy-based target distribution from rollouts and advantage estimates:
-\begin{equation*}
-  \text{(E-step)}\quad
-  q(\tau\mid x) \propto \pi_{\mathrm{ref}}(\tau\mid x)\exp\!\left(\frac{R(x,\tau)}{\beta}\right).
-\end{equation*}
-The M-step then fits the model to $q$ by weighted maximum likelihood:
-\begin{equation*}
-  \text{(M-step)}\quad
-  \max_\theta \; \mathbb{E}_{x}\,\mathbb{E}_{\tau\sim q(\cdot\mid x)}\left[\log \pi_\theta(\tau\mid x)\right],
-\end{equation*}
-optionally with an explicit constraint/penalty on $\mathrm{KL}(\pi_\theta\,\|\,\pi_{\mathrm{ref}})$ to stabilise optimisation.
-
-\subsection{Token-Level Form}
-
-For teacher-forced updates, the sequence-level log-likelihood decomposes token-by-token:
-\begin{equation*}
-  \log \pi_\theta(\tau\mid x)=\sum_{t=1}^T \log \pi_\theta(a_t\mid s_t).
-\end{equation*}
-Weighted M-steps are implemented with per-sequence weights $w_i$ broadcast uniformly to all tokens in that sequence, or alternatively with per-token weights where finer-grained advantage estimates are available.
-
-\subsection{Sequence-Level V-MPO at LLM Scale}
-
-At LLM scale the action space is the full token vocabulary and sequences can be hundreds of tokens long, so several practical adaptations are needed to apply the V-MPO EM procedure stably.
-
-Let a batch of sampled sequences be
+Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training and scales the remaining activations by $1/(1-p)$:
 \[
-  \mathcal{B}=\{(x^{(i)},y^{(i)},A^{(i)})\}_{i=1}^{N},
+  \tilde{h}_j = \frac{m_j}{1-p}\, h_j, \qquad m_j \sim \mathrm{Bernoulli}(1-p).
 \]
-where $A^{(i)}$ denotes a scalar sequence-level advantage (e.g.\ $A^{(i)}=r^{(i)}-V_\phi(x^{(i)})$). The V-MPO non-parametric E-step target over a selected subset $S\subset\{1,\dots,N\}$ is
-\begin{equation}
-  \label{eq:seq_estep_weights}
-  \psi(i) \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big),
-\end{equation}
-where $\eta>0$ is a temperature that controls how sharply the distribution peaks on high-advantage samples.
-
-\subsubsection{Dual Objective for the Temperature}
-
-Rather than fixing $\eta$ as a hyperparameter, V-MPO treats it as a dual variable and optimises it to satisfy a KL budget $\varepsilon_\eta$. Let $|S|=k$ and define the partition function
+In a Transformer this is typically applied in two places: after the attention weights (attention dropout) and after each feed-forward sub-layer (residual dropout). If $\mathbf{h}^{(l)}$ is the hidden state at layer $l$, the residual-dropout forward pass through one sub-layer $f^{(l)}$ is
 \[
-  Z(\eta) = \sum_{i\in S} \exp\!\Big(\frac{A^{(i)}}{\eta}\Big).
-\]
-The temperature dual objective is
-\[
-  \mathcal{L}_\eta(\eta)
-  =
-  \eta\,\varepsilon_\eta
-  +
-  \eta \log\!\Big(\frac{Z(\eta)}{k}\Big)
-  =
-  \eta\,\varepsilon_\eta + \eta\, g(\eta),
-\]
-where $g(\eta)=\log(Z(\eta)/k)$ and $\varepsilon_\eta > 0$ is the target entropy/KL budget. Minimising $\mathcal{L}_\eta$ with respect to $\eta$ automatically tunes the temperature so that the E-step distribution does not collapse or spread too widely.
-
-Taking the derivative, and using $g'(\eta) = -\frac{1}{\eta^2}\mathbb{E}_{p_\eta}[A]$ where $p_\eta$ is the softmax distribution over scaled advantages, gives
-\[
-  \frac{d\mathcal{L}_\eta}{d\eta}
-  =
-  \varepsilon_\eta + g(\eta) - \frac{1}{\eta}\,\mathbb{E}_{p_\eta}[A].
+  \mathbf{h}^{(l)} = \mathbf{h}^{(l-1)} + \mathrm{Dropout}\!\big(f^{(l)}(\mathbf{h}^{(l-1)})\big).
 \]
 
-\subsubsection{Numerically Stable Log-Sum-Exp Form}
+During SFT, dropout serves its classical purpose: it regularises the model and reduces overfitting to the demonstration distribution.  Most large-scale LLM pre-training runs (GPT-3, LLaMA, etc.) disable dropout entirely, relying instead on the sheer volume of data for regularisation. However, during fine-tuning the dataset is typically orders of magnitude smaller, and overfitting is a real concern, making dropout relevant again.
 
-Directly computing $Z(\eta)$ for large $|A^{(i)}|/\eta$ causes floating-point overflow. Defining scaled advantages $u_i = A^{(i)}/\eta$ and subtracting the batch maximum $m = \max_{i\in S} u_i$ gives
-\[
-  g(\eta)
-  =
-  m + \log\!\Big(\frac{1}{k}\sum_{i\in S}\exp(u_i - m)\Big),
-  \label{eq:seq_logsumexp}
-\]
-with normalised weights
-\[
-  w_i = \frac{\exp(u_i - m)}{\sum_{j\in S}\exp(u_j - m)}.
-\]
-Since $u_i - m \le 0$ for all $i$, no term can overflow.
+\subsection{Why PPO Disables Dropout}
 
-\subsubsection{Top-$k$ Selection}
-
-To focus the M-step on demonstrably good samples, the E-step restricts $S$ to the top-$\rho$ fraction of the batch by advantage. Using a detached (stop-gradient) temperature $\eta_{\mathrm{det}}$ for selection,
+Standard on-policy PPO collects a batch of trajectories under the current policy $\pi_{\theta_{\mathrm{old}}}$ (in eval mode, no dropout), then performs several epochs of gradient updates on that batch. The clipped objective relies on the importance-sampling ratio
 \[
-  u_i^{\mathrm{det}} = \frac{A^{(i)}}{\eta_{\mathrm{det}}}, \qquad
-  k = \max\!\big(1,\lfloor \rho N\rfloor\big), \qquad
-  S = \operatorname{Top-}k\!\left(u_i^{\mathrm{det}}\right).
+  r_t(\theta) = \frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}.
 \]
 
-\subsubsection{Positive Parameterisation of the Temperature}
+\paragraph{Problem 1: stochastic numerator.}
+If dropout is active during the optimisation epochs, $\pi_\theta(a_t \mid s_t)$ becomes a random variable that changes on every forward pass even for fixed $\theta$. The ratio $r_t(\theta)$ therefore fluctuates stochastically, injecting noise directly into the surrogate objective and its gradients. Because PPO's clip window $[1-\epsilon,\,1+\epsilon]$ is deliberately narrow (typically $\epsilon=0.2$), even moderate stochastic perturbation can push the ratio outside the clip region or mask genuine policy changes, degrading the signal.
 
-To ensure $\eta > 0$ throughout optimisation, an unconstrained scalar $\xi\in\mathbb{R}$ is introduced:
+\paragraph{Problem 2: inconsistent denominator.}
+The denominator $\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)$ is computed once at rollout time in eval mode (no dropout). If the training forward pass uses a different dropout mask, the numerator and denominator are computed under \emph{different} effective networks.  The ratio no longer measures how far the policy has moved; it conflates policy change with mask change:
 \[
-  \eta(\xi) = \operatorname{softplus}(\xi) + \epsilon, \qquad \epsilon>0.
+  r_t(\theta) = \frac{\pi_\theta^{(\text{mask}_1)}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}^{(\text{no mask})}(a_t \mid s_t)}.
 \]
-Gradient updates are applied to $\xi$ via the chain rule $\nabla_\xi \mathcal{L}_\eta = (d\mathcal{L}_\eta/d\eta)(d\eta/d\xi)$.
+This breaks the theoretical guarantee that clipping $r_t$ constrains the KL divergence between consecutive policies.
 
-\subsubsection{Sequence-Level M-Step}
+\paragraph{Problem 3: KL penalty corruption.}
+Many PPO implementations add an auxiliary KL penalty $\widehat{\mathrm{KL}} = \mathbb{E}_t[\ell_{\mathrm{old},t} - \ell_{\theta,t}]$ or use it for early stopping. With dropout active, the estimated KL is biased upward (the mask-induced variance appears as divergence), causing premature termination of updates or an overly conservative step.
 
-Once the weights are computed, the M-step minimises the weighted teacher-forced cross-entropy over selected sequences:
-\begin{equation}
-  \label{eq:seq_weighted_mstep}
-  \mathcal{L}_\pi(\theta)
-  =
-  -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
-  \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
-\end{equation}
+For these reasons, all mainstream PPO implementations (including those used for RLHF in InstructGPT, LLaMA, etc.) run the policy in eval mode during both rollout and optimisation, forgoing any regularisation benefit that dropout could provide.
+
+\subsection{Why V-MPO / EM-Style Methods Are Dropout-Compatible}
+
+The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is \emph{pure weighted supervised learning}.  Neither step requires a probability ratio between two forward passes under different modes.
+
+\paragraph{E-step: weights from advantages, not ratios.}
+The non-parametric target uses the same sequence-level exponential weighting as
+Eq.~\eqref{eq:seq_estep_weights}.
+Here $A^{(i)} = G^{(i)} - V_\phi(s^{(i)})$ depends on the value function and the observed return, not on a ratio of policy probabilities. The value function $V_\phi$ is a regression target; dropout can be disabled for the single forward pass that computes advantages at rollout time (just as PPO evaluates its value head in eval mode), or it can remain active since the advantage computation is a one-shot evaluation, not an iterative ratio.
+
+\paragraph{M-step: standard cross-entropy.}
+The M-step objective is the weighted teacher-forced cross-entropy in
+Eq.~\eqref{eq:seq_weighted_mstep},
+which is structurally identical to SFT with per-sequence weights. Dropout is fully compatible here for the same reason it is compatible with any supervised cross-entropy objective: the loss is evaluated under a single stochastic forward pass, and the gradient is an unbiased estimator of the expected loss under the dropout distribution.
+
+\paragraph{No ratio, no conflict.}
+The key structural difference is summarised in the following table:
+
+\medskip
+\begin{center}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{PPO} & \textbf{V-MPO / EM} \\
+    \midrule
+    Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
+    Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
+    Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
+    Dropout in training pass & Corrupts ratio & Standard regularisation \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+\medskip
+
+Because the E-step weights $w_i$ are \emph{detached} from the current parameters, the M-step gradient with dropout active is
+\[
+  \nabla_\theta \mathcal{L}_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
+\]
+which is an unbiased estimate of the true weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. No eval-mode forward pass needs to be compared against this quantity.
+
+\subsection{Practical Implications}
+
+In the LLM fine-tuning regime where data is limited and overfitting is a practical concern, V-MPO's EM structure therefore offers a regularisation advantage over PPO: dropout (and related stochastic regularisers such as DropPath or stochastic depth) can be enabled during the M-step without any algorithmic modification, providing the same generalisation benefits observed in supervised fine-tuning. PPO, by contrast, must rely on non-architectural regularisation (weight decay, gradient clipping, early stopping) because its core mechanism is incompatible with stochastic forward passes.
 
 \section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
@@ -1058,7 +1006,7 @@ Although DAR and V-MPO share the same advantage-exponential device, they differ 
 
 \paragraph{Bridge to the EM.}
 The sequence-level EM procedure in
-Eq.~\eqref{eq:seq_estep_weights} through Eq.~\eqref{eq:seq_weighted_mstep}
+Section~\ref{sec:vmpo_llm_gempi}, Eq.~\eqref{eq:seq_estep_weights} through Eq.~\eqref{eq:seq_weighted_mstep},
 and the DAR formulation are two views of the same update pattern: an E-step that
 constructs exponential advantage weights followed by a weighted teacher-forced M-step.
 In the LLM-scale V-MPO view, $\eta$ is adapted online via a dual objective and the
@@ -1327,7 +1275,7 @@ direct mitigations of the above errors.
     $O\big(\mathbb{E}_{q^\star}[q^\star/\pi_t \cdot \mathbf{1}_{i \notin S}]\big)$,
     which is small when the top-$k$ fraction $\rho$ is chosen so that the omitted tail
     of $q^\star$ is negligible.
-  \item \textbf{Log-sum-exp normalisation} (Eq.~\eqref{eq:seq_logsumexp}) addresses floating-point
+  \item \textbf{Log-sum-exp normalisation} addresses floating-point
     representation of $\hat Z$ rather than its statistical properties, but is a
     necessary precondition for the estimates above to be numerically meaningful at
     large $|\!A|/\Lambda$.
@@ -1497,6 +1445,104 @@ Adding a KL trust-region constraint to DAR's currently unconstrained M-step crea
 \paragraph{Top-$k$ DAR.}
 Applying V-MPO's top-$k$ filtering to the DAR E-step. Currently DAR uses all samples; restricting to the top-$k$ by advantage before computing the geometric mixture weights could improve sample efficiency by focusing the M-step on demonstrably high-quality sequences.
 
+\section{V-MPO for LLM RL within GEMPI}
+\label{sec:vmpo_llm_gempi}
+
+This section instantiates GEMPI for online RL alignment of autoregressive transformers. For prompts $x \sim \mathcal{D}_x$, the policy $\pi_\theta(y\mid x)$ generates full responses $y=(y_1,\dots,y_T)$ and receives sequence-level rewards from a preference/reward model. We use sequence-level advantages
+\[
+  A^{(i)} = r^{(i)} - V_\phi(x^{(i)}),
+\]
+and perform EM-style policy improvement with V-MPO structure.
+
+\subsection{GEMPI Instantiation for LLM V-MPO}
+
+The LLM variant corresponds to the GEMPI tuple
+\[
+  \mathcal{G}_{\mathrm{LLM\text{-}V\!-\!MPO}}
+  =
+  \big(
+    \{\mathrm{KL}\},
+    \{\pi_t\},
+    \{\eta\},
+    \text{dual-adaptive},
+    \text{top-}k,
+    \mathrm{KL},
+    \varepsilon_\alpha
+  \big),
+\]
+that is, a single KL anchor $\pi_t$ in the E-step, dual adaptation of $\eta$, top-$k$ support filtering, and an optional KL trust region in the M-step.
+
+\subsection{Sequence-Level E-Step for Transformer Rollouts}
+
+Given a rollout batch
+\[
+  \mathcal{B}=\{(x^{(i)},y^{(i)},A^{(i)})\}_{i=1}^{N},
+\]
+and selected subset $S\subset\{1,\dots,N\}$, the non-parametric E-step target is
+\begin{equation}
+  \label{eq:seq_estep_weights}
+  \psi(i) \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big).
+\end{equation}
+After normalisation, these become per-sequence weights $w_i$ used by the M-step.
+
+The temperature is adapted through the dual objective
+\[
+  \mathcal{L}_\eta(\eta)
+  =
+  \eta\,\varepsilon_\eta
+  +
+  \eta\log\!\Big(\frac{1}{k}\sum_{i\in S}\exp\!\Big(\frac{A^{(i)}}{\eta}\Big)\Big),
+\]
+with $k=|S|$. A numerically stable log-sum-exp form is
+\begin{equation}
+  \label{eq:seq_logsumexp}
+  g(\eta)
+  =
+  m + \log\!\Big(\frac{1}{k}\sum_{i\in S}\exp(u_i-m)\Big),
+  \qquad
+  u_i=\frac{A^{(i)}}{\eta},\quad m=\max_{i\in S}u_i.
+\end{equation}
+
+In practice, $S$ is chosen as top-$k$ by detached scaled advantage:
+\[
+  u_i^{\mathrm{det}} = \frac{A^{(i)}}{\eta_{\mathrm{det}}}, \qquad
+  k = \max\!\big(1,\lfloor \rho N\rfloor\big), \qquad
+  S = \operatorname{Top-}k\!\left(u_i^{\mathrm{det}}\right).
+\]
+
+\subsection{M-Step as Weighted Teacher-Forced Transformer Training}
+
+The parametric projection is weighted teacher-forced cross-entropy:
+\begin{equation}
+  \label{eq:seq_weighted_mstep}
+  \mathcal{L}_\pi(\theta)
+  =
+  -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
+  \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
+\end{equation}
+
+This keeps the update in standard transformer training form (teacher forcing over tokens) while importing RL information through detached sequence weights $w_i$. When desired, a KL trust-region term to $\pi_t$ is added exactly as in the V-MPO M-step.
+
+\subsection{Transformer-Specific Practicalities}
+
+\begin{itemize}
+  \item \textbf{Sequence-level credit assignment.} Rewards are naturally sequence-level in LLM alignment; the EM weighting avoids unstable token-wise importance ratios.
+  \item \textbf{Long-context batching.} Variable-length prompts and completions require masking and packed batches; the weighted M-step remains unchanged under standard attention masks.
+  \item \textbf{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
+  \item \textbf{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
+\end{itemize}
+
+\subsection{Dropout in the LLM V-MPO M-Step}
+
+Because E-step weights are detached from current parameters, the M-step with dropout mask sampling remains
+\[
+  \nabla_\theta \mathcal{L}_\pi
+  =
+  -\sum_{i\in S} w_i \sum_t
+  \nabla_\theta \log \pi_\theta^{(\mathrm{mask})}\!\big(y_t^{(i)}\mid y_{<t}^{(i)},x^{(i)}\big),
+\]
+which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
+
 \section{Transformers - TrXL}
 
 The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
@@ -1539,83 +1585,6 @@ V-MPO is an on-policy algorithm that performs policy improvement via an EM proce
 \subsubsection{Architecture and Training Configuration}
 
 For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
-
-\section{The Case for Dropout}
-
-Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training and scales the remaining activations by $1/(1-p)$:
-\[
-  \tilde{h}_j = \frac{m_j}{1-p}\, h_j, \qquad m_j \sim \mathrm{Bernoulli}(1-p).
-\]
-In a Transformer this is typically applied in two places: after the attention weights (attention dropout) and after each feed-forward sub-layer (residual dropout). If $\mathbf{h}^{(l)}$ is the hidden state at layer $l$, the residual-dropout forward pass through one sub-layer $f^{(l)}$ is
-\[
-  \mathbf{h}^{(l)} = \mathbf{h}^{(l-1)} + \mathrm{Dropout}\!\big(f^{(l)}(\mathbf{h}^{(l-1)})\big).
-\]
-
-During SFT, dropout serves its classical purpose: it regularises the model and reduces overfitting to the demonstration distribution.  Most large-scale LLM pre-training runs (GPT-3, LLaMA, etc.) disable dropout entirely, relying instead on the sheer volume of data for regularisation. However, during fine-tuning the dataset is typically orders of magnitude smaller, and overfitting is a real concern, making dropout relevant again.
-
-\subsection{Why PPO Disables Dropout}
-
-Standard on-policy PPO collects a batch of trajectories under the current policy $\pi_{\theta_{\mathrm{old}}}$ (in eval mode, no dropout), then performs several epochs of gradient updates on that batch. The clipped objective relies on the importance-sampling ratio
-\[
-  r_t(\theta) = \frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}.
-\]
-
-\paragraph{Problem 1: stochastic numerator.}
-If dropout is active during the optimisation epochs, $\pi_\theta(a_t \mid s_t)$ becomes a random variable that changes on every forward pass even for fixed $\theta$. The ratio $r_t(\theta)$ therefore fluctuates stochastically, injecting noise directly into the surrogate objective and its gradients. Because PPO's clip window $[1-\epsilon,\,1+\epsilon]$ is deliberately narrow (typically $\epsilon=0.2$), even moderate stochastic perturbation can push the ratio outside the clip region or mask genuine policy changes, degrading the signal.
-
-\paragraph{Problem 2: inconsistent denominator.}
-The denominator $\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)$ is computed once at rollout time in eval mode (no dropout). If the training forward pass uses a different dropout mask, the numerator and denominator are computed under \emph{different} effective networks.  The ratio no longer measures how far the policy has moved; it conflates policy change with mask change:
-\[
-  r_t(\theta) = \frac{\pi_\theta^{(\text{mask}_1)}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}^{(\text{no mask})}(a_t \mid s_t)}.
-\]
-This breaks the theoretical guarantee that clipping $r_t$ constrains the KL divergence between consecutive policies.
-
-\paragraph{Problem 3: KL penalty corruption.}
-Many PPO implementations add an auxiliary KL penalty $\widehat{\mathrm{KL}} = \mathbb{E}_t[\ell_{\mathrm{old},t} - \ell_{\theta,t}]$ or use it for early stopping. With dropout active, the estimated KL is biased upward (the mask-induced variance appears as divergence), causing premature termination of updates or an overly conservative step.
-
-For these reasons, all mainstream PPO implementations (including those used for RLHF in InstructGPT, LLaMA, etc.) run the policy in eval mode during both rollout and optimisation, forgoing any regularisation benefit that dropout could provide.
-
-\subsection{Why V-MPO / EM-Style Methods Are Dropout-Compatible}
-
-The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is \emph{pure weighted supervised learning}.  Neither step requires a probability ratio between two forward passes under different modes.
-
-\paragraph{E-step: weights from advantages, not ratios.}
-The non-parametric target uses the same sequence-level exponential weighting as
-Eq.~\eqref{eq:seq_estep_weights}.
-Here $A^{(i)} = G^{(i)} - V_\phi(s^{(i)})$ depends on the value function and the observed return, not on a ratio of policy probabilities. The value function $V_\phi$ is a regression target; dropout can be disabled for the single forward pass that computes advantages at rollout time (just as PPO evaluates its value head in eval mode), or it can remain active since the advantage computation is a one-shot evaluation, not an iterative ratio.
-
-\paragraph{M-step: standard cross-entropy.}
-The M-step objective is the weighted teacher-forced cross-entropy in
-Eq.~\eqref{eq:seq_weighted_mstep},
-which is structurally identical to SFT with per-sequence weights. Dropout is fully compatible here for the same reason it is compatible with any supervised cross-entropy objective: the loss is evaluated under a single stochastic forward pass, and the gradient is an unbiased estimator of the expected loss under the dropout distribution.
-
-\paragraph{No ratio, no conflict.}
-The key structural difference is summarised in the following table:
-
-\medskip
-\begin{center}
-  \begin{tabular}{lcc}
-    \toprule
-    & \textbf{PPO} & \textbf{V-MPO / EM} \\
-    \midrule
-    Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
-    Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
-    Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
-    Dropout in training pass & Corrupts ratio & Standard regularisation \\
-    \bottomrule
-  \end{tabular}
-\end{center}
-\medskip
-
-Because the E-step weights $w_i$ are \emph{detached} from the current parameters, the M-step gradient with dropout active is
-\[
-  \nabla_\theta \mathcal{L}_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
-\]
-which is an unbiased estimate of the true weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. No eval-mode forward pass needs to be compared against this quantity.
-
-\subsection{Practical Implications}
-
-In the LLM fine-tuning regime where data is limited and overfitting is a practical concern, V-MPO's EM structure therefore offers a regularisation advantage over PPO: dropout (and related stochastic regularisers such as DropPath or stochastic depth) can be enabled during the M-step without any algorithmic modification, providing the same generalisation benefits observed in supervised fine-tuning. PPO, by contrast, must rely on non-architectural regularisation (weight decay, gradient clipping, early stopping) because its core mechanism is incompatible with stochastic forward passes.
 
 \section{References}
 

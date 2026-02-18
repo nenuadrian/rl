@@ -8,7 +8,7 @@ from hyperparameters._common import get_preset
 SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 4096,
-    "m_steps": 7,
+    "m_steps": 5,
     "policy_layer_sizes": (512, 256, 256),
     "value_layer_sizes": (512, 256, 256),
     "gamma": 0.99,
@@ -21,15 +21,10 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "epsilon_eta": 0.1,
     "epsilon_mu": 0.02,
     "epsilon_sigma": 0.005,
-    "max_grad_norm": 10.0,
+    "max_grad_norm": 20.0,
     "normalize_advantages": True,
     "optimizer_type": "adam",
     "shared_encoder": False,
-}
-
-HUMANOID_V5_VMPO_PARAMS: dict[str, Any] = {
-    "total_steps": 10_000_000,
-    **SHARED_VMPO_PARAMS,
 }
 
 
@@ -59,12 +54,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_VMPO_PARAMS,
     },
     "Humanoid-v5": {
-        "total_steps": 10_000_000,
-        **HUMANOID_V5_VMPO_PARAMS,
+        "total_steps": 5_000_000,
+        **SHARED_VMPO_PARAMS,
     },
     "Ant-v5": {
-        "total_steps": 10_000_000,
-        **HUMANOID_V5_VMPO_PARAMS,
+        "total_steps": 5_000_000,
+        **SHARED_VMPO_PARAMS,
     },
     "HalfCheetah-v5": {
         "total_steps": 2_000_000,
