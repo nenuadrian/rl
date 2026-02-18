@@ -478,7 +478,7 @@ class VMPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 50)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
+        eval_interval = max(1, total_steps // 150)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
         console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[VMPO] training started: "
