@@ -38,7 +38,7 @@ class VMPOAgent:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         shared_encoder: bool = False,
-        updates_per_step: int = 1,
+        m_steps: int = 1,
     ):
         self.device = device
         self.normalize_advantages = bool(normalize_advantages)
@@ -57,8 +57,8 @@ class VMPOAgent:
         self.max_grad_norm = float(max_grad_norm)
         self.optimizer_type = str(optimizer_type)
         self.sgd_momentum = float(sgd_momentum)
-        self.updates_per_step = int(updates_per_step)
-        
+        self.m_steps = int(m_steps)
+
         self.policy = SquashedGaussianPolicy(
             obs_dim=obs_dim,
             act_dim=act_dim,
@@ -72,12 +72,20 @@ class VMPOAgent:
         value_params = list(self.policy.value_head.parameters())
         if not self.policy.shared_encoder:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
-        self.combined_opt = self._build_optimizer([
-            {"params": self.policy.policy_encoder.parameters(), "lr": self.policy_lr},
-            {"params": self.policy.policy_mean.parameters(),    "lr": self.policy_lr},
-            {"params": self.policy.policy_logstd.parameters(),  "lr": self.policy_lr},
-            {"params": value_params,                            "lr": self.value_lr},
-        ])
+        policy_lr_eff = self.policy_lr / self.m_steps
+        value_lr_eff = self.value_lr / self.m_steps
+
+        self.combined_opt = self._build_optimizer(
+            [
+                {
+                    "params": self.policy.policy_encoder.parameters(),
+                    "lr": policy_lr_eff,
+                },
+                {"params": self.policy.policy_mean.parameters(), "lr": policy_lr_eff},
+                {"params": self.policy.policy_logstd.parameters(), "lr": policy_lr_eff},
+                {"params": value_params, "lr": value_lr_eff},
+            ]
+        )
         self.opt = self.combined_opt
 
         # Lagrange Multipliers (Dual Variables)
@@ -275,7 +283,7 @@ class VMPOAgent:
         # M-Step: Policy & Value Update
         # ================================================================
 
-        for _ in range(self.updates_per_step):  # Multiple epochs of optimization per batch
+        for _ in range(self.m_steps):  # Multiple epochs of optimization per batch
             # Run forward pass on ALL observations
             current_mean, current_log_std, v_pred_fw = self.policy.forward_all(obs)
             v_pred = v_pred_fw.squeeze(-1)
@@ -340,9 +348,9 @@ class VMPOAgent:
             alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
 
             # We minimize: alpha * (epsilon - KL)
-            alpha_loss = alpha_mu * (self.epsilon_mu - kl_mu_sel.detach()) + alpha_sigma * (
-                self.epsilon_sigma - kl_sigma_sel.detach()
-            )
+            alpha_loss = alpha_mu * (
+                self.epsilon_mu - kl_mu_sel.detach()
+            ) + alpha_sigma * (self.epsilon_sigma - kl_sigma_sel.detach())
 
             self.alpha_opt.zero_grad()
             alpha_loss.backward()
@@ -354,7 +362,9 @@ class VMPOAgent:
                 alpha_sigma_det = F.softplus(self.log_alpha_sigma).detach() + 1e-8
 
             policy_loss = (
-                weighted_nll + (alpha_mu_det * kl_mu_sel) + (alpha_sigma_det * kl_sigma_sel)
+                weighted_nll
+                + (alpha_mu_det * kl_mu_sel)
+                + (alpha_sigma_det * kl_sigma_sel)
             )
 
             # -- Critic Loss --
@@ -364,11 +374,15 @@ class VMPOAgent:
             self.combined_opt.zero_grad()
             total_loss.backward()
             nn.utils.clip_grad_norm_(
-                list(self.policy.policy_encoder.parameters()) +
-                list(self.policy.policy_mean.parameters()) +
-                list(self.policy.policy_logstd.parameters()) +
-                ([] if self.policy.shared_encoder else list(self.policy.value_encoder.parameters())) +
-                list(self.policy.value_head.parameters()),
+                list(self.policy.policy_encoder.parameters())
+                + list(self.policy.policy_mean.parameters())
+                + list(self.policy.policy_logstd.parameters())
+                + (
+                    []
+                    if self.policy.shared_encoder
+                    else list(self.policy.value_encoder.parameters())
+                )
+                + list(self.policy.value_head.parameters()),
                 self.max_grad_norm,
             )
             self.combined_opt.step()

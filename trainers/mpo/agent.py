@@ -224,6 +224,7 @@ class MPOAgent:
         sgd_momentum: float = 0.9,
         init_log_alpha_mean: float = 10.0,
         init_log_alpha_stddev: float = 1000.0,
+        m_steps: int = 1,
     ):
         self.device = device
         self.gamma = float(gamma)
@@ -245,6 +246,7 @@ class MPOAgent:
         self.retrace_lambda = float(retrace_lambda)
         self.optimizer_type = str(optimizer_type)
         self.sgd_momentum = float(sgd_momentum)
+        self.m_steps = int(m_steps)
 
         # Learner step counter for periodic target synchronization.
         self._num_steps = 0
@@ -276,8 +278,9 @@ class MPOAgent:
         self.q_target.eval()
 
         # Train policy encoder + head together; critics share a separate encoder.
+        policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))
         self.policy_opt = self._build_optimizer(
-            self.policy.parameters(), lr=self.policy_lr
+            self.policy.parameters(), lr=policy_lr_effective
         )
 
         # Critic optimizer.
@@ -285,7 +288,8 @@ class MPOAgent:
 
         # Dual variables (temperature + KL multipliers) in log-space.
         self.log_temperature = nn.Parameter(
-            torch.tensor(self.temperature_init, device=device)        )
+            torch.tensor(self.temperature_init, device=device)
+        )
 
         lambda_init_t = torch.tensor(self.lambda_init, device=device)
         lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)
@@ -709,12 +713,79 @@ class MPOAgent:
         )
         self.dual_opt.step()
 
-        # Policy update (M-step).
-        policy_total_loss = loss_policy + loss_kl_penalty
-        self.policy_opt.zero_grad()
-        policy_total_loss.backward()
-        nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-        self.policy_opt.step()
+        # ---------- after dual_opt.step() ----------
+        # Recompute the post-update dual multipliers and freeze fixed E-step tensors.
+        with torch.no_grad():
+            mean_target_det = mean_target.detach()
+            log_std_target_det = log_std_target.detach()
+            std_target_det = std_target.detach()
+            weights_det = weights.detach()  # (B,N)
+            actions_det = actions.detach()  # (B,N,D)
+
+        # Recompute dual multipliers AFTER dual_opt.step()
+        alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()  # (D,)
+        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()  # (D,)
+
+        # Parameter delta diagnostic: snapshot BEFORE M-step
+        with torch.no_grad():
+            params_before = (
+                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()
+            )
+
+        # Inner M-step (recompute online outputs each iteration)
+        for _ in range(int(self.m_steps)):
+            mean_online, log_std_online = self.policy(obs)  # (B,D), (B,D)
+            std_online = torch.exp(log_std_online)
+
+            # expand shapes for (B,N,D)
+            mean_online_exp = mean_online.unsqueeze(1)
+            std_online_exp = std_online.unsqueeze(1)
+            mean_target_exp = mean_target_det.unsqueeze(1)
+            std_target_exp = std_target_det.unsqueeze(1)
+
+            # cross-entropy pieces
+            log_prob_fixed_stddev = (
+                Normal(mean_online_exp, std_target_exp)
+                .log_prob(actions_det)
+                .sum(dim=-1)
+            )
+            log_prob_fixed_mean = (
+                Normal(mean_target_exp, std_online_exp)
+                .log_prob(actions_det)
+                .sum(dim=-1)
+            )
+
+            loss_policy_mean = -(weights_det * log_prob_fixed_stddev).sum(dim=1).mean()
+            loss_policy_std = -(weights_det * log_prob_fixed_mean).sum(dim=1).mean()
+            loss_policy = loss_policy_mean + loss_policy_std
+
+            # KL penalties (compare online -> frozen target)
+            kl_mean = self._kl_diag_gaussian_per_dim(
+                mean_target_det, log_std_target_det, mean_online, log_std_target_det
+            )  # (B,D)
+            kl_std = self._kl_diag_gaussian_per_dim(
+                mean_target_det, log_std_target_det, mean_target_det, log_std_online
+            )  # (B,D)
+            mean_kl_mean = kl_mean.mean(dim=0)  # (D,)
+            mean_kl_std = kl_std.mean(dim=0)  # (D,)
+
+            loss_kl_mean = (alpha_mean_det * mean_kl_mean).sum()
+            loss_kl_std = (alpha_std_det * mean_kl_std).sum()
+            loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+            policy_total_loss = loss_policy + loss_kl_penalty
+
+            self.policy_opt.zero_grad()
+            policy_total_loss.backward()
+            nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            self.policy_opt.step()
+
+        # snapshot after M-step
+        with torch.no_grad():
+            params_after = (
+                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()
+            )
+            param_delta = torch.norm(params_after - params_before)
 
         # Increment step counter for target-sync cadence bookkeeping.
         self._num_steps += 1
@@ -723,10 +794,11 @@ class MPOAgent:
         temperature_val = float(
             (F.softplus(self.log_temperature) + 1e-8).detach().item()
         )
-        
+
         entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
 
         return {
+            "train/param_delta": float(param_delta.item()),
             "loss/q": float(q_loss.item()),
             "loss/policy": float(loss_policy.item()),
             "loss/dual_eta": float(loss_temperature.detach().item()),

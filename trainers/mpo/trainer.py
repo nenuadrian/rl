@@ -79,10 +79,12 @@ class MPOTrainer:
         sgd_momentum: float = 0.9,
         init_log_alpha_mean: float = 10.0,
         init_log_alpha_stddev: float = 1000.0,
+        m_steps: int = 1,
     ):
         self.seed = seed
         self.use_retrace = bool(use_retrace)
         self.retrace_steps = int(retrace_steps)
+        self.m_steps = int(m_steps)
         self.env = _make_env(
             env_id,
             seed=seed,
@@ -135,6 +137,7 @@ class MPOTrainer:
             sgd_momentum=sgd_momentum,
             init_log_alpha_mean=init_log_alpha_mean,
             init_log_alpha_stddev=init_log_alpha_stddev,
+            m_steps=m_steps,
         )
 
         self.replay_capacity = int(replay_size)
@@ -264,7 +267,6 @@ class MPOTrainer:
         update_after: int,
         batch_size: int,
         out_dir: str,
-        updates_per_step: int = 1,
     ):
         total_steps = int(total_steps)
         update_after = int(update_after)
@@ -276,7 +278,7 @@ class MPOTrainer:
             f"total_steps={total_steps}, "
             f"update_after={update_after}, "
             f"batch_size={batch_size}, "
-            f"updates_per_step={int(updates_per_step)}, "
+            f"m_steps={int(self.m_steps)}, "
             f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
@@ -344,34 +346,33 @@ class MPOTrainer:
                 if step >= update_after and self.replay_size >= batch_size:
                     step_metric_sums: Dict[str, float] = {}
                     step_update_count = 0
-                    for _ in range(int(updates_per_step)):
-                        seq_len = self.retrace_steps
-                        if self.use_retrace and seq_len > 1:
-                            if self.replay_size >= batch_size + seq_len:
-                                batch = self._sample_sequences(
-                                    batch_size=batch_size, seq_len=seq_len
-                                )
-                            else:
-                                continue
+                    seq_len = self.retrace_steps
+                    if self.use_retrace and seq_len > 1:
+                        if self.replay_size >= batch_size + seq_len:
+                            batch = self._sample_sequences(
+                                batch_size=batch_size, seq_len=seq_len
+                            )
                         else:
-                            batch = self.replay.sample(batch_size=int(batch_size))
-
-                        metrics = self.agent.update(batch)
-                        if metrics is None:
-                            self._skipped_nonfinite_batches += 1
                             continue
+                    else:
+                        batch = self.replay.sample(batch_size=int(batch_size))
 
-                        for key, value in metrics.items():
-                            step_metric_sums[key] = step_metric_sums.get(
-                                key, 0.0
-                            ) + float(value)
-                        step_update_count += 1
-                        for key, value in metrics.items():
-                            interval_metric_sums[key] = interval_metric_sums.get(
-                                key, 0.0
-                            ) + float(value)
-                        interval_update_count += 1
-                        total_update_count += 1
+                    metrics = self.agent.update(batch)
+                    if metrics is None:
+                        self._skipped_nonfinite_batches += 1
+                        continue
+
+                    for key, value in metrics.items():
+                        step_metric_sums[key] = step_metric_sums.get(
+                            key, 0.0
+                        ) + float(value)
+                    step_update_count += 1
+                    for key, value in metrics.items():
+                        interval_metric_sums[key] = interval_metric_sums.get(
+                            key, 0.0
+                        ) + float(value)
+                    interval_update_count += 1
+                    total_update_count += 1
 
                     if step_update_count > 0:
                         step_mean_metrics = {

@@ -66,7 +66,7 @@ Rows are hyperparameters and columns are environments. If multiple runs differ f
 | `temperature_lr` | 0.0003 | 0.0003 |
 | `total_steps` | 400000 | 400000 |
 | `update_after` | 1000 | 1000 |
-| `updates_per_step` | 1 | 2 |
+| `m_steps` | 1 | 2 |
 | `use_retrace` | False | True |
 
 ### `ppo`
@@ -156,7 +156,7 @@ Environments 1-4 of 5.
 | `temperature_lr` | 0.001 | 0.001 | 0.001 | 0.0002 |
 | `topk_fraction` | 0.45 | 0.45 | 0.45 | 0.4 |
 | `total_steps` | 3000000 | 3000000 | 3000000 | 3000000 |
-| `updates_per_step` | 1 | 1 | 1 | 1 |
+| `m_steps` | 1 | 1 | 1 | 1 |
 | `value_layer_sizes` | [512,512,256] | [512,512,256] | [512,512,256] | [512,512,256] |
 | `value_lr` | 0.0003 | 0.0003 | 0.0003 | 0.0001 |
 
@@ -185,7 +185,7 @@ Environments 5-5 of 5.
 | `temperature_lr` | 0.001 |
 | `topk_fraction` | 0.4 |
 | `total_steps` | 3000000 |
-| `updates_per_step` | 1 |
+| `m_steps` | 1 |
 | `value_layer_sizes` | [512,512,256] |
 | `value_lr` | 0.0003 |
 

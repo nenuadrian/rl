@@ -804,7 +804,7 @@ class VMPOTrainer:
         self,
         total_steps: int,
         out_dir: str,
-        updates_per_step: int = 1,
+        m_steps: int = 1,
     ):
         total_steps = int(total_steps)
         eval_interval = max(1, total_steps // 50)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
@@ -814,7 +814,7 @@ class VMPOTrainer:
             f"total_steps={total_steps}, "
             f"rollout_steps={self.rollout_steps}, "
             f"num_envs={self.num_envs}, "
-            f"updates_per_step={int(updates_per_step)}, "
+            f"m_steps={int(m_steps)}, "
             f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
@@ -1014,7 +1014,7 @@ class VMPOTrainer:
                 }
 
                 metrics = {}
-                for _ in range(updates_per_step):
+                for _ in range(m_steps):
                     metrics = self.agent.update(batch)
                     log_wandb(metrics, step=global_step, silent=True)
                     for key, value in metrics.items():

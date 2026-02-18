@@ -112,7 +112,7 @@ _No docstring provided._
 ##### `train`
 
 ```python
-def train(self, total_steps: int, update_after: int, batch_size: int, out_dir: str, updates_per_step: int = 1)
+def train(self, total_steps: int, update_after: int, batch_size: int, out_dir: str, m_steps: int = 1)
 ```
 
 _No docstring provided._

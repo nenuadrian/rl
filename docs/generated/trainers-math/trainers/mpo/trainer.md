@@ -275,7 +275,7 @@ class MPOTrainer:
         update_after: int,
         batch_size: int,
         out_dir: str,
-        updates_per_step: int = 1,
+        m_steps: int = 1,
     ):
         total_steps = int(total_steps)
         update_after = int(update_after)
@@ -287,7 +287,7 @@ class MPOTrainer:
             f"total_steps={total_steps}, "
             f"update_after={update_after}, "
             f"batch_size={batch_size}, "
-            f"updates_per_step={int(updates_per_step)}, "
+            f"m_steps={int(m_steps)}, "
             f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
@@ -355,7 +355,7 @@ class MPOTrainer:
                 if step >= update_after and self.replay_size >= batch_size:
                     step_metric_sums: Dict[str, float] = {}
                     step_update_count = 0
-                    for _ in range(int(updates_per_step)):
+                    for _ in range(int(m_steps)):
                         seq_len = self.retrace_steps
                         if self.use_retrace and seq_len > 1:
                             if self.replay_size >= batch_size + seq_len:

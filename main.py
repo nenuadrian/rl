@@ -305,7 +305,7 @@ if __name__ == "__main__":
             "optimizer_type": str(args.optimizer_type),
             "sgd_momentum": float(args.sgd_momentum),
             "shared_encoder": bool(args.shared_encoder),
-            "updates_per_step": int(args.updates_per_step),
+            "m_steps": int(args.m_steps),
         }
         _print_config("VMPO config", vmpo_params)
 
@@ -334,11 +334,11 @@ if __name__ == "__main__":
             sgd_momentum=float(args.sgd_momentum),
             shared_encoder=bool(args.shared_encoder),
             num_envs=int(args.num_envs),
-            updates_per_step=int(args.updates_per_step),
+            m_steps=int(args.m_steps),
         )
         trainer.train(
             total_steps=args.total_steps,
-            updates_per_step=int(args.updates_per_step),
+            m_steps=int(args.m_steps),
             out_dir=args.out_dir,
         )
     elif algo == "mpo":
@@ -398,7 +398,7 @@ if __name__ == "__main__":
             update_after=args.update_after,
             batch_size=args.batch_size,
             out_dir=args.out_dir,
-            updates_per_step=int(args.updates_per_step),
+            m_steps=int(args.m_steps),
         )
 
     finish_wandb()

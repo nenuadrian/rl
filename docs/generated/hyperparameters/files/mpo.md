@@ -14,7 +14,7 @@ SHARED_MPO_PARAMS: dict[str, Any] = {
     "total_steps": 500_000,
     "update_after": 10_000,
     "batch_size": 256,
-    "updates_per_step": 1,
+    "m_steps": 1,
     "policy_layer_sizes": (512, 256),
     "critic_layer_sizes": (512, 256),
     "gamma": 0.98,

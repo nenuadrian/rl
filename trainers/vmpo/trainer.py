@@ -338,7 +338,7 @@ class VMPOTrainer:
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
         shared_encoder: bool = False,
-        updates_per_step: int = 1,
+        m_steps: int = 1,
     ):
         self.num_envs = int(num_envs)
         self.env_id = env_id
@@ -346,7 +346,7 @@ class VMPOTrainer:
         self.gamma = float(gamma)
         self.advantage_estimator = str(advantage_estimator)
         self.gae_lambda = float(gae_lambda)
-        self.updates_per_step = int(updates_per_step)
+        self.m_steps = int(m_steps)
 
         env_fns = [
             (
@@ -403,7 +403,7 @@ class VMPOTrainer:
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
             shared_encoder=shared_encoder,
-            updates_per_step=updates_per_step,
+            m_steps=m_steps,
         )
 
         self.rollout_steps = rollout_steps
@@ -485,7 +485,7 @@ class VMPOTrainer:
             f"total_steps={total_steps}, "
             f"rollout_steps={self.rollout_steps}, "
             f"num_envs={self.num_envs}, "
-            f"updates_per_step={self.updates_per_step}, "
+            f"m_steps={self.m_steps}, "
             f"eval_interval={eval_interval}, "
             f"console_log_interval={console_log_interval}"
         )
