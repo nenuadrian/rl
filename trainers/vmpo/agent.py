@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Tuple, Dict, Any, Literal
 
 import numpy as np
@@ -72,8 +73,8 @@ class VMPOAgent:
         value_params = list(self.policy.value_head.parameters())
         if not self.policy.shared_encoder:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
-        policy_lr_eff = self.policy_lr / self.m_steps
-        value_lr_eff = self.value_lr / self.m_steps
+        policy_lr_eff = self.policy_lr / math.sqrt(self.m_steps)
+        value_lr_eff = self.value_lr / math.sqrt(self.m_steps)
 
         self.combined_opt = self._build_optimizer(
             [
@@ -110,9 +111,9 @@ class VMPOAgent:
         self.log_alpha_sigma = nn.Parameter(
             torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
         )
-
+        effective_alpha_lr = self.alpha_lr / math.sqrt(self.m_steps)
         self.alpha_opt = self._build_optimizer(
-            [self.log_alpha_mu, self.log_alpha_sigma], lr=self.alpha_lr
+            [self.log_alpha_mu, self.log_alpha_sigma], lr=effective_alpha_lr
         )
 
     def _build_optimizer(
