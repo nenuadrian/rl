@@ -1113,7 +1113,7 @@ V-MPO is an on-policy algorithm that performs policy improvement via an EM proce
 
 \subsubsection{Architecture and Training Configuration}
 
-For single-task Atari with TrXL, the shared policy–value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
+For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
 
 \section{The Case for Dropout}
 
