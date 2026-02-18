@@ -5,11 +5,13 @@ This script populates docs/generated with:
 - Latest report markdown/assets from reports/latest
 - Hyperparameter source snapshots from hyperparameters/*.py
 - API-style markdown reference for all modules under trainers/
+- Math-annotated pages for each trainers/**/trainer.py file
 """
 
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 from pathlib import Path
 from typing import Iterable
@@ -23,6 +25,10 @@ HYPERPARAMETERS_DIR = ROOT / "hyperparameters"
 TRAINERS_DIR = ROOT / "trainers"
 
 MISSING = object()
+LATEX_INLINE_PATTERN = re.compile(
+    r"^(?P<code>.*?)(?:\s+#\s*LaTeX:\s*(?P<formula>.+))\s*$"
+)
+LATEX_STANDALONE_PATTERN = re.compile(r"^\s*#\s*LaTeX:\s*(?P<formula>.+?)\s*$")
 
 
 def write_text(path: Path, content: str) -> None:
@@ -234,6 +240,71 @@ def docs_for_module(file_path: Path, module_name: str) -> str:
     return "\n".join(lines)
 
 
+def extract_latex_annotations(source: str) -> list[tuple[int, str, str]]:
+    annotations: list[tuple[int, str, str]] = []
+    pending_formula: str | None = None
+
+    for line_no, raw_line in enumerate(source.splitlines(), start=1):
+        standalone_match = LATEX_STANDALONE_PATTERN.match(raw_line)
+        if standalone_match is not None:
+            pending_formula = standalone_match.group("formula").strip()
+            continue
+
+        inline_match = LATEX_INLINE_PATTERN.match(raw_line)
+        if inline_match is not None and inline_match.group("formula") is not None:
+            code = inline_match.group("code").rstrip()
+            formula = inline_match.group("formula").strip()
+            if code:
+                annotations.append((line_no, code, formula))
+            pending_formula = None
+            continue
+
+        stripped = raw_line.strip()
+        if pending_formula and stripped and not stripped.startswith("#"):
+            annotations.append((line_no, raw_line.rstrip(), pending_formula))
+            pending_formula = None
+        elif stripped:
+            pending_formula = None
+
+    return annotations
+
+
+def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
+    source = file_path.read_text(encoding="utf-8")
+    annotations = extract_latex_annotations(source)
+    rel_path = file_path.relative_to(ROOT).as_posix()
+
+    lines = [
+        f"# `{module_name}` Math-Annotated Source",
+        "",
+        f"_Source: `{rel_path}`_",
+        "",
+        "Each `# LaTeX:` annotation is rendered below next to its source line.",
+        "",
+    ]
+
+    if not annotations:
+        lines.extend(["No `# LaTeX:` annotations were found in this file.", ""])
+    else:
+        lines.extend(["## Rendered Math Annotations", ""])
+        for line_no, code, formula in annotations:
+            lines.extend(
+                [
+                    f"### Line {line_no}",
+                    "",
+                    "```python",
+                    code,
+                    "```",
+                    "",
+                    f"\\({formula}\\)",
+                    "",
+                ]
+            )
+
+    lines.extend(["## Full Source", "", "```python", source.rstrip(), "```", ""])
+    return "\n".join(lines)
+
+
 def generate_trainers_api_docs() -> None:
     section_dir = GENERATED_DIR / "trainers-api"
     section_dir.mkdir(parents=True, exist_ok=True)
@@ -266,11 +337,48 @@ def generate_trainers_api_docs() -> None:
     write_text(section_dir / "index.md", "\n".join(index_lines) + "\n")
 
 
+def generate_trainers_math_docs() -> None:
+    section_dir = GENERATED_DIR / "trainers-math"
+    section_dir.mkdir(parents=True, exist_ok=True)
+
+    trainer_files = sorted(
+        path
+        for path in ordered_python_files(TRAINERS_DIR)
+        if path.name == "trainer.py"
+    )
+    if not trainer_files:
+        write_text(
+            section_dir / "index.md",
+            "# Trainers Math\n\nNo trainer files were found in `trainers/**/trainer.py`.\n",
+        )
+        return
+
+    index_lines = [
+        "# Trainers Math-Annotated Source",
+        "",
+        "Trainer pages that render inline `# LaTeX:` comments as formulas.",
+        "",
+    ]
+
+    for path in trainer_files:
+        module_name = module_name_from_path(TRAINERS_DIR, path, "trainers")
+        rel_module = module_name.replace(".", "/")
+        page = section_dir / f"{rel_module}.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        write_text(page, docs_for_trainer_math(path, module_name))
+
+        rel_link = page.relative_to(section_dir).as_posix()
+        index_lines.append(f"- [`{module_name}`]({rel_link})")
+
+    write_text(section_dir / "index.md", "\n".join(index_lines) + "\n")
+
+
 def main() -> None:
     clean_generated_dir()
     generate_report_docs()
     generate_hyperparameter_docs()
     generate_trainers_api_docs()
+    generate_trainers_math_docs()
 
 
 if __name__ == "__main__":

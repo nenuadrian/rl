@@ -11,9 +11,9 @@ from hyperparameters._common import get_preset
 SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 2048,
-    "updates_per_step": 1,
-    "policy_layer_sizes": (256, 256, 256),
-    "value_layer_sizes": (512, 512, 256),
+    "updates_per_step": 8,
+    "policy_layer_sizes": (512, 256),
+    "value_layer_sizes": (1024, 512),
     "gamma": 0.99,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
@@ -23,48 +23,49 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "alpha_lr": 1e-4,
     "epsilon_eta": 0.15,
     "epsilon_mu": 0.05,
-    "epsilon_sigma": 1e-5,
-    "max_grad_norm": 1.0,
+    "epsilon_sigma": 0.001, # 1e-4
+    "max_grad_norm": 20.0,
     "normalize_advantages": True,
     "optimizer_type": "adam",
+    "shared_encoder": True,
 }
 
 
 PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
-        "total_steps": 2_000_000,
+        "total_steps": 3_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "dm_control/humanoid/run": {
-        "total_steps": 2_000_000,
+        "total_steps": 10_000_000,
+        **SHARED_VMPO_PARAMS,
+    },
+    "dm_control/humanoid/run_pure_state": {
+        "total_steps": 10_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "dm_control/humanoid/walk": {
-        "total_steps": 2_000_000,
+        "total_steps": 5_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "dm_control/walker/walk": {
-        "total_steps": 2_000_000,
+        "total_steps": 3_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "dm_control/walker/run": {
-        "total_steps": 2_000_000,
+        "total_steps": 3_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "Humanoid-v5": {
-        "total_steps": 1_500_000,
+        "total_steps": 2_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "HalfCheetah-v5": {
-        "total_steps": 1_000_000,
-        **SHARED_VMPO_PARAMS,
-    },
-    "Ant-v5": {
-        "total_steps": 1_500_000,
+        "total_steps": 2_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "Walker2d-v5": {
-        "total_steps": 2_500_000,
+        "total_steps": 3_000_000,
         **SHARED_VMPO_PARAMS,
     },
 }

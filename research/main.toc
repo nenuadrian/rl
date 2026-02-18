@@ -1,61 +1,70 @@
 \contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
-\contentsline {section}{\numberline {2}PPO}{3}{section.2}%
-\contentsline {subsection}{Setup}{3}{section*.2}%
-\contentsline {subsection}{Policy Gradient Foundation}{3}{section*.3}%
-\contentsline {subsection}{Clipped Surrogate Objective}{4}{section*.4}%
-\contentsline {subsection}{Value Function and Entropy}{4}{section*.5}%
-\contentsline {subsection}{Full Objective}{4}{section*.6}%
-\contentsline {subsection}{Generalised Advantage Estimation (GAE)}{4}{section*.7}%
-\contentsline {subsection}{Sequence-Level PPO (LLM Case)}{5}{section*.8}%
-\contentsline {section}{\numberline {3}V-MPO}{5}{section.3}%
-\contentsline {subsection}{Implementation}{5}{section*.9}%
-\contentsline {subsection}{Policy Evaluation (Critic Update)}{5}{section*.10}%
-\contentsline {subsection}{Policy Improvement via EM}{6}{section*.11}%
-\contentsline {subsection}{E-Step: Non-Parametric Policy Construction}{6}{section*.12}%
-\contentsline {subsection}{M-Step: Parametric Projection with KL Constraint}{7}{section*.13}%
-\contentsline {section}{\numberline {4}EM for Fine-Tuning and LLM-Scale Adaptive Temperature}{7}{section.4}%
-\contentsline {subsection}{E-step / M-step for SFT}{7}{section*.15}%
-\contentsline {subsection}{E-step / M-step for RL Fine-Tuning (KL-Regularised)}{8}{section*.16}%
-\contentsline {subsection}{Token-Level Form}{8}{section*.17}%
-\contentsline {subsection}{Sequence-Level V-MPO at LLM Scale}{8}{section*.18}%
-\contentsline {subsubsection}{Dual Objective for the Temperature}{9}{section*.19}%
-\contentsline {subsubsection}{Numerically Stable Log-Sum-Exp Form}{9}{section*.20}%
-\contentsline {subsubsection}{Top-$k$ Selection}{9}{section*.21}%
-\contentsline {subsubsection}{Positive Parameterisation of the Temperature}{9}{section*.22}%
-\contentsline {subsubsection}{Sequence-Level M-Step}{10}{section*.23}%
-\contentsline {subsubsection}{Full Adaptive EM Procedure}{10}{section*.24}%
-\contentsline {section}{\numberline {5}Direct Advantage Regression: Aligning LLMs with Online AI Reward}{10}{section.5}%
-\contentsline {subsection}{RL Fine-tuning}{11}{section*.25}%
-\contentsline {subsection}{Advantage Weighted Regression}{11}{section*.26}%
-\contentsline {subsection}{Direct Advantage Regression}{11}{section*.27}%
-\contentsline {subsubsection}{Dual-Constrained Objective}{11}{section*.28}%
-\contentsline {paragraph}{Theorem.}{11}{section*.29}%
-\contentsline {paragraph}{Proof.}{12}{section*.30}%
-\contentsline {subsection}{Mapping \textsc {DAR} to V-MPO}{13}{section*.31}%
-\contentsline {paragraph}{DAR closed-form target.}{13}{section*.32}%
-\contentsline {paragraph}{V-MPO canonical target.}{13}{section*.33}%
-\contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{14}{section*.34}%
-\contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{14}{section*.35}%
-\contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{14}{section*.36}%
-\contentsline {paragraph}{Practical consequences and distinctions.}{14}{section*.37}%
-\contentsline {paragraph}{Sequence-level weighted loss (common form).}{15}{section*.38}%
-\contentsline {paragraph}{Numerical sanity check (illustrative).}{15}{section*.39}%
-\contentsline {section}{\numberline {6}Transformers - TrXL}{15}{section.6}%
-\contentsline {subsection}{Implementation}{15}{section*.40}%
-\contentsline {subsection}{GTrXL with V-MPO}{16}{section*.41}%
-\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{16}{section*.42}%
-\contentsline {subsubsection}{Gating Layers}{16}{section*.43}%
-\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{16}{section*.44}%
-\contentsline {subsubsection}{Architecture and Training Configuration}{17}{section*.45}%
-\contentsline {section}{\numberline {7}The Case for Dropout}{17}{section.7}%
-\contentsline {subsection}{Dropout in LLMs}{17}{section*.46}%
-\contentsline {subsection}{Why PPO Disables Dropout}{17}{section*.47}%
-\contentsline {paragraph}{Problem 1: stochastic numerator.}{18}{section*.48}%
-\contentsline {paragraph}{Problem 2: inconsistent denominator.}{18}{section*.49}%
-\contentsline {paragraph}{Problem 3: KL penalty corruption.}{18}{section*.50}%
-\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{18}{section*.51}%
-\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{18}{section*.52}%
-\contentsline {paragraph}{M-step: standard cross-entropy.}{19}{section*.53}%
-\contentsline {paragraph}{No ratio, no conflict.}{19}{section*.54}%
-\contentsline {subsection}{Practical Implications}{19}{section*.55}%
-\contentsline {section}{\numberline {8}References}{20}{section.8}%
+\contentsline {section}{\numberline {2}Research Questions}{3}{section.2}%
+\contentsline {section}{\numberline {3}Preliminaries}{3}{section.3}%
+\contentsline {subsection}{Maximum Likelihood and Maximum a Posteriori}{3}{section*.2}%
+\contentsline {subsection}{EM Lower Bound}{4}{section*.3}%
+\contentsline {subsection}{EM Iterations}{4}{section*.4}%
+\contentsline {subsection}{EM-Style Policy Iteration vs Policy Gradients}{4}{section*.5}%
+\contentsline {paragraph}{Policy-gradient update (direct parameter-space step).}{4}{section*.6}%
+\contentsline {paragraph}{EM-style policy iteration (distribution-space then projection).}{5}{section*.7}%
+\contentsline {paragraph}{Interpretation.}{5}{section*.8}%
+\contentsline {section}{\numberline {4}PPO}{5}{section.4}%
+\contentsline {subsection}{Setup}{5}{section*.9}%
+\contentsline {subsection}{Policy Gradient Foundation}{6}{section*.10}%
+\contentsline {subsection}{Clipped Surrogate Objective}{6}{section*.11}%
+\contentsline {subsection}{Value Function and Entropy}{6}{section*.12}%
+\contentsline {subsection}{Full Objective}{6}{section*.13}%
+\contentsline {subsection}{Generalised Advantage Estimation (GAE)}{7}{section*.14}%
+\contentsline {subsection}{Sequence-Level PPO (LLM Case)}{7}{section*.15}%
+\contentsline {section}{\numberline {5}V-MPO}{7}{section.5}%
+\contentsline {subsection}{Implementation}{8}{section*.16}%
+\contentsline {subsection}{Policy Evaluation (Critic Update)}{8}{section*.17}%
+\contentsline {subsection}{Policy Improvement via EM}{8}{section*.18}%
+\contentsline {subsection}{E-Step: Non-Parametric Policy Construction}{8}{section*.19}%
+\contentsline {subsection}{M-Step: Parametric Projection with KL Constraint}{9}{section*.20}%
+\contentsline {section}{\numberline {6}EM for Fine-Tuning and LLM-Scale Adaptive Temperature}{9}{section.6}%
+\contentsline {subsection}{E-step / M-step for SFT}{10}{section*.22}%
+\contentsline {subsection}{E-step / M-step for RL Fine-Tuning (KL-Regularised)}{10}{section*.23}%
+\contentsline {subsection}{Token-Level Form}{10}{section*.24}%
+\contentsline {subsection}{Sequence-Level V-MPO at LLM Scale}{11}{section*.25}%
+\contentsline {subsubsection}{Dual Objective for the Temperature}{11}{section*.26}%
+\contentsline {subsubsection}{Numerically Stable Log-Sum-Exp Form}{11}{section*.27}%
+\contentsline {subsubsection}{Top-$k$ Selection}{12}{section*.28}%
+\contentsline {subsubsection}{Positive Parameterisation of the Temperature}{12}{section*.29}%
+\contentsline {subsubsection}{Sequence-Level M-Step}{12}{section*.30}%
+\contentsline {subsubsection}{Full Adaptive EM Procedure}{13}{section*.31}%
+\contentsline {section}{\numberline {7}Direct Advantage Regression: Aligning LLMs with Online AI Reward}{13}{section.7}%
+\contentsline {subsection}{RL Fine-tuning}{13}{section*.32}%
+\contentsline {subsection}{Advantage Weighted Regression}{14}{section*.33}%
+\contentsline {subsection}{Direct Advantage Regression}{14}{section*.34}%
+\contentsline {subsubsection}{Dual-Constrained Objective}{14}{section*.35}%
+\contentsline {paragraph}{Theorem.}{14}{section*.36}%
+\contentsline {paragraph}{Proof.}{15}{section*.37}%
+\contentsline {subsection}{Mapping \textsc {DAR} to V-MPO}{16}{section*.38}%
+\contentsline {paragraph}{DAR closed-form target.}{16}{section*.39}%
+\contentsline {paragraph}{V-MPO canonical target.}{16}{section*.40}%
+\contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{17}{section*.41}%
+\contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{17}{section*.42}%
+\contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{17}{section*.43}%
+\contentsline {paragraph}{Practical consequences and distinctions.}{17}{section*.44}%
+\contentsline {paragraph}{Sequence-level weighted loss (common form).}{18}{section*.45}%
+\contentsline {paragraph}{Numerical sanity check (illustrative).}{18}{section*.46}%
+\contentsline {section}{\numberline {8}Transformers - TrXL}{18}{section.8}%
+\contentsline {subsection}{Implementation}{18}{section*.47}%
+\contentsline {subsection}{GTrXL with V-MPO}{19}{section*.48}%
+\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{19}{section*.49}%
+\contentsline {subsubsection}{Gating Layers}{19}{section*.50}%
+\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{19}{section*.51}%
+\contentsline {subsubsection}{Architecture and Training Configuration}{20}{section*.52}%
+\contentsline {section}{\numberline {9}The Case for Dropout}{20}{section.9}%
+\contentsline {subsection}{Dropout in LLMs}{20}{section*.53}%
+\contentsline {subsection}{Why PPO Disables Dropout}{20}{section*.54}%
+\contentsline {paragraph}{Problem 1: stochastic numerator.}{21}{section*.55}%
+\contentsline {paragraph}{Problem 2: inconsistent denominator.}{21}{section*.56}%
+\contentsline {paragraph}{Problem 3: KL penalty corruption.}{21}{section*.57}%
+\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{21}{section*.58}%
+\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{21}{section*.59}%
+\contentsline {paragraph}{M-step: standard cross-entropy.}{22}{section*.60}%
+\contentsline {paragraph}{No ratio, no conflict.}{22}{section*.61}%
+\contentsline {subsection}{Practical Implications}{22}{section*.62}%
+\contentsline {section}{\numberline {10}References}{23}{section.10}%

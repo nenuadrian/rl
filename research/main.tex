@@ -26,6 +26,175 @@
 \section{Introduction}
 Transformer language models are commonly adapted to downstream tasks via supervised fine-tuning (SFT), and further improved via RL fine-tuning against a learned or human preference reward. While these procedures are usually presented as distinct (cross-entropy training versus policy optimization), both can be interpreted as alternating between constructing a training target distribution and then fitting the model to that target.
 
+\section{Research Questions}
+
+\begin{enumerate}
+  \item Can supervised fine-tuning and KL-regularized RL fine-tuning be expressed under a common EM/MAP formulation with a shared E-step/M-step interpretation?
+  \item In what precise sense does V-MPO correspond to regularized policy iteration, and how does that differ from direct policy-gradient optimization (e.g.\ PPO)?
+  \item Does adaptive temperature optimization in the E-step provide a practical stability advantage over fixed-temperature weighting at LLM scale?
+  \item How does the DAR closed-form target relate to the V-MPO target, and under which limits are they equivalent?
+  \item Do EM-style weighted-MLE updates provide practical benefits for transformer fine-tuning, including compatibility with dropout-style regularization?
+\end{enumerate}
+
+\section{Preliminaries}
+
+\subsection{Maximum Likelihood and Maximum a Posteriori}
+
+Given observed data $x$ and parameters $\theta$, maximum likelihood (ML) estimation solves
+\[
+  \theta_{\mathrm{ML}}
+  =
+  \arg\max_\theta \log p_\theta(x).
+\]
+
+Maximum a posteriori (MAP) estimation adds a prior:
+\[
+  \theta_{\mathrm{MAP}}
+  =
+  \arg\max_\theta
+  \bigl(
+    \log p_\theta(x)
+    +
+    \log p(\theta)
+  \bigr).
+\]
+
+In optimization form, $-\log p(\theta)$ acts as a regularizer. A flat prior recovers ML.
+
+\subsection{EM Lower Bound}
+
+Assume a latent variable model with latent $z$. For any auxiliary distribution $q(z)$:
+\[
+  \log p_\theta(x)
+  =
+  \underbrace{
+    \mathbb{E}_{q(z)}
+    \big[
+      \log p_\theta(x,z) - \log q(z)
+    \big]
+  }_{\mathcal{L}(q,\theta)}
+  +
+  \mathrm{KL}
+  \big(
+    q(z)\,\|\,p_\theta(z\mid x)
+  \big).
+\]
+
+Since KL is nonnegative, $\mathcal{L}(q,\theta)$ is a lower bound on $\log p_\theta(x)$.
+
+For MAP, the objective
+\[
+  F_{\mathrm{MAP}}(\theta)
+  =
+  \log p_\theta(x)
+  +
+  \log p(\theta)
+\]
+admits the decomposition
+\[
+  F_{\mathrm{MAP}}(\theta)
+  =
+  \mathcal{L}_{\mathrm{MAP}}(q,\theta)
+  +
+  \mathrm{KL}
+  \big(
+    q(z)\,\|\,p_\theta(z\mid x)
+  \big),
+\]
+with
+\[
+  \mathcal{L}_{\mathrm{MAP}}(q,\theta)
+  =
+  \mathbb{E}_{q(z)}
+  \big[
+    \log p_\theta(x,z) - \log q(z)
+  \big]
+  +
+  \log p(\theta).
+\]
+
+\subsection{EM Iterations}
+
+At iteration $k$, EM alternates:
+\[
+  \text{E-step:}\quad
+  q_{k+1}(z)=p_{\theta_k}(z\mid x),
+\]
+\[
+  \text{M-step:}\quad
+  \theta_{k+1}
+  =
+  \arg\max_\theta \mathcal{L}_{\mathrm{MAP}}(q_{k+1},\theta).
+\]
+
+Equivalently, the MAP M-step maximises
+\[
+  Q_{\mathrm{MAP}}(\theta,\theta_k)
+  =
+  \mathbb{E}_{z\sim p_{\theta_k}(z\mid x)}
+  \big[
+    \log p_\theta(x,z)
+  \big]
+  +
+  \log p(\theta).
+\]
+
+This gives the standard monotonic-improvement template used throughout this document: construct a target distribution in the E-step, then fit a parametric model to that target in the M-step.
+
+\subsection{EM-Style Policy Iteration vs Policy Gradients}
+
+It is useful to distinguish two update styles for RL fine-tuning.
+
+\paragraph{Policy-gradient update (direct parameter-space step).}
+Define
+\[
+  J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)].
+\]
+A policy-gradient method takes a local ascent step
+\[
+  \theta_{k+1}
+  =
+  \theta_k
+  +
+  \lambda\,
+  \widehat{\nabla_\theta J(\theta_k)},
+\]
+optionally with clipping or explicit KL penalties (as in PPO/TRPO-style variants).
+
+\paragraph{EM-style policy iteration (distribution-space then projection).}
+EM-style methods introduce an auxiliary improved policy $q(a\mid s)$ and alternate:
+\[
+  \text{E-step:}\quad
+  q_{k+1}
+  =
+  \arg\max_q
+  \Big(
+    \mathbb{E}_{s\sim d_{\pi_k},\,a\sim q}
+    [A^{\pi_k}(s,a)]
+    -
+    \eta\,
+    \mathrm{KL}(q(\cdot\mid s)\,\|\,\pi_k(\cdot\mid s))
+  \Big),
+\]
+whose solution has Boltzmann form
+\[
+  q_{k+1}(a\mid s)
+  \propto
+  \pi_k(a\mid s)\,
+  \exp\!\Big(\frac{A^{\pi_k}(s,a)}{\eta}\Big).
+\]
+Then the M-step projects back to the parametric family:
+\[
+  \theta_{k+1}
+  =
+  \arg\max_\theta\;
+  \mathbb{E}_{s\sim d_{\pi_k},\,a\sim q_{k+1}}
+  [\log \pi_\theta(a\mid s)],
+\]
+often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$.
+
+\paragraph{Interpretation.}
+Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform \emph{policy improvement} in distribution space first, then do weighted maximum-likelihood fitting. This is why V-MPO is naturally viewed as regularized policy iteration in EM form rather than as a pure policy-gradient method.
 
 \section{PPO}
 
@@ -63,7 +232,7 @@ To reuse data collected under $\pi_{\theta_{\mathrm{old}}}$, importance sampling
   r_t(\theta)
   =
   \frac{\pi_\theta(a_t \mid s_t)}
-       {\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}
+  {\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}
   =
   \exp\!\left(\ell_{\theta,t}-\ell_{\mathrm{old},t}\right).
 \]
@@ -165,7 +334,6 @@ A KL penalty between the updated and old policy can be estimated cheaply as
   \mathbb{E}_t\!\left[\ell_{\mathrm{old},t} - \ell_{\theta,t}\right],
 \]
 and is often added to the objective or used as an early-stopping criterion to keep the sequence-level ratio well-behaved.
-
 
 \section{V-MPO}
 
@@ -1041,16 +1209,16 @@ The key structural difference is summarised in the following table:
 
 \medskip
 \begin{center}
-\begin{tabular}{lcc}
-\toprule
- & \textbf{PPO} & \textbf{V-MPO / EM} \\
-\midrule
-Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
-Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
-Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
-Dropout in training pass & Corrupts ratio & Standard regularisation \\
-\bottomrule
-\end{tabular}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{PPO} & \textbf{V-MPO / EM} \\
+    \midrule
+    Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
+    Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
+    Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
+    Dropout in training pass & Corrupts ratio & Standard regularisation \\
+    \bottomrule
+  \end{tabular}
 \end{center}
 \medskip
 

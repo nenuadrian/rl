@@ -1,3 +1,270 @@
+# `trainers.vmpo.trainer` Math-Annotated Source
+
+_Source: `trainers/vmpo/trainer.py`_
+
+Each `# LaTeX:` annotation is rendered below next to its source line.
+
+## Rendered Math Annotations
+
+### Line 208
+
+```python
+        total = count_acc + count_i
+```
+
+\(n = n_{acc} + n_i\)
+
+### Line 209
+
+```python
+        delta = mean_i - mean_acc
+```
+
+\(\delta = \mu_i - \mu_{acc}\)
+
+### Line 210
+
+```python
+        mean_new = mean_acc + delta * (count_i / total)
+```
+
+\(\mu' = \mu_{acc} + \delta\frac{n_i}{n}\)
+
+### Line 211
+
+```python
+        m2_acc = var_acc * count_acc
+```
+
+\(M_{2,acc} = \sigma_{acc}^2 n_{acc}\)
+
+### Line 212
+
+```python
+        m2_i = var_i * count_i
+```
+
+\(M_{2,i} = \sigma_i^2 n_i\)
+
+### Line 213
+
+```python
+        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
+```
+
+\(M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}\)
+
+### Line 216
+
+```python
+        var_acc = m2_total / total
+```
+
+\(\sigma^2 = \frac{M_2}{n}\)
+
+### Line 479
+
+```python
+        eval_interval = max(1, total_steps // 50)
+```
+
+\(\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)\)
+
+### Line 508
+
+```python
+            global_step += self.num_envs
+```
+
+\(t \leftarrow t + N\)
+
+### Line 509
+
+```python
+            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
+```
+
+\(w_t^{restart} = 1 - \mathbf{1}_{episode\_start}\)
+
+### Line 517
+
+```python
+            done = terminated | truncated
+```
+
+\(d_t = d_t^{term} \lor d_t^{trunc}\)
+
+### Line 524
+
+```python
+            timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
+```
+
+\(m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}\)
+
+### Line 561
+
+```python
+            self.episode_return += reward
+```
+
+\(G_i \leftarrow G_i + r_{t,i}\)
+
+### Line 625
+
+```python
+                rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
+```
+
+\(r_t' = r_t + \gamma b_t^{timeout}\)
+
+### Line 628
+
+```python
+                last_value = last_value * (1.0 - dones_arr[-1])
+```
+
+\(V_T = V(s_T)(1 - d_T)\)
+
+### Line 632
+
+```python
+                obs_flat = obs_arr.reshape(T * N, -1)
+```
+
+\(\mathbf{S} \in \mathbb{R}^{(TN)\times d_s}\)
+
+### Line 633
+
+```python
+                actions_flat = actions_arr.reshape(T * N, -1)
+```
+
+\(\mathbf{A} \in \mathbb{R}^{(TN)\times d_a}\)
+
+### Line 639
+
+```python
+                means_flat = means_arr.reshape(T * N, -1)
+```
+
+\(\mu_{old} \in \mathbb{R}^{(TN)\times d_a}\)
+
+### Line 640
+
+```python
+                log_stds_flat = log_stds_arr.reshape(T * N, -1)
+```
+
+\(\log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}\)
+
+### Line 642
+
+```python
+                returns, advantages = compute_rollout_targets(
+```
+
+\((R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)\)
+
+### Line 651
+
+```python
+                returns_flat = returns.reshape(T * N, 1)
+```
+
+\(\mathbf{R} \in \mathbb{R}^{(TN)\times 1}\)
+
+### Line 652
+
+```python
+                advantages_flat = advantages.reshape(T * N, 1)
+```
+
+\(\mathbf{A} \in \mathbb{R}^{(TN)\times 1}\)
+
+### Line 690
+
+```python
+                        interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
+```
+
+\(M_k \leftarrow M_k + m_k\)
+
+### Line 728
+
+```python
+                progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
+```
+
+\(p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}\)
+
+### Line 748
+
+```python
+                    mean_metrics = {
+```
+
+\(\bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}\)
+
+### Line 806
+
+```python
+        episode_returns += reward
+```
+
+\(G_i \leftarrow G_i + r_{t,i}\)
+
+### Line 812
+
+```python
+                final_returns.append(episode_returns[i])
+```
+
+\(\mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}\)
+
+### Line 820
+
+```python
+        "eval/return_median": float(np.median(final_returns)),
+```
+
+\(\tilde{G} = \operatorname{median}(\mathcal{G})\)
+
+### Line 821
+
+```python
+        "eval/return_mean": float(np.mean(final_returns)),
+```
+
+\(\bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g\)
+
+### Line 822
+
+```python
+        "eval/return_std": float(np.std(final_returns)),
+```
+
+\(\sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}\)
+
+### Line 823
+
+```python
+        "eval/return_min": float(np.min(final_returns)),
+```
+
+\(G_{\min} = \min(\mathcal{G})\)
+
+### Line 824
+
+```python
+        "eval/return_max": float(np.max(final_returns)),
+```
+
+\(G_{\max} = \max(\mathcal{G})\)
+
+## Full Source
+
+```python
 from __future__ import annotations
 
 import os
@@ -823,3 +1090,4 @@ def _evaluate_vectorized(
         "eval/return_min": float(np.min(final_returns)),  # LaTeX: G_{\min} = \min(\mathcal{G})
         "eval/return_max": float(np.max(final_returns)),  # LaTeX: G_{\max} = \max(\mathcal{G})
     }
+```

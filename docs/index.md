@@ -5,6 +5,7 @@ This site is built for GitHub Pages and includes:
 - the latest generated run report from `reports/latest/README.md`
 - source snapshots for everything in `hyperparameters/`
 - auto-generated API reference pages for all Python modules in `trainers/`
+- math-annotated trainer pages that render inline `# LaTeX:` comments
 
 ## Build Process
 

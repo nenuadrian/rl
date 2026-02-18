@@ -73,11 +73,10 @@ _No docstring provided._
 ##### `forward_all`
 
 ```python
-def forward_all(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+def forward_all(self, obs)
 ```
 
-Efficient forward pass returning: mean, log_std, UNNORMALIZED value.
-Avoids re-running encoder if shared.
+_No docstring provided._
 
 ##### `log_prob`
 

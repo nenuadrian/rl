@@ -6,12 +6,13 @@ from __future__ import annotations
 from typing import Any
 
 from hyperparameters._common import get_preset
+from hyperparameters.vmpo import SHARED_VMPO_PARAMS
 
 
 SHARED_PPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
-    "policy_layer_sizes": (256, 256, 256),
-    "critic_layer_sizes": (512, 512, 256),
+    "policy_layer_sizes": (512, 256),
+    "critic_layer_sizes": (512, 256),
     "rollout_steps": 2048,
     "update_epochs": 10,
     "minibatch_size": 32,
@@ -21,7 +22,7 @@ SHARED_PPO_PARAMS: dict[str, Any] = {
     "gamma": 0.98,
     "gae_lambda": 0.92,
     "vf_coef": 0.5,
-    "max_grad_norm": 0.8,
+    "max_grad_norm": 0.5,
     "target_kl": 0,
     "norm_adv": True,
     "clip_vloss": True,
@@ -32,39 +33,39 @@ SHARED_PPO_PARAMS: dict[str, Any] = {
 
 PRESETS: dict[str, dict[str, Any]] = {
     "dm_control/cheetah/run": {
-        "total_steps": 500_000,
+        "total_steps": 1_000_000,
         **SHARED_PPO_PARAMS,
     },
     "dm_control/humanoid/run": {
-        "total_steps": 500_000,
+        "total_steps": 10_000_000,
+        **SHARED_PPO_PARAMS,
+    },
+    "dm_control/humanoid/run_pure_state": {
+        "total_steps": 10_000_000,
         **SHARED_PPO_PARAMS,
     },
     "dm_control/humanoid/walk": {
-        "total_steps": 500_000,
+        "total_steps": 10_000_000,
         **SHARED_PPO_PARAMS,
     },
     "dm_control/walker/walk": {
-        "total_steps": 1_000_000,
+        "total_steps": 2_000_000,
         **SHARED_PPO_PARAMS,
     },
     "dm_control/walker/run": {
-        "total_steps": 1_000_000,
+        "total_steps": 2_000_000,
         **SHARED_PPO_PARAMS,
     },
     "Humanoid-v5": {
-        "total_steps": 500_000,
+        "total_steps": 700_000,
         **SHARED_PPO_PARAMS,
     },
     "HalfCheetah-v5": {
         "total_steps": 500_000,
         **SHARED_PPO_PARAMS,
     },
-    "Ant-v5": {
-        "total_steps": 500_000,
-        **SHARED_PPO_PARAMS,
-    },
     "Walker2d-v5": {
-        "total_steps": 500_000,
+        "total_steps": 700_000,
         **SHARED_PPO_PARAMS,
     },
 }

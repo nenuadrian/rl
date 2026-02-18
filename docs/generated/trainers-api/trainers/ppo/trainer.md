@@ -52,21 +52,21 @@ def find_wrapper(env, wrapper_type)
 
 _No docstring provided._
 
-### `sync_obs_rms`
+### `_sync_obs_rms_to_eval_envs`
 
 ```python
-def sync_obs_rms(train_env, eval_env)
+def _sync_obs_rms_to_eval_envs(train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv)
 ```
 
-_No docstring provided._
+Copy obs RMS stats from the first training env to all eval envs.
 
-### `evaluate`
+### `_evaluate_vectorized`
 
 ```python
-def evaluate(agent: 'Agent', eval_env: gym.Env, device: torch.device, num_episodes: int, deterministic: bool = True)
+def _evaluate_vectorized(agent: 'Agent', eval_envs: gym.vector.VectorEnv, device: torch.device, seed: int = 42) -> tuple[np.ndarray, np.ndarray]
 ```
 
-_No docstring provided._
+Vectorized evaluation: runs all episodes in parallel across eval_envs.
 
 ### `log_episode_stats`
 

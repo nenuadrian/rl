@@ -1,5 +1,5 @@
 site_name: Minerva RL Docs
-site_description: Reports, hyperparameter snapshots, and trainers API reference.
+site_description: Reports, hyperparameter snapshots, trainers API reference, and math-annotated trainer code.
 docs_dir: docs
 site_dir: site
 
@@ -11,9 +11,14 @@ nav:
   - Latest Report: generated/report/latest.md
   - Hyperparameters: generated/hyperparameters/index.md
   - Trainers API: generated/trainers-api/index.md
+  - Trainers Math: generated/trainers-math/index.md
 
 markdown_extensions:
   - tables
   - fenced_code
   - toc:
       permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
