@@ -35,11 +35,13 @@
 \@writefile{toc}{\contentsline {subsection}{E-step / M-step for RL Fine-Tuning (KL-Regularised)}{10}{section*.23}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{Token-Level Form}{10}{section*.24}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{Sequence-Level V-MPO at LLM Scale}{11}{section*.25}\protected@file@percent }
+\newlabel{eq:seq_estep_weights}{{4}{11}{Sequence-Level V-MPO at LLM Scale}{equation.4}{}}
 \@writefile{toc}{\contentsline {subsubsection}{Dual Objective for the Temperature}{11}{section*.26}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{Numerically Stable Log-Sum-Exp Form}{11}{section*.27}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{Top-$k$ Selection}{12}{section*.28}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{Positive Parameterisation of the Temperature}{12}{section*.29}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{Sequence-Level M-Step}{12}{section*.30}\protected@file@percent }
+\newlabel{eq:seq_weighted_mstep}{{5}{12}{Sequence-Level M-Step}{equation.5}{}}
 \abx@aux@cite{0}{he2025directadvantageregressionaligning}
 \abx@aux@segm{0}{0}{he2025directadvantageregressionaligning}
 \@writefile{toc}{\contentsline {subsubsection}{Full Adaptive EM Procedure}{13}{section*.31}\protected@file@percent }
@@ -53,10 +55,10 @@
 \@writefile{toc}{\contentsline {paragraph}{Proof.}{15}{section*.37}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{Mapping \textsc  {DAR} to V-MPO}{16}{section*.38}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{DAR closed-form target.}{16}{section*.39}\protected@file@percent }
-\newlabel{eq:dar_opt}{{5}{16}{DAR closed-form target}{equation.5}{}}
-\newlabel{eq:dar_log}{{6}{16}{DAR closed-form target}{equation.6}{}}
+\newlabel{eq:dar_opt}{{7}{16}{DAR closed-form target}{equation.7}{}}
+\newlabel{eq:dar_log}{{8}{16}{DAR closed-form target}{equation.8}{}}
 \@writefile{toc}{\contentsline {paragraph}{V-MPO canonical target.}{16}{section*.40}\protected@file@percent }
-\newlabel{eq:vmpo_form}{{7}{16}{V-MPO canonical target}{equation.7}{}}
+\newlabel{eq:vmpo_form}{{9}{16}{V-MPO canonical target}{equation.9}{}}
 \@writefile{toc}{\contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{17}{section*.41}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{17}{section*.42}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{17}{section*.43}\protected@file@percent }
@@ -78,8 +80,8 @@
 \abx@aux@page{4}{18}
 \abx@aux@page{5}{18}
 \@writefile{toc}{\contentsline {subsection}{Implementation}{18}{section*.47}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{GTrXL with V-MPO}{19}{section*.48}\protected@file@percent }
-\abx@aux@page{6}{19}
+\@writefile{toc}{\contentsline {subsection}{GTrXL with V-MPO}{18}{section*.48}\protected@file@percent }
+\abx@aux@page{6}{18}
 \abx@aux@page{7}{19}
 \@writefile{toc}{\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{19}{section*.49}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{Gating Layers}{19}{section*.50}\protected@file@percent }
@@ -91,17 +93,17 @@
 \@writefile{toc}{\contentsline {subsection}{Dropout in LLMs}{20}{section*.53}\protected@file@percent }
 \abx@aux@page{8}{20}
 \@writefile{toc}{\contentsline {subsection}{Why PPO Disables Dropout}{20}{section*.54}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Problem 1: stochastic numerator.}{21}{section*.55}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Problem 1: stochastic numerator.}{20}{section*.55}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Problem 2: inconsistent denominator.}{21}{section*.56}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Problem 3: KL penalty corruption.}{21}{section*.57}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{21}{section*.58}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{21}{section*.59}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{M-step: standard cross-entropy.}{22}{section*.60}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{M-step: standard cross-entropy.}{21}{section*.60}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{No ratio, no conflict.}{22}{section*.61}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{Practical Implications}{22}{section*.62}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10}References}{23}{section.10}\protected@file@percent }
-\abx@aux@page{9}{23}
-\abx@aux@page{10}{23}
+\@writefile{toc}{\contentsline {section}{\numberline {10}References}{22}{section.10}\protected@file@percent }
+\abx@aux@page{9}{22}
+\abx@aux@page{10}{22}
 \abx@aux@page{11}{23}
 \abx@aux@page{12}{23}
 \abx@aux@page{13}{23}

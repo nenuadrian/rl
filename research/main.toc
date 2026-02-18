@@ -51,7 +51,7 @@
 \contentsline {paragraph}{Numerical sanity check (illustrative).}{18}{section*.46}%
 \contentsline {section}{\numberline {8}Transformers - TrXL}{18}{section.8}%
 \contentsline {subsection}{Implementation}{18}{section*.47}%
-\contentsline {subsection}{GTrXL with V-MPO}{19}{section*.48}%
+\contentsline {subsection}{GTrXL with V-MPO}{18}{section*.48}%
 \contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{19}{section*.49}%
 \contentsline {subsubsection}{Gating Layers}{19}{section*.50}%
 \contentsline {subsubsection}{Why GTrXL Suits V-MPO}{19}{section*.51}%
@@ -59,12 +59,12 @@
 \contentsline {section}{\numberline {9}The Case for Dropout}{20}{section.9}%
 \contentsline {subsection}{Dropout in LLMs}{20}{section*.53}%
 \contentsline {subsection}{Why PPO Disables Dropout}{20}{section*.54}%
-\contentsline {paragraph}{Problem 1: stochastic numerator.}{21}{section*.55}%
+\contentsline {paragraph}{Problem 1: stochastic numerator.}{20}{section*.55}%
 \contentsline {paragraph}{Problem 2: inconsistent denominator.}{21}{section*.56}%
 \contentsline {paragraph}{Problem 3: KL penalty corruption.}{21}{section*.57}%
 \contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{21}{section*.58}%
 \contentsline {paragraph}{E-step: weights from advantages, not ratios.}{21}{section*.59}%
-\contentsline {paragraph}{M-step: standard cross-entropy.}{22}{section*.60}%
+\contentsline {paragraph}{M-step: standard cross-entropy.}{21}{section*.60}%
 \contentsline {paragraph}{No ratio, no conflict.}{22}{section*.61}%
 \contentsline {subsection}{Practical Implications}{22}{section*.62}%
-\contentsline {section}{\numberline {10}References}{23}{section.10}%
+\contentsline {section}{\numberline {10}References}{22}{section.10}%

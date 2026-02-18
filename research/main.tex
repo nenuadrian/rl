@@ -139,14 +139,14 @@ Equivalently, the MAP M-step maximises
   \log p(\theta).
 \]
 
-This gives the standard monotonic-improvement template used throughout this document: construct a target distribution in the E-step, then fit a parametric model to that target in the M-step.
+This gives the standard monotonic-improvement template: construct a target distribution in the E-step, then fit a parametric model to that target in the M-step.
 
 \subsection{EM-Style Policy Iteration vs Policy Gradients}
 
 It is useful to distinguish two update styles for RL fine-tuning.
 
 \paragraph{Policy-gradient update (direct parameter-space step).}
-Define
+
 \[
   J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)].
 \]
@@ -159,7 +159,7 @@ A policy-gradient method takes a local ascent step
   \lambda\,
   \widehat{\nabla_\theta J(\theta_k)},
 \]
-optionally with clipping or explicit KL penalties (as in PPO/TRPO-style variants).
+optionally with clipping or explicit KL penalties.
 
 \paragraph{EM-style policy iteration (distribution-space then projection).}
 EM-style methods introduce an auxiliary improved policy $q(a\mid s)$ and alternate:
@@ -669,9 +669,10 @@ Let a batch of sampled sequences be
   \mathcal{B}=\{(x^{(i)},y^{(i)},A^{(i)})\}_{i=1}^{N},
 \]
 where $A^{(i)}$ denotes a scalar sequence-level advantage (e.g.\ $A^{(i)}=r^{(i)}-V_\phi(x^{(i)})$). The V-MPO non-parametric E-step target over a selected subset $S\subset\{1,\dots,N\}$ is
-\[
+\begin{equation}
+  \label{eq:seq_estep_weights}
   \psi(i) \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big),
-\]
+\end{equation}
 where $\eta>0$ is a temperature that controls how sharply the distribution peaks on high-advantage samples.
 
 \subsubsection{Dual Objective for the Temperature}
@@ -733,12 +734,13 @@ Gradient updates are applied to $\xi$ via the chain rule $\nabla_\xi L_\eta = (d
 \subsubsection{Sequence-Level M-Step}
 
 Once the weights are computed, the M-step minimises the weighted teacher-forced cross-entropy over selected sequences:
-\[
+\begin{equation}
+  \label{eq:seq_weighted_mstep}
   L_\pi(\theta)
   =
   -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
   \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
-\]
+\end{equation}
 
 \subsubsection{Full Adaptive EM Procedure}
 
@@ -851,7 +853,10 @@ DAR incorporates reference regularization:
   \beta D_{\mathrm{KL}}(\pi_\theta \| \pi_t).
 \end{equation*}
 
-\paragraph{Theorem.} Under mild assumption, given a dualconstrained advantage (or reward) maximization objective  3 Direct Advantage Regression: Aligning LLMs with Online AI Reward with two KL coefficients being strictly positive, there exists a solution to the problem:
+\paragraph{Theorem.}
+Under mild assumptions, for the dual-constrained advantage (or reward)
+maximization objective above with strictly positive KL coefficients, the
+optimal policy is:
 
 \begin{equation*}
   \pi^*(y\mid x)
@@ -1089,11 +1094,9 @@ Although DAR and V-MPO share the same advantage-exponential device, they differ 
 \end{enumerate}
 
 \paragraph{Sequence-level weighted loss (common form).}
-Both approaches lead to a weighted supervised fine-tuning loss over sampled sequences:
-\[
-  L(\theta) = -\sum_{i\in S} w_i \sum_{t=1}^{T_i} \log\pi_\theta(y^{(i)}_t \mid y^{(i)}_{<t}, x^{(i)}),
-\]
-where the per-sequence weights differ only by the base factor:
+Both approaches use the same weighted teacher-forced M-step objective as in
+Eq.~\eqref{eq:seq_weighted_mstep}.
+The per-sequence weights differ only by the base factor:
 \[
   w_i^{\mathrm{DAR}} \propto \exp\!\Big(\tfrac{\alpha}{t}\log\pi_{\mathrm{ref}}^{(i)}
   + \tfrac{\beta}{t}\log\pi_t^{(i)} + \tfrac{1}{t}A^{(i)}\Big),
@@ -1191,17 +1194,13 @@ For these reasons, all mainstream PPO implementations (including those used for 
 The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is \emph{pure weighted supervised learning}.  Neither step requires a probability ratio between two forward passes under different modes.
 
 \paragraph{E-step: weights from advantages, not ratios.}
-The non-parametric target assigns weight
-\[
-  w_i \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big),
-\]
-where $A^{(i)} = G^{(i)} - V_\phi(s^{(i)})$ depends on the value function and the observed return, not on a ratio of policy probabilities. The value function $V_\phi$ is a regression target; dropout can be disabled for the single forward pass that computes advantages at rollout time (just as PPO evaluates its value head in eval mode), or it can remain active since the advantage computation is a one-shot evaluation, not an iterative ratio.
+The non-parametric target uses the same sequence-level exponential weighting as
+Eq.~\eqref{eq:seq_estep_weights}.
+Here $A^{(i)} = G^{(i)} - V_\phi(s^{(i)})$ depends on the value function and the observed return, not on a ratio of policy probabilities. The value function $V_\phi$ is a regression target; dropout can be disabled for the single forward pass that computes advantages at rollout time (just as PPO evaluates its value head in eval mode), or it can remain active since the advantage computation is a one-shot evaluation, not an iterative ratio.
 
 \paragraph{M-step: standard cross-entropy.}
-The M-step loss is
-\[
-  L_\pi(\theta) = -\sum_{i \in S} w_i \sum_{t=1}^{T_i} \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big),
-\]
+The M-step objective is the weighted teacher-forced cross-entropy in
+Eq.~\eqref{eq:seq_weighted_mstep},
 which is structurally identical to SFT with per-sequence weights. Dropout is fully compatible here for the same reason it is compatible with any supervised cross-entropy objective: the loss is evaluated under a single stochastic forward pass, and the gradient is an unbiased estimator of the expected loss under the dropout distribution.
 
 \paragraph{No ratio, no conflict.}

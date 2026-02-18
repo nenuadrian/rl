@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.9.25)  18 FEB 2026 14:03
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.9.25)  18 FEB 2026 15:22
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -711,35 +711,35 @@ l.623
 [11]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 716.
+(hyperref)                removing `math shift' on input line 717.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 716.
+(hyperref)                removing `math shift' on input line 717.
 
 
 
 [12]
 
 [13]
-Overfull \hbox (23.90935pt too wide) detected at line 852
+Overfull \hbox (23.90935pt too wide) detected at line 854
 \OML/cmm/m/it/10 J[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 ; \OML/cmm/m/it/10 ^^Y[]; ^^Y[]\OT1/cmr/m/n/10 ) = [] \U/msb/m/n/10 E[] [] \OMS/cmsy/m/n/10 ^^@ \OML/cmm/m/it/10 D[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 ^^Y[]\OMS/cmsy/m/n/10 k\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 ) \OMS/cmsy/m/n/10 ^^@ \OML/cmm/m/it/10 ^^LD[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 ^^Y[]\OMS/cmsy/m/n/10 k\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 )\OML/cmm/m/it/10 :
  []
 
 
 
 [14]
-Overfull \hbox (15.97588pt too wide) detected at line 945
+Overfull \hbox (15.97588pt too wide) detected at line 950
 [] \U/msb/m/n/10 E[]\OML/cmm/m/it/10 D[] [][]^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[] []  [][]\OML/cmm/m/it/10 A\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 x; y\OT1/cmr/m/n/10 )[] [] \OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OMS/cmsy/m/n/10 ^^A j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ;
  []
 
 
-Overfull \hbox (32.64569pt too wide) detected at line 954
+Overfull \hbox (32.64569pt too wide) detected at line 959
 [] \U/msb/m/n/10 E[][] \OMS/cmsy/m/n/10 ^^@ [] [] \OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[] []  [][]\OML/cmm/m/it/10 A\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 x; y\OT1/cmr/m/n/10 )[]  [] \OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ;
  []
 
 
-Overfull \hbox (5.32207pt too wide) detected at line 962
+Overfull \hbox (5.32207pt too wide) detected at line 967
 [] \U/msb/m/n/10 E[][] \OMS/cmsy/m/n/10 ^^@ [] \OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[] []  [][]\OML/cmm/m/it/10 A\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 x; y\OT1/cmr/m/n/10 )[]  [] \OML/cmm/m/it/10 ^^Y[]\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 y \OMS/cmsy/m/n/10 j \OML/cmm/m/it/10 x\OT1/cmr/m/n/10 )[]\OML/cmm/m/it/10 ;
  []
 
@@ -748,63 +748,63 @@ Overfull \hbox (5.32207pt too wide) detected at line 962
 [15]
 
 LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined
-(Font)              using `OT1/cmr/bx/n' instead on input line 971.
+(Font)              using `OT1/cmr/bx/n' instead on input line 976.
 
 
 
 [16]
-Overfull \hbox (2.74832pt too wide) in paragraph at lines 1068--1073
+Overfull \hbox (2.74832pt too wide) in paragraph at lines 1073--1078
 \OT1/cmr/m/n/10 and ex-po-nen-ti-a-tion re-cov-ers the V-MPO un-nor-malised weight $[]([] \OML/cmm/m/it/10 ^^Y[] \OT1/cmr/m/n/10 + \OML/cmm/m/it/10 A=t\OT1/cmr/m/n/10 ) =
  []
 
 
 
 [17]
-Overfull \hbox (10.92091pt too wide) detected at line 1102
+Overfull \hbox (10.92091pt too wide) detected at line 1105
 \OML/cmm/m/it/10 w[] \OMS/cmsy/m/n/10 / []  [][] [] \OML/cmm/m/it/10 ^^Y[] \OT1/cmr/m/n/10 + [] [] \OML/cmm/m/it/10 ^^Y[] \OT1/cmr/m/n/10 + []\OML/cmm/m/it/10 A[][];  w[] \OMS/cmsy/m/n/10 / []  [] [] \OML/cmm/m/it/10 ^^Y[] \OT1/cmr/m/n/10 + []\OML/cmm/m/it/10 A[][]:
  []
 
 
-Overfull \hbox (3.88945pt too wide) in paragraph at lines 1121--1122
+Overfull \hbox (3.88945pt too wide) in paragraph at lines 1124--1125
 \OT1/cmr/m/n/10 The V-MPO pa-per ([]Song et al. []2019[]) re-places the LSTM core with a Transformer-
  []
 
 
 
 [18]
-Overfull \hbox (14.60246pt too wide) in paragraph at lines 1129--1130
+Overfull \hbox (14.60246pt too wide) in paragraph at lines 1132--1133
 \OT1/cmr/m/n/10 Residual con-nec-tions are re-placed with learn-able gat-ing lay-ers. The best-performing
  []
 
 
 
 [19]
-Overfull \hbox (17.86179pt too wide) in paragraph at lines 1159--1161
+Overfull \hbox (17.86179pt too wide) in paragraph at lines 1162--1164
 \OT1/cmr/m/n/10 weights (at-ten-tion dropout) and af-ter each feed-forward sub-layer (resid-ual dropout).
  []
 
 
 
 [20]
-Overfull \hbox (6.62216pt too wide) in paragraph at lines 1189--1189
+Overfull \hbox (6.62216pt too wide) in paragraph at lines 1192--1192
 [][]\OT1/cmr/bx/n/12 Why V-MPO / EM-Style Meth-ods Are Dropout-Compatible 
  []
 
 
-Overfull \hbox (7.86058pt too wide) in paragraph at lines 1191--1192
+Overfull \hbox (7.86058pt too wide) in paragraph at lines 1194--1195
 \OT1/cmr/m/n/10 The V-MPO up-date de-com-poses into an E-step that com-putes per-sample weights,
  []
 
 
 
 [21]
-
-[22]
-Overfull \hbox (3.23871pt too wide) in paragraph at lines 1237--1237
+Overfull \hbox (3.23871pt too wide) in paragraph at lines 1236--1236
 [][]\OT1/cmr/m/n/10 Parisotto, Emilio et al. (2019). \OT1/cmr/m/it/10 Sta-bi-liz-ing Trans-form-ers for Re-in-force-ment Learn-
  []
 
 
+
+[22]
 
 [23] (./main.aux)
  ***********
@@ -822,18 +822,18 @@ Package logreq Info: Writing requests to 'main.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 18636 strings out of 473190
- 320536 string characters out of 5715800
- 1157996 words of memory out of 5000000
- 41575 multiletter control sequences out of 15000+600000
+ 18640 strings out of 473190
+ 320601 string characters out of 5715800
+ 1158100 words of memory out of 5000000
+ 41577 multiletter control sequences out of 15000+600000
  568469 words of font info for 73 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  75i,11n,86p,1160b,1474s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb>
-Output written on main.pdf (23 pages, 319623 bytes).
+Output written on main.pdf (23 pages, 319349 bytes).
 PDF statistics:
- 558 PDF objects out of 1000 (max. 8388607)
- 490 compressed objects within 5 object streams
- 117 named destinations out of 1000 (max. 500000)
+ 563 PDF objects out of 1000 (max. 8388607)
+ 495 compressed objects within 5 object streams
+ 119 named destinations out of 1000 (max. 500000)
  409 words of extra memory for PDF output out of 10000 (max. 10000000)
 
