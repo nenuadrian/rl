@@ -735,6 +735,9 @@ class MPOAgent:
             "kl/mean": float(mean_kl_mean.mean().detach().item()),
             "kl/std": float(mean_kl_std.mean().detach().item()),
             "eta": temperature_val,
+            "lambda": float(
+                (F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()
+            ),
             "alpha_mean": float(
                 (F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()
             ),

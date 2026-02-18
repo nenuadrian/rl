@@ -84,6 +84,7 @@ class VMPOAgent:
                 },
             ],
         )
+        self.opt = self.policy_opt
 
         value_opt_param_groups = []
         if not self.policy.shared_encoder:
