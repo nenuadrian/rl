@@ -49,7 +49,7 @@ class SquashedGaussianPolicy(nn.Module):
         value_layer_sizes: Tuple[int, ...] = (256, 256),
         action_low: np.ndarray | None = None,
         action_high: np.ndarray | None = None,
-        shared_encoder: bool = False, 
+        shared_encoder: bool = False,
     ):
         super().__init__()
 
@@ -64,7 +64,9 @@ class SquashedGaussianPolicy(nn.Module):
         self.policy_mean = nn.Linear(policy_layer_sizes[-1], act_dim)
         self.policy_logstd = nn.Linear(policy_layer_sizes[-1], act_dim)
 
-        value_head_in_dim = policy_layer_sizes[-1] if shared_encoder else value_layer_sizes[-1]
+        value_head_in_dim = (
+            policy_layer_sizes[-1] if shared_encoder else value_layer_sizes[-1]
+        )
         self.value_head = nn.Linear(value_head_in_dim, 1)
 
         # 3. Action Scaling
@@ -103,38 +105,17 @@ class SquashedGaussianPolicy(nn.Module):
 
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
         if self.shared_encoder:
-            h = self.policy_encoder(obs).detach()  # stop grad into shared encoder
+            h = self.policy_encoder(obs)
         else:
             h = self.value_encoder(obs)
         return self.value_head(h)
 
-    def forward_all(
-        self, obs: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Efficient forward pass returning: mean, log_std, UNNORMALIZED value.
-        Avoids re-running encoder if shared.
-        """
-        # Policy Path
-        mean, log_std = self.get_policy_dist_params(obs)
-
-        # Value Path
-        if self.shared_encoder:
-            # We must re-encode if we didn't save the hidden state,
-            # or refactor to return hidden state.
-            # In PyTorch, re-running the linear layers of the head
-            # on the same cached 'h' is tricky without modifying signature.
-            # Assuming standard use case, we re-run encoder for clean code
-            # UNLESS we manually optimize.
-            # For strict correctness with shared encoder:
-            h_val = self.policy_encoder(
-                obs
-            )  # This is technically redundant in compute but cleaner in code
-        else:
-            h_val = self.value_encoder(obs)
-
+    def forward_all(self, obs):
+        h = self.policy_encoder(obs)
+        mean = self.policy_mean(h)
+        log_std = torch.clamp(self.policy_logstd(h), -20.0, 2.0)
+        h_val = h if self.shared_encoder else self.value_encoder(obs)
         v = self.value_head(h_val)
-
         return mean, log_std, v
 
     def log_prob(

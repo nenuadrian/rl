@@ -67,55 +67,16 @@ class VMPOAgent:
             shared_encoder=shared_encoder,
         ).to(device)
 
-        # Policy optimizer (actor only).
-        self.policy_opt = self._build_optimizer(
-            [
-                {
-                    "params": self.policy.policy_encoder.parameters(),
-                    "lr": self.policy_lr,
-                },
-                {
-                    "params": self.policy.policy_mean.parameters(),
-                    "lr": self.policy_lr,
-                },
-                {
-                    "params": self.policy.policy_logstd.parameters(),
-                    "lr": self.policy_lr,
-                },
-            ],
-        )
-        self.opt = self.policy_opt
-
-        value_opt_param_groups = []
+        value_params = list(self.policy.value_head.parameters())
         if not self.policy.shared_encoder:
-            value_opt_param_groups.append(
-                {
-                    "params": self.policy.value_encoder.parameters(),
-                    "lr": self.value_lr,
-                }
-            )
-        value_opt_param_groups.append(
-            {
-                "params": self.policy.value_head.parameters(),
-                "lr": self.value_lr,
-            }
-        )
-        self.value_opt = self._build_optimizer(value_opt_param_groups)
-
-        # Cache explicit parameter lists for per-network gradient clipping.
-        self._policy_params = [
-            *self.policy.policy_encoder.parameters(),
-            *self.policy.policy_mean.parameters(),
-            *self.policy.policy_logstd.parameters(),
-        ]
-        self._value_params = [
-            *(
-                []
-                if self.policy.shared_encoder
-                else list(self.policy.value_encoder.parameters())
-            ),
-            *self.policy.value_head.parameters(),
-        ]
+            value_params = list(self.policy.value_encoder.parameters()) + value_params
+        self.combined_opt = self._build_optimizer([
+            {"params": self.policy.policy_encoder.parameters(), "lr": self.policy_lr},
+            {"params": self.policy.policy_mean.parameters(),    "lr": self.policy_lr},
+            {"params": self.policy.policy_logstd.parameters(),  "lr": self.policy_lr},
+            {"params": value_params,                            "lr": self.value_lr},
+        ])
+        self.opt = self.combined_opt
 
         # Lagrange Multipliers (Dual Variables)
 
@@ -171,7 +132,6 @@ class VMPOAgent:
         obs_t = torch.tensor(obs_np, dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            # Efficient single pass
             mean, log_std, value = self.policy.forward_all(obs_t)
             action_t, _ = self.policy.sample_action(mean, log_std, deterministic)
 
@@ -312,12 +272,13 @@ class VMPOAgent:
         # ================================================================
 
         # Run forward pass on ALL observations
-        current_mean, current_log_std = self.policy(obs)
+        current_mean, current_log_std, v_pred_fw = self.policy.forward_all(obs)
+        v_pred = v_pred_fw.squeeze(-1)
 
         # -- Policy Loss --
-        log_prob = self.policy.log_prob(current_mean, current_log_std, actions).squeeze(
-            -1
-        )
+        log_prob = self.policy.log_prob(
+            current_mean, current_log_std, actions
+        ).squeeze(-1)
         weighted_nll = -(weights_detached * log_prob).sum()
 
         # -- KL Divergence (Full Batch Diagnostics) --
@@ -392,28 +353,20 @@ class VMPOAgent:
         )
 
         # -- Critic Loss --
-        v_pred = self.policy.get_value(obs).squeeze(-1)
         value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
 
-        self.policy_opt.zero_grad()
-        self.value_opt.zero_grad()
-        policy_loss.backward()
-        value_loss.backward()
-        policy_grad_norm = nn.utils.clip_grad_norm_(self._policy_params, self.max_grad_norm)
-        value_grad_norm = nn.utils.clip_grad_norm_(self._value_params, self.max_grad_norm)
-        self.policy_opt.step()
-        self.value_opt.step()
-
-        policy_grad_norm_f = float(
-            policy_grad_norm.item()
-            if torch.is_tensor(policy_grad_norm)
-            else policy_grad_norm
+        total_loss = policy_loss + value_loss
+        self.combined_opt.zero_grad()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(
+            list(self.policy.policy_encoder.parameters()) +
+            list(self.policy.policy_mean.parameters()) +
+            list(self.policy.policy_logstd.parameters()) +
+            ([] if self.policy.shared_encoder else list(self.policy.value_encoder.parameters())) +
+            list(self.policy.value_head.parameters()),
+            self.max_grad_norm,
         )
-        value_grad_norm_f = float(
-            value_grad_norm.item()
-            if torch.is_tensor(value_grad_norm)
-            else value_grad_norm
-        )
+        self.combined_opt.step()
 
         # ================================================================
         # Post-Update Diagnostics
@@ -443,6 +396,7 @@ class VMPOAgent:
             )
 
         return {
+            "loss/total": float(total_loss.item()),
             "loss/value": float(value_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
@@ -473,8 +427,6 @@ class VMPOAgent:
             "train/entropy": float(entropy.item()),
             "train/param_delta": float(param_delta),
             "train/mean_abs_action": float(mean_abs_action),
-            "grad/norm": policy_grad_norm_f,
-            "grad/norm_value": value_grad_norm_f,
             # Data Stats
             "adv/raw_mean": float(advantages.mean().item()),
             "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),
