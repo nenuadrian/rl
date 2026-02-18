@@ -1,4 +1,6 @@
-\documentclass{article}
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
 
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
@@ -143,7 +145,6 @@ This gives the standard monotonic-improvement template: construct a target distr
 
 \subsection{EM-Style Policy Iteration vs Policy Gradients}
 
-
 Policy-gradient update (direct parameter-space step).
 
 \[
@@ -197,7 +198,6 @@ Policy gradients optimize parameters directly via noisy first-order steps. EM-st
 \section{PPO}
 
 Proximal Policy Optimisation (PPO) is an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
-
 
 A trajectory $\tau = (s_0,a_0,\dots,s_{T-1},a_{T-1})$ is collected under the current policy $\pi_{\theta_{\mathrm{old}}}$. Per-step log-probabilities and their sum are
 \[
@@ -389,7 +389,6 @@ Advantages are defined as
   G_t^{(n)} - V^\pi_\phi(s_t).
 \]
 
-
 % ============================================================
 \subsection{Policy Improvement via EM}
 
@@ -513,7 +512,6 @@ The temperature dual is
     \big)
   \Big).
 \end{equation*}
-
 
 % ============================================================
 \subsection{M-Step: Parametric Projection with KL Constraint}
@@ -727,7 +725,6 @@ Once the weights are computed, the M-step minimises the weighted teacher-forced 
   -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
   \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
 \end{equation}
-
 
 \section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
@@ -1060,7 +1057,7 @@ Although DAR and V-MPO share the same advantage-exponential device, they differ 
     explicit dual updates which require careful numerical handling when lifted to LLMs.
 \end{enumerate}
 
-\paragraph{Bridge to the EM LLM-scale procedure.}
+\paragraph{Bridge to the EM.}
 The sequence-level EM procedure in
 Eq.~\eqref{eq:seq_estep_weights} through Eq.~\eqref{eq:seq_weighted_mstep}
 and the DAR formulation are two views of the same update pattern: an E-step that
@@ -1082,6 +1079,317 @@ The per-sequence weights differ only by the base factor:
   w_i^{\mathrm{V\!-\!MPO}} \propto \exp\!\Big(\log\pi_t^{(i)} + \tfrac{1}{\eta}A^{(i)}\Big).
 \]
 
+\section{Generalized EM Policy Improvement (GEMPI)}
+
+
+\paragraph{The GEMPI tuple.}
+A Generalized EM Policy Improvement method is specified by
+\[
+  \mathcal{G}
+  =
+  \big(
+    \{D_j\}_{j=1}^m,\;
+    \{\pi_j\}_{j=1}^m,\;
+    \{\lambda_j\}_{j=1}^m,\;
+    \mathcal{T},\;
+    \mathcal{F},\;
+    D_M,\;
+    \varepsilon_M
+  \big),
+\]
+where $\{D_j\}$ are divergence functionals used in the E-step, $\{\pi_j\}$ are anchor policies, $\{\lambda_j > 0\}$ are regularization coefficients, $\mathcal{T}$ is the temperature mechanism (fixed, dual-adaptive, or closed-form), $\mathcal{F}$ is a filtering mechanism (identity or top-$k$), and $D_M$ with budget $\varepsilon_M$ is an optional M-step trust-region divergence.
+
+% ============================================================
+\subsection{General Regularized E-Step}
+
+The E-step constructs a non-parametric target distribution $q^\star(\cdot\mid x)$ by solving a regularized advantage maximization over $m$ anchor policies:
+\begin{equation}\label{eq:gempi_estep}
+  q^\star
+  =
+  \arg\max_{q}
+  \bigg\{
+    \mathbb{E}_{y\sim q}\!\big[A(x,y)\big]
+    -
+    \sum_{j=1}^{m} \lambda_j\, D_j\!\big(q(\cdot\mid x)\,\big\|\,\pi_j(\cdot\mid x)\big)
+  \bigg\},
+\end{equation}
+subject to $q$ being a valid distribution. The advantage $A(x,y)$ may be sequence-level (reward minus baseline) or token-level, and the divergences $D_j$ penalize deviation from each anchor $\pi_j$.
+
+\paragraph{Theorem (Multi-KL Closed Form).}
+When all divergences are KL, i.e.\ $D_j = \mathrm{KL}$ for $j=1,\dots,m$, the solution to \eqref{eq:gempi_estep} is
+\begin{equation}\label{eq:gempi_closedform}
+  q^\star(y\mid x)
+  =
+  \frac{1}{Z(x)}
+  \prod_{j=1}^{m}
+  \pi_j(y\mid x)^{\lambda_j/\Lambda}
+  \;\exp\!\Big(\frac{A(x,y)}{\Lambda}\Big),
+\end{equation}
+where $\Lambda \coloneqq \sum_{j=1}^{m}\lambda_j$ is the \emph{effective temperature} and $Z(x)$ is the partition function ensuring normalization.
+
+\paragraph{Proof.}
+Write the Lagrangian with multiplier $\mu$ for the normalization constraint:
+\[
+  \mathcal{J}(q,\mu)
+  =
+  \sum_y q(y\mid x)\, A(x,y)
+  -
+  \sum_{j=1}^{m} \lambda_j
+  \sum_y q(y\mid x)\log\frac{q(y\mid x)}{\pi_j(y\mid x)}
+  +
+  \mu\Big(1 - \sum_y q(y\mid x)\Big).
+\]
+Expanding the KL terms and grouping:
+\[
+  \mathcal{J}
+  =
+  \sum_y q(y\mid x)
+  \bigg[
+    A(x,y)
+    -
+    \Lambda\log q(y\mid x)
+    +
+    \sum_{j=1}^{m}\lambda_j \log\pi_j(y\mid x)
+  \bigg]
+  +
+  \mu\Big(1-\sum_y q(y\mid x)\Big).
+\]
+Taking the functional derivative with respect to $q(y\mid x)$ and setting to zero:
+\[
+  A(x,y)
+  -
+  \Lambda\big(\log q(y\mid x) + 1\big)
+  +
+  \sum_{j=1}^{m}\lambda_j\log\pi_j(y\mid x)
+  -
+  \mu
+  =
+  0.
+\]
+Solving for $\log q(y\mid x)$:
+\[
+  \log q(y\mid x)
+  =
+  \frac{1}{\Lambda}A(x,y)
+  +
+  \sum_{j=1}^{m}\frac{\lambda_j}{\Lambda}\log\pi_j(y\mid x)
+  +
+  \mathrm{const}.
+\]
+Exponentiating and normalizing yields \eqref{eq:gempi_closedform}. \hfill$\square$
+
+\paragraph{Log-space form.}
+The unnormalized log-weight for sample $(x,y)$ is
+\begin{equation}\label{eq:gempi_logweight}
+  \ell(x,y)
+  =
+  \sum_{j=1}^{m}
+  \frac{\lambda_j}{\Lambda}\log\pi_j(y\mid x)
+  +
+  \frac{1}{\Lambda}A(x,y).
+\end{equation}
+The coefficients $\lambda_j/\Lambda$ sum to one, so the first term is a convex combination of the anchor log-policies---a \emph{geometric mixture}---shifted by the scaled advantage. This reveals the E-step target as a geometry-aware interpolation between the anchors, tilted toward high-advantage sequences.
+
+\paragraph{Multi-temperature dual.}
+When the E-step is posed as a constrained problem---maximize expected advantage subject to $\mathrm{KL}(q\|\pi_j) < \varepsilon_j$ for each anchor---the Lagrangian yields the same functional form with each $\lambda_j$ replaced by an optimal dual variable $\lambda_j^\star$. The dual objective generalizes V-MPO's scalar temperature dual:
+\begin{equation}\label{eq:gempi_dual}
+  L_{\mathrm{dual}}(\lambda_1,\dots,\lambda_m)
+  =
+  \sum_{j=1}^{m}\lambda_j\,\varepsilon_j
+  +
+  \Lambda\,\log Z(x;\lambda_1,\dots,\lambda_m).
+\end{equation}
+This is jointly convex in $(\lambda_1,\dots,\lambda_m)$ and can be minimized by gradient descent, adapting all temperatures simultaneously.
+
+% ============================================================
+\subsection{General M-Step}
+
+The M-step projects the non-parametric target $q^\star$ back to the parametric policy family:
+\begin{equation}\label{eq:gempi_mstep}
+  \theta_{k+1}
+  =
+  \arg\min_{\theta}
+  \bigg\{
+    -\mathbb{E}_{q^\star}\!\big[\log\pi_\theta(y\mid x)\big]
+    +
+    \gamma\,
+    D_M\!\big(\pi_{\theta_k}(\cdot\mid x)\,\big\|\,\pi_\theta(\cdot\mid x)\big)
+  \bigg\},
+\end{equation}
+where $\gamma \ge 0$ controls the M-step trust region. The three main variants are:
+
+\begin{itemize}
+  \item \textbf{Unconstrained} ($\gamma=0$): pure weighted maximum likelihood. Used by DAR and AWR.
+  \item \textbf{Penalized} ($\gamma > 0$, $D_M = \mathrm{KL}$): soft KL penalty preventing the parametric policy from overshooting. The V-MPO M-step uses this with $\gamma$ treated as a Lagrangian dual variable $\alpha$ optimized against a budget $\varepsilon_\alpha$.
+  \item \textbf{Hard-constrained}: replace the penalty with a constraint $D_M(\pi_{\theta_k}\|\pi_\theta) < \varepsilon_M$ and solve via the Lagrangian, yielding the stop-gradient decomposition used in V-MPO's implementation.
+\end{itemize}
+
+\paragraph{Importance-weighted practical form.}
+When samples are drawn from the sampling policy $\pi_t$ but $q^\star \neq \pi_t$, the M-step loss uses importance weights:
+\[
+  L_\pi(\theta)
+  =
+  -\sum_{i\in S} w_i
+  \sum_{t=1}^{T_i}
+  \log\pi_\theta\!\big(y_t^{(i)}\mid y_{<t}^{(i)}, x^{(i)}\big),
+\]
+where $w_i \propto q^\star(y^{(i)}\mid x^{(i)})/\pi_t(y^{(i)}\mid x^{(i)})$. When $\pi_t$ is one of the anchors, the corresponding factor in the geometric mixture cancels partially, simplifying the weights.
+
+% ============================================================
+\subsection{Recovering Existing Methods}
+
+The GEMPI framework subsumes the EM-style methods derived in the preceding sections. Each method corresponds to a specific instantiation of the tuple $\mathcal{G}$.
+
+\medskip
+\begin{center}
+  \small
+  \begin{tabular}{lccccccc}
+    \toprule
+    \textbf{Method}
+    & $m$
+    & \textbf{Anchors}
+    & \textbf{Coefficients}
+    & $\Lambda$
+    & \textbf{Temperature}
+    & \textbf{M-step $D_M$}
+    & \textbf{Filtering} \\
+    \midrule
+    SFT
+    & 0
+    & ---
+    & ---
+    & ---
+    & ---
+    & None
+    & --- \\
+    AWR
+    & 1
+    & $\pi_t$
+    & $\beta$
+    & $\beta$
+    & Fixed
+    & None
+    & None \\
+    V-MPO
+    & 1
+    & $\pi_t$
+    & $\eta$
+    & $\eta$
+    & Adaptive dual
+    & KL ($\alpha$ dual)
+    & Top-$k$ \\
+    DAR
+    & 2
+    & $\pi_{\mathrm{ref}},\pi_t$
+    & $\alpha,\beta$
+    & $\alpha{+}\beta$
+    & Fixed
+    & None
+    & None \\
+    RL-EM
+    & 1
+    & $\pi_{\mathrm{ref}}$
+    & $\beta$
+    & $\beta$
+    & Fixed
+    & Optional KL
+    & None \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+\medskip
+
+\paragraph{V-MPO.}
+Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$. The closed form \eqref{eq:gempi_closedform} becomes
+\[
+  q^\star(y\mid x) \propto \pi_t(y\mid x)\,\exp\!\Big(\frac{A(x,y)}{\eta}\Big),
+\]
+with $\Lambda = \eta$. The temperature is treated as a dual variable optimized via the scalar dual \eqref{eq:gempi_dual} (which reduces to $L_\eta = \eta\varepsilon_\eta + \eta\log(Z/k)$). Top-$k$ filtering restricts the support. The M-step adds a KL trust region with dual $\alpha$. This recovers the full V-MPO of Section~5.
+
+\paragraph{DAR.}
+Set $m=2$, $D_1=D_2=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$ with coefficient $\alpha$, $\pi_2=\pi_t$ with coefficient $\beta$. The closed form \eqref{eq:gempi_closedform} becomes
+\[
+  q^\star(y\mid x)
+  \propto
+  \pi_{\mathrm{ref}}(y\mid x)^{\alpha/(\alpha+\beta)}\;
+  \pi_t(y\mid x)^{\beta/(\alpha+\beta)}\;
+  \exp\!\Big(\frac{A(x,y)}{\alpha+\beta}\Big),
+\]
+with $\Lambda = \alpha+\beta$. This is precisely the DAR optimal policy from Section~7.
+
+\paragraph{AWR.}
+Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual optimization, no filtering, unconstrained M-step. The target is $q^\star \propto \pi_t\exp(A/\beta)$, recovering standard Advantage Weighted Regression \parencite{peng2019advantageweightedregression}.
+
+\paragraph{SFT.}
+The degenerate case with no E-step optimization: $q(\tau\mid x) = \delta(\tau=y)$ places all mass on demonstrated responses, and the M-step is pure maximum likelihood. This corresponds to $m=0$ in the GEMPI tuple.
+
+\paragraph{DAR$\to$V-MPO as corollary.}
+The reduction derived in Section~7.4 is now a trivial consequence of the GEMPI parameterization: collapsing two anchors to one ($\pi_{\mathrm{ref}}=\pi_t$) merges the geometric mixture powers $\pi_{\mathrm{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda} = \pi_t^{1} = \pi_t$, recovering the single-anchor form with $\eta = \alpha+\beta$. Alternatively, sending $\alpha\to 0$ zeros out the $\pi_{\mathrm{ref}}$ contribution, yielding the same result.
+
+% ============================================================
+\subsection{The Role of Divergence Choice}
+
+The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with other members of the $f$-divergence family changes the form of the advantage tilting: for KL the tilting is \emph{exponential} in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields \emph{linear} tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
+
+\medskip
+\begin{center}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{PMD (policy gradients)} & \textbf{GEMPI (EM alignment)} \\
+    \midrule
+    Mirror map $h$ &E-step divergence $D_j$ \\
+    $h = -H$ (neg.\ entropy) $\to$ NPG/TRPO & $D_j = \mathrm{KL}$ $\to$ V-MPO/DAR/AWR \\
+    $h = \tfrac{1}{2}\|\cdot\|^2$ $\to$ proj.\ gradient & $D_j = \chi^2$ $\to$ linear adv.\ weighting \\
+    Step size / temperature $\eta$& Effective temperature $\Lambda$ \\
+    Single proximal step & Two-phase: E-step + M-step projection \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+% ============================================================
+\subsection{Stability Properties as Structural Consequences}
+
+The GEMPI decomposition reveals that the practical stabilization mechanisms used across the various methods are not ad-hoc engineering choices but follow from specific structural decisions within the framework.
+
+\paragraph{Adaptive temperature.}
+Treating the coefficients $\lambda_j$ as dual variables (Section~8.2, Eq.~\eqref{eq:gempi_dual}) rather than fixed hyperparameters gives automatic temperature adaptation. V-MPO exercises this with a single dual variable ($m=1$); DAR currently uses fixed $(\alpha,\beta)$ but could, within GEMPI, optimize both as a two-temperature dual, gaining adaptive stability while retaining the dual-anchor structure.
+
+\paragraph{Trust regions in the M-step.}
+The M-step constraint $D_M(\pi_{\theta_k}\|\pi_\theta) < \varepsilon_M$ is an independent axis of variation: any E-step target can be paired with any M-step trust-region policy. V-MPO uses a KL trust region; DAR and AWR do not. The framework makes explicit that adding or removing M-step constraints is orthogonal to the E-step design.
+
+\paragraph{Top-$k$ filtering.}
+Restricting the support of $q^\star$ to the top-$k$ samples by advantage before computing the geometric mixture weights is a form of hard thresholding on the filter set $\mathcal{F}$. This can be applied to any GEMPI instantiation, not only V-MPO.
+
+\paragraph{Dropout compatibility.}
+The GEMPI template guarantees dropout compatibility whenever the M-step uses detached (stop-gradient) weights from the E-step. In this case the M-step gradient
+\[
+  \nabla_\theta L_\pi
+  =
+  -\sum_{i\in S} w_i \sum_t \nabla_\theta\log\pi_\theta^{(\mathrm{mask})}(y_t^{(i)}\mid\cdot\,)
+\]
+is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property upgrades the dropout analysis of Section~10 from an observation about specific methods to a consequence of the GEMPI decomposition: any method instantiated within GEMPI inherits dropout compatibility in its M-step.
+
+% ============================================================
+\subsection{Novel Instantiations}
+
+The GEMPI framework, by making the axes of variation explicit, suggests several unexplored combinations.
+
+\paragraph{Adaptive-Temperature DAR (AT-DAR).}
+DAR with $m=2$ but treating both $\alpha$ and $\beta$ as dual variables with KL budgets $\varepsilon_\alpha$ and $\varepsilon_\beta$. The dual objective becomes
+\[
+  L_{\mathrm{dual}}(\alpha,\beta)
+  =
+  \alpha\,\varepsilon_\alpha + \beta\,\varepsilon_\beta
+  +
+  (\alpha+\beta)\log Z(x;\alpha,\beta),
+\]
+giving DAR the same adaptive stability as V-MPO while retaining the dual-anchor structure.
+
+\paragraph{DAR with M-step Trust Region (DAR-TR).}
+Adding a KL trust-region constraint to DAR's currently unconstrained M-step creates a method combining DAR's dual-anchor E-step with V-MPO's conservative parametric projection: the full GEMPI tuple with $m=2$, $D_1=D_2=\mathrm{KL}$, $D_M=\mathrm{KL}$ with budget $\varepsilon_M$.
+
+\paragraph{Top-$k$ DAR.}
+Applying V-MPO's top-$k$ filtering to the DAR E-step. Currently DAR uses all samples; restricting to the top-$k$ by advantage before computing the geometric mixture weights could improve sample efficiency by focusing the M-step on demonstrably high-quality sequences.
 
 \section{Transformers - TrXL}
 
@@ -1127,7 +1435,6 @@ V-MPO is an on-policy algorithm that performs policy improvement via an EM proce
 For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
 
 \section{The Case for Dropout}
-
 
 Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training and scales the remaining activations by $1/(1-p)$:
 \[

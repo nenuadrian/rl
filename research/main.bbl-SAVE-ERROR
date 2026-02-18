@@ -19,6 +19,60 @@
 
 \refsection{0}
   \datalist[entry]{nyt/global//global/global/global}
+    \entry{banerjee2005bregmanclustering}{article}{}{}
+      \name{author}{4}{}{%
+        {{un=0,uniquepart=base,hash=4ddb7b9c38d8c15a70bc573ba4e51ea9}{%
+           family={Banerjee},
+           familyi={B\bibinitperiod},
+           given={Arindam},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=24a3738d231e380c117451446c0b73bf}{%
+           family={Merugu},
+           familyi={M\bibinitperiod},
+           given={Srujana},
+           giveni={S\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=51507caeacd037a1865cb20b0516026b}{%
+           family={Dhillon},
+           familyi={D\bibinitperiod},
+           given={Inderjit\bibnamedelima S.},
+           giveni={I\bibinitperiod\bibinitdelim S\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=a42c5ff0154e1a6dbc0fb496130986db}{%
+           family={Ghosh},
+           familyi={G\bibinitperiod},
+           given={Joydeep},
+           giveni={J\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{663f4a29732bf80bfa5793b58a12ba6c}
+      \strng{fullhash}{1d46f615cf06fc7339e98ea3a3d19040}
+      \strng{fullhashraw}{1d46f615cf06fc7339e98ea3a3d19040}
+      \strng{bibnamehash}{663f4a29732bf80bfa5793b58a12ba6c}
+      \strng{authorbibnamehash}{663f4a29732bf80bfa5793b58a12ba6c}
+      \strng{authornamehash}{663f4a29732bf80bfa5793b58a12ba6c}
+      \strng{authorfullhash}{1d46f615cf06fc7339e98ea3a3d19040}
+      \strng{authorfullhashraw}{1d46f615cf06fc7339e98ea3a3d19040}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Machine Learning Research}
+      \field{title}{Clustering with Bregman Divergences}
+      \field{volume}{6}
+      \field{year}{2005}
+      \field{pages}{1705\bibrangedash 1749}
+      \range{pages}{45}
+      \verb{urlraw}
+      \verb https://www.jmlr.org/papers/volume6/banerjee05b/banerjee05b.pdf
+      \endverb
+      \verb{url}
+      \verb https://www.jmlr.org/papers/volume6/banerjee05b/banerjee05b.pdf
+      \endverb
+    \endentry
     \entry{dai2019transformerxlattentivelanguagemodels}{misc}{}{}
       \name{author}{6}{}{%
         {{un=0,uniquepart=base,hash=74ae4c193de464cda59c8066619514fd}{%
@@ -151,6 +205,47 @@
       \endverb
       \verb{url}
       \verb https://arxiv.org/abs/2504.14177
+      \endverb
+    \endentry
+    \entry{lan2023policymirrordescentrl}{article}{}{}
+      \name{author}{1}{}{%
+        {{un=0,uniquepart=base,hash=775230a39f44f535164fa9b7cabb0ba6}{%
+           family={Lan},
+           familyi={L\bibinitperiod},
+           given={Guanghui},
+           giveni={G\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{fullhash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{fullhashraw}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{bibnamehash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{authorbibnamehash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{authornamehash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{authorfullhash}{775230a39f44f535164fa9b7cabb0ba6}
+      \strng{authorfullhashraw}{775230a39f44f535164fa9b7cabb0ba6}
+      \field{sortinit}{L}
+      \field{sortinithash}{7c47d417cecb1f4bd38d1825c427a61a}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.LG}
+      \field{eprinttype}{arXiv}
+      \field{journaltitle}{Mathematical Programming}
+      \field{title}{Policy Mirror Descent for Reinforcement Learning: Linear Convergence, New Sampling Complexity, and Generalized Problem Classes}
+      \field{volume}{198}
+      \field{year}{2023}
+      \field{pages}{1059\bibrangedash 1106}
+      \range{pages}{48}
+      \verb{eprint}
+      \verb 2102.00135
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2102.00135
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2102.00135
       \endverb
     \endentry
     \entry{parisotto2019stabilizingtransformersreinforcementlearning}{misc}{}{}
@@ -491,6 +586,61 @@
       \endverb
       \verb{url}
       \verb http://jmlr.org/papers/v15/srivastava14a.html
+      \endverb
+    \endentry
+    \entry{tomar2022mdpo}{misc}{}{}
+      \name{author}{4}{}{%
+        {{un=0,uniquepart=base,hash=ffa96b43ff616cf338a552f66d73aa2b}{%
+           family={Tomar},
+           familyi={T\bibinitperiod},
+           given={Manan},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=4fcb0caa798a969668e72a462418a9aa}{%
+           family={Shani},
+           familyi={S\bibinitperiod},
+           given={Lior},
+           giveni={L\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=d991da92e8e596e3401757dcba2aa845}{%
+           family={Efroni},
+           familyi={E\bibinitperiod},
+           given={Yonathan},
+           giveni={Y\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=8e24dffc0a2bc85a7ea0c453c0cd2cc5}{%
+           family={Ghavamzadeh},
+           familyi={G\bibinitperiod},
+           given={Mohammad},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{7cb62aa7378c03262bbbf72281b31634}
+      \strng{fullhash}{bb3fd3988b2e3cc9705fbf1124b29d33}
+      \strng{fullhashraw}{bb3fd3988b2e3cc9705fbf1124b29d33}
+      \strng{bibnamehash}{7cb62aa7378c03262bbbf72281b31634}
+      \strng{authorbibnamehash}{7cb62aa7378c03262bbbf72281b31634}
+      \strng{authornamehash}{7cb62aa7378c03262bbbf72281b31634}
+      \strng{authorfullhash}{bb3fd3988b2e3cc9705fbf1124b29d33}
+      \strng{authorfullhashraw}{bb3fd3988b2e3cc9705fbf1124b29d33}
+      \field{sortinit}{T}
+      \field{sortinithash}{9af77f0292593c26bde9a56e688eaee9}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.LG}
+      \field{eprinttype}{arXiv}
+      \field{title}{Mirror Descent Policy Optimization}
+      \field{year}{2022}
+      \verb{eprint}
+      \verb 2005.09814
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2005.09814
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2005.09814
       \endverb
     \endentry
   \enddatalist
