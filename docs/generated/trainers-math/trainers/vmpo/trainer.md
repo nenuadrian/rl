@@ -12,7 +12,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         total = count_acc + count_i
 ```
 
-\(n = n_{acc} + n_i\)
+$$
+n = n_{acc} + n_i
+$$
 
 ### Line 209
 
@@ -20,7 +22,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         delta = mean_i - mean_acc
 ```
 
-\(\delta = \mu_i - \mu_{acc}\)
+$$
+\delta = \mu_i - \mu_{acc}
+$$
 
 ### Line 210
 
@@ -28,7 +32,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         mean_new = mean_acc + delta * (count_i / total)
 ```
 
-\(\mu' = \mu_{acc} + \delta\frac{n_i}{n}\)
+$$
+\mu' = \mu_{acc} + \delta\frac{n_i}{n}
+$$
 
 ### Line 211
 
@@ -36,7 +42,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         m2_acc = var_acc * count_acc
 ```
 
-\(M_{2,acc} = \sigma_{acc}^2 n_{acc}\)
+$$
+M_{2,acc} = \sigma_{acc}^2 n_{acc}
+$$
 
 ### Line 212
 
@@ -44,7 +52,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         m2_i = var_i * count_i
 ```
 
-\(M_{2,i} = \sigma_i^2 n_i\)
+$$
+M_{2,i} = \sigma_i^2 n_i
+$$
 
 ### Line 213
 
@@ -52,7 +62,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
 ```
 
-\(M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}\)
+$$
+M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}
+$$
 
 ### Line 216
 
@@ -60,7 +72,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         var_acc = m2_total / total
 ```
 
-\(\sigma^2 = \frac{M_2}{n}\)
+$$
+\sigma^2 = \frac{M_2}{n}
+$$
 
 ### Line 479
 
@@ -68,7 +82,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         eval_interval = max(1, total_steps // 50)
 ```
 
-\(\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)\)
+$$
+\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
+$$
 
 ### Line 508
 
@@ -76,7 +92,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
             global_step += self.num_envs
 ```
 
-\(t \leftarrow t + N\)
+$$
+t \leftarrow t + N
+$$
 
 ### Line 509
 
@@ -84,7 +102,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
             restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
 ```
 
-\(w_t^{restart} = 1 - \mathbf{1}_{episode\_start}\)
+$$
+w_t^{restart} = 1 - \mathbf{1}_{episode\_start}
+$$
 
 ### Line 517
 
@@ -92,7 +112,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
             done = terminated | truncated
 ```
 
-\(d_t = d_t^{term} \lor d_t^{trunc}\)
+$$
+d_t = d_t^{term} \lor d_t^{trunc}
+$$
 
 ### Line 524
 
@@ -100,7 +122,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
             timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
 ```
 
-\(m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}\)
+$$
+m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}
+$$
 
 ### Line 561
 
@@ -108,7 +132,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
             self.episode_return += reward
 ```
 
-\(G_i \leftarrow G_i + r_{t,i}\)
+$$
+G_i \leftarrow G_i + r_{t,i}
+$$
 
 ### Line 625
 
@@ -116,7 +142,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
 ```
 
-\(r_t' = r_t + \gamma b_t^{timeout}\)
+$$
+r_t' = r_t + \gamma b_t^{timeout}
+$$
 
 ### Line 628
 
@@ -124,7 +152,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 last_value = last_value * (1.0 - dones_arr[-1])
 ```
 
-\(V_T = V(s_T)(1 - d_T)\)
+$$
+V_T = V(s_T)(1 - d_T)
+$$
 
 ### Line 632
 
@@ -132,7 +162,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 obs_flat = obs_arr.reshape(T * N, -1)
 ```
 
-\(\mathbf{S} \in \mathbb{R}^{(TN)\times d_s}\)
+$$
+\mathbf{S} \in \mathbb{R}^{(TN)\times d_s}
+$$
 
 ### Line 633
 
@@ -140,7 +172,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 actions_flat = actions_arr.reshape(T * N, -1)
 ```
 
-\(\mathbf{A} \in \mathbb{R}^{(TN)\times d_a}\)
+$$
+\mathbf{A} \in \mathbb{R}^{(TN)\times d_a}
+$$
 
 ### Line 639
 
@@ -148,7 +182,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 means_flat = means_arr.reshape(T * N, -1)
 ```
 
-\(\mu_{old} \in \mathbb{R}^{(TN)\times d_a}\)
+$$
+\mu_{old} \in \mathbb{R}^{(TN)\times d_a}
+$$
 
 ### Line 640
 
@@ -156,7 +192,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 log_stds_flat = log_stds_arr.reshape(T * N, -1)
 ```
 
-\(\log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}\)
+$$
+\log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}
+$$
 
 ### Line 642
 
@@ -164,7 +202,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 returns, advantages = compute_rollout_targets(
 ```
 
-\((R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)\)
+$$
+(R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)
+$$
 
 ### Line 651
 
@@ -172,7 +212,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 returns_flat = returns.reshape(T * N, 1)
 ```
 
-\(\mathbf{R} \in \mathbb{R}^{(TN)\times 1}\)
+$$
+\mathbf{R} \in \mathbb{R}^{(TN)\times 1}
+$$
 
 ### Line 652
 
@@ -180,7 +222,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 advantages_flat = advantages.reshape(T * N, 1)
 ```
 
-\(\mathbf{A} \in \mathbb{R}^{(TN)\times 1}\)
+$$
+\mathbf{A} \in \mathbb{R}^{(TN)\times 1}
+$$
 
 ### Line 690
 
@@ -188,7 +232,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                         interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
 ```
 
-\(M_k \leftarrow M_k + m_k\)
+$$
+M_k \leftarrow M_k + m_k
+$$
 
 ### Line 728
 
@@ -196,7 +242,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
 ```
 
-\(p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}\)
+$$
+p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}
+$$
 
 ### Line 748
 
@@ -204,7 +252,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                     mean_metrics = {
 ```
 
-\(\bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}\)
+$$
+\bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}
+$$
 
 ### Line 806
 
@@ -212,7 +262,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         episode_returns += reward
 ```
 
-\(G_i \leftarrow G_i + r_{t,i}\)
+$$
+G_i \leftarrow G_i + r_{t,i}
+$$
 
 ### Line 812
 
@@ -220,7 +272,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
                 final_returns.append(episode_returns[i])
 ```
 
-\(\mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}\)
+$$
+\mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}
+$$
 
 ### Line 820
 
@@ -228,7 +282,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         "eval/return_median": float(np.median(final_returns)),
 ```
 
-\(\tilde{G} = \operatorname{median}(\mathcal{G})\)
+$$
+\tilde{G} = \operatorname{median}(\mathcal{G})
+$$
 
 ### Line 821
 
@@ -236,7 +292,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         "eval/return_mean": float(np.mean(final_returns)),
 ```
 
-\(\bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g\)
+$$
+\bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g
+$$
 
 ### Line 822
 
@@ -244,7 +302,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         "eval/return_std": float(np.std(final_returns)),
 ```
 
-\(\sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}\)
+$$
+\sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}
+$$
 
 ### Line 823
 
@@ -252,7 +312,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         "eval/return_min": float(np.min(final_returns)),
 ```
 
-\(G_{\min} = \min(\mathcal{G})\)
+$$
+G_{\min} = \min(\mathcal{G})
+$$
 
 ### Line 824
 
@@ -260,7 +322,9 @@ Each `# LaTeX:` annotation is rendered below next to its source line.
         "eval/return_max": float(np.max(final_returns)),
 ```
 
-\(G_{\max} = \max(\mathcal{G})\)
+$$
+G_{\max} = \max(\mathcal{G})
+$$
 
 ## Full Source
 
