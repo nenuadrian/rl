@@ -19,6 +19,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      base_url: ${{ steps.pages.outputs.base_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,10 +35,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install mkdocs
 
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Generate docs content
         run: python scripts/generate_docs_content.py
 
       - name: Build site
+        env:
+          MKDOCS_SITE_URL: https://${{ github.repository_owner }}.github.io${{ steps.pages.outputs.base_url }}
         run: mkdocs build --strict
 
       - name: Upload Pages artifact

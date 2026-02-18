@@ -7,6 +7,13 @@ This site is built for GitHub Pages and includes:
 - auto-generated API reference pages for all Python modules in `trainers/`
 - math-annotated trainer pages that render inline `# LaTeX:` comments
 
+## Quick Links
+
+- [Latest Report](generated/report/latest.md)
+- [Hyperparameters](generated/hyperparameters/index.md)
+- [Trainers API](generated/trainers-api/index.md)
+- [Trainers Math](generated/trainers-math/index.md)
+
 ## Build Process
 
 Docs content under `docs/generated/` is re-created by:

@@ -1,5 +1,6 @@
 site_name: Minerva RL Docs
 site_description: Reports, hyperparameter snapshots, trainers API reference, and math-annotated trainer code.
+site_url: !ENV [MKDOCS_SITE_URL, ""]
 docs_dir: docs
 site_dir: site
 
