@@ -14,7 +14,7 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "gamma": 0.99,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
-    "topk_fraction": 1.0,
+    "topk_fraction": 0.5,
     "temperature_init": 1.0,
     "temperature_lr": 1e-4,
     "alpha_lr": 1e-4,
@@ -22,7 +22,7 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "epsilon_mu": 0.02,
     "epsilon_sigma":  0.02,
     "max_grad_norm": 20.0,
-    "normalize_advantages": False,
+    "normalize_advantages": True,
     "optimizer_type": "adam",
     "shared_encoder": True,
 }

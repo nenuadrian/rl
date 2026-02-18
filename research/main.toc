@@ -43,22 +43,23 @@
 \contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{16}{section*.38}%
 \contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{16}{section*.39}%
 \contentsline {paragraph}{Practical consequences and distinctions.}{16}{section*.40}%
-\contentsline {paragraph}{Sequence-level weighted loss (common form).}{17}{section*.41}%
+\contentsline {paragraph}{Bridge to the EM LLM-scale procedure.}{17}{section*.41}%
+\contentsline {paragraph}{Sequence-level weighted loss (common form).}{17}{section*.42}%
 \contentsline {section}{\numberline {8}Transformers - TrXL}{17}{section.8}%
-\contentsline {subsection}{Implementation}{17}{section*.42}%
-\contentsline {subsection}{GTrXL with V-MPO}{17}{section*.43}%
-\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{18}{section*.44}%
-\contentsline {subsubsection}{Gating Layers}{18}{section*.45}%
-\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{18}{section*.46}%
-\contentsline {subsubsection}{Architecture and Training Configuration}{18}{section*.47}%
+\contentsline {subsection}{Implementation}{17}{section*.43}%
+\contentsline {subsection}{GTrXL with V-MPO}{18}{section*.44}%
+\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{18}{section*.45}%
+\contentsline {subsubsection}{Gating Layers}{18}{section*.46}%
+\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{18}{section*.47}%
+\contentsline {subsubsection}{Architecture and Training Configuration}{19}{section*.48}%
 \contentsline {section}{\numberline {9}The Case for Dropout}{19}{section.9}%
-\contentsline {subsection}{Why PPO Disables Dropout}{19}{section*.48}%
-\contentsline {paragraph}{Problem 1: stochastic numerator.}{19}{section*.49}%
-\contentsline {paragraph}{Problem 2: inconsistent denominator.}{20}{section*.50}%
-\contentsline {paragraph}{Problem 3: KL penalty corruption.}{20}{section*.51}%
-\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{20}{section*.52}%
-\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{20}{section*.53}%
-\contentsline {paragraph}{M-step: standard cross-entropy.}{20}{section*.54}%
-\contentsline {paragraph}{No ratio, no conflict.}{21}{section*.55}%
-\contentsline {subsection}{Practical Implications}{21}{section*.56}%
+\contentsline {subsection}{Why PPO Disables Dropout}{19}{section*.49}%
+\contentsline {paragraph}{Problem 1: stochastic numerator.}{20}{section*.50}%
+\contentsline {paragraph}{Problem 2: inconsistent denominator.}{20}{section*.51}%
+\contentsline {paragraph}{Problem 3: KL penalty corruption.}{20}{section*.52}%
+\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{20}{section*.53}%
+\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{20}{section*.54}%
+\contentsline {paragraph}{M-step: standard cross-entropy.}{21}{section*.55}%
+\contentsline {paragraph}{No ratio, no conflict.}{21}{section*.56}%
+\contentsline {subsection}{Practical Implications}{21}{section*.57}%
 \contentsline {section}{\numberline {10}References}{21}{section.10}%

@@ -1060,6 +1060,17 @@ Although DAR and V-MPO share the same advantage-exponential device, they differ 
     explicit dual updates which require careful numerical handling when lifted to LLMs.
 \end{enumerate}
 
+\paragraph{Bridge to the EM LLM-scale procedure.}
+The sequence-level EM procedure in
+Eq.~\eqref{eq:seq_estep_weights} through Eq.~\eqref{eq:seq_weighted_mstep}
+and the DAR formulation are two views of the same update pattern: an E-step that
+constructs exponential advantage weights followed by a weighted teacher-forced M-step.
+In the LLM-scale V-MPO view, $\eta$ is adapted online via a dual objective and the
+E-step may be restricted to top-$k$ samples for stability; in the DAR view, the
+closed-form target introduces an additional reference/sampling mixture term and uses
+fixed coefficients $(\alpha,\beta)$, which recover the V-MPO-style form in the limits
+derived above.
+
 \paragraph{Sequence-level weighted loss (common form).}
 Both approaches use the same weighted teacher-forced M-step objective as in
 Eq.~\eqref{eq:seq_weighted_mstep}.
