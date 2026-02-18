@@ -62,6 +62,10 @@ PRESETS: dict[str, dict[str, Any]] = {
         "total_steps": 10_000_000,
         **HUMANOID_V5_VMPO_PARAMS,
     },
+    "Ant-v5": {
+        "total_steps": 10_000_000,
+        **HUMANOID_V5_VMPO_PARAMS,
+    },
     "HalfCheetah-v5": {
         "total_steps": 2_000_000,
         **SHARED_VMPO_PARAMS,
