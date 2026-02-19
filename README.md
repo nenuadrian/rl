@@ -1,6 +1,7 @@
 # Minerva - Reinforcement Learning Algorithms in PyTorch
 
 [![Python tests](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml/badge.svg)](https://github.com/nenuadrian/rl/actions/workflows/python-app.yml)
+[![Docs](https://github.com/nenuadrian/rl/actions/workflows/docs.yml/badge.svg)](https://github.com/nenuadrian/rl/actions/workflows/docs.yml)
 
 [See the latest report here.](reports/latest/README.md)
 
@@ -72,3 +73,4 @@ Skip that step with:
 ```bash
 python -m scripts.generate_report --skip-videos
 ```
+
