@@ -22,7 +22,7 @@ DOCS_DIR = ROOT / "docs"
 GENERATED_DIR = DOCS_DIR / "generated"
 REPORTS_LATEST_DIR = ROOT / "reports" / "latest"
 HYPERPARAMETERS_DIR = ROOT / "hyperparameters"
-TRAINERS_DIR = ROOT / "trainers"
+TRAINERS_DIR = ROOT / "minerva/trainers"
 
 MISSING = object()
 LATEX_INLINE_PATTERN = re.compile(
