@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.9.25)  19 FEB 2026 16:32
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.9.25)  19 FEB 2026 18:03
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -738,12 +738,7 @@ LaTeX Warning: No \author given.
 
 [4]
 
-[5
-pdfTeX warning (ext4): destination with the same identifier (name{equation.1}) has been already used, duplicate ignored
-<argument> ...shipout:D \box_use:N \l_shipout_box 
-                                                  \__shipout_drop_firstpage_...
-l.578 T
-       he TD residual at each step is]
+[5]
 
 [6]
 
@@ -758,7 +753,7 @@ l.578 T
 [11]
 
 LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined
-(Font)              using `OT1/cmr/bx/n' instead on input line 1136.
+(Font)              using `OT1/cmr/bx/n' instead on input line 1120.
 
 
 
@@ -767,13 +762,18 @@ LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined
 [13]
 
 [14]
-Overfull \hbox (5.44543pt too wide) in paragraph at lines 1308--1309
-[]\OT1/cmr/bx/n/10 Robust per-for-mance on mem-ory tasks. \OT1/cmr/m/n/10 On DMLab-30, GTrXL (GRU) reaches a human-normalised
+Overfull \hbox (14.39397pt too wide) in paragraph at lines 1302--1304
+\OT1/cmr/m/n/10 with reg-u-lar-i-sa-tion weight $\OML/cmm/m/it/10 ^^L > \OT1/cmr/m/n/10 0$ and ref-er-ence pol-icy $\OML/cmm/m/it/10 ^^Y[]$ \OT1/cmr/m/n/10 (SFT check-point). :con-tentRe-f-er-ence[oaicite:3]index=3 
  []
 
 
 
 [15]
+Overfull \hbox (28.15334pt too wide) in paragraph at lines 1400--1401
+[]\OT1/cmr/m/n/10 This it-er-ated max--min pol-icy it-er-a-tion is sum-marised in Al-go-rithm []9[] be-low. :con-tentRe-f-er-ence[oaicite:7]index=7 
+ []
+
+
 
 [16]
 
@@ -786,553 +786,553 @@ Overfull \hbox (5.44543pt too wide) in paragraph at lines 1308--1309
 [20]
 
 [21]
-Underfull \hbox (badness 10000) in paragraph at lines 1875--1876
+
+[22]
+Underfull \hbox (badness 10000) in paragraph at lines 1993--1994
 []\OT1/cmr/bx/n/7 Optimisation
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1876--1877
+Underfull \hbox (badness 10000) in paragraph at lines 1994--1995
 []\OT1/cmr/m/n/7 Policy gra-di-
  []
 
 
-Underfull \hbox (badness 3098) in paragraph at lines 1876--1877
+Underfull \hbox (badness 3098) in paragraph at lines 1994--1995
 \OT1/cmr/m/n/7 ent (PMD, neg.
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1876--1877
+Underfull \hbox (badness 10000) in paragraph at lines 1994--1995
 \OT1/cmr/m/n/7 en-tropy mir-ror
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1880--1881
+Underfull \hbox (badness 10000) in paragraph at lines 1998--1999
 []\OT1/cmr/m/n/7 Preference MLE
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1881--1882
+Underfull \hbox (badness 10000) in paragraph at lines 1999--2000
 []\OT1/cmr/m/n/7 Generalised EM
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1885--1886
+Underfull \hbox (badness 10000) in paragraph at lines 2003--2004
 []\OT1/cmr/m/n/7 MAP im-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1885--1886
+Underfull \hbox (badness 10000) in paragraph at lines 2003--2004
 \OT1/cmr/m/n/7 prove-ment
  []
 
 
-Overfull \hbox (11.36906pt too wide) in paragraph at lines 1885--1886
+Overfull \hbox (11.36906pt too wide) in paragraph at lines 2003--2004
 [] \OML/cmm/m/it/7 p[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 I[]\OT1/cmr/m/n/7 1)[] [] \OML/cmm/m/it/7 p\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 ^^R\OT1/cmr/m/n/7 )$| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1886--1887
+Underfull \hbox (badness 10000) in paragraph at lines 2004--2005
 []\OT1/cmr/m/n/7 Advantage-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1886--1887
+Underfull \hbox (badness 10000) in paragraph at lines 2004--2005
 \OT1/cmr/m/n/7 weighted MLE
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1887--1888
+Underfull \hbox (badness 10000) in paragraph at lines 2005--2006
 []\OT1/cmr/m/n/7 Dual-KL ad-van-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1887--1888
+Underfull \hbox (badness 10000) in paragraph at lines 2005--2006
 \OT1/cmr/m/n/7 tage max-imi-sa-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1888--1889
+Underfull \hbox (badness 10000) in paragraph at lines 2006--2007
 []\OT1/cmr/m/n/7 Binary cross-
  []
 
 
-Underfull \hbox (badness 1642) in paragraph at lines 1888--1889
+Underfull \hbox (badness 1642) in paragraph at lines 2006--2007
 \OT1/cmr/m/n/7 entropy on pref.
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1889--1890
+Underfull \hbox (badness 10000) in paragraph at lines 2007--2008
 []$[][]  \U/msb/m/n/7 E[]\OT1/cmr/m/n/7 [\OML/cmm/m/it/7 A\OT1/cmr/m/n/7 ] \OMS/cmsy/m/n/7 ^^@
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1889--1890
+Underfull \hbox (badness 10000) in paragraph at lines 2007--2008
 [][] \OML/cmm/m/it/7 ^^U[]D[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 q\OMS/cmsy/m/n/7 k\OML/cmm/m/it/7 ^^Y[]\OT1/cmr/m/n/7 )$,
  []
 
 
-Underfull \hbox (badness 1210) in paragraph at lines 1892--1893
+Underfull \hbox (badness 1210) in paragraph at lines 2010--2011
 []\OT1/cmr/m/n/7 Single-phase gra-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1893--1894
+Underfull \hbox (badness 10000) in paragraph at lines 2011--2012
 []\OT1/cmr/m/n/7 E-step (non-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1893--1894
+Underfull \hbox (badness 10000) in paragraph at lines 2011--2012
 \OT1/cmr/m/n/7 parametric tar-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1893--1894
+Underfull \hbox (badness 10000) in paragraph at lines 2011--2012
 \OT1/cmr/m/n/7 get) $+$ M-step
  []
 
 
-Underfull \hbox (badness 5274) in paragraph at lines 1893--1894
+Underfull \hbox (badness 5274) in paragraph at lines 2011--2012
 \OT1/cmr/m/n/7 (para-met-ric pro-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1895--1896
+Underfull \hbox (badness 10000) in paragraph at lines 2013--2014
 []\OT1/cmr/m/n/7 E-step (closed
  []
 
 
-Underfull \hbox (badness 3108) in paragraph at lines 1896--1897
+Underfull \hbox (badness 3108) in paragraph at lines 2014--2015
 []\OT1/cmr/m/n/7 Single-phase; no
  []
 
 
-Underfull \hbox (badness 2368) in paragraph at lines 1897--1898
+Underfull \hbox (badness 2368) in paragraph at lines 2015--2016
 []\OT1/cmr/m/n/7 E-step $+$ M-step
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1897--1898
+Underfull \hbox (badness 10000) in paragraph at lines 2015--2016
 \OT1/cmr/m/n/7 (fully con-fig-
  []
 
 
-Overfull \hbox (8.88098pt too wide) in paragraph at lines 1903--1904
+Overfull \hbox (8.88098pt too wide) in paragraph at lines 2021--2022
 []$\OML/cmm/m/it/7 ^^Y[]^^Y[] []\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 A=\OT1/cmr/m/n/7 ^^C)$| 
  []
 
 
-Overfull \hbox (4.17569pt too wide) in paragraph at lines 1905--1906
+Overfull \hbox (4.17569pt too wide) in paragraph at lines 2023--2024
 []$[][] \OML/cmm/m/it/7 ^^Y[] []\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 A=\OT1/cmr/m/n/7 ^^C)$| 
  []
 
 
-Underfull \hbox (badness 3302) in paragraph at lines 1917--1918
+Underfull \hbox (badness 3302) in paragraph at lines 2035--2036
 []$\OML/cmm/m/it/7 ^^Y[]$ \OT1/cmr/m/n/7 (E-step); $\OML/cmm/m/it/7 ^^Y[]$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1927--1928
+Underfull \hbox (badness 10000) in paragraph at lines 2045--2046
 []\OT1/cmr/m/n/7 Fixed $(\OML/cmm/m/it/7 ; ^^L\OT1/cmr/m/n/7 )$;
  []
 
 
-Underfull \hbox (badness 3612) in paragraph at lines 1927--1928
+Underfull \hbox (badness 3612) in paragraph at lines 2045--2046
 \OT1/cmr/m/n/7 AT-DAR vari-ant
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1929--1930
+Underfull \hbox (badness 10000) in paragraph at lines 2047--2048
 []\OT1/cmr/m/n/7 Fixed or dual-
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 1929--1930
+Underfull \hbox (badness 2343) in paragraph at lines 2047--2048
 \OT1/cmr/m/n/7 adaptive ($\OML/cmm/m/it/7 ^^U[]$ \OT1/cmr/m/n/7 per
  []
 
 
-Underfull \hbox (badness 2689) in paragraph at lines 1932--1933
+Underfull \hbox (badness 2689) in paragraph at lines 2050--2051
 \OT1/cmr/m/n/7 (ratio-coupled to
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1933--1934
+Underfull \hbox (badness 10000) in paragraph at lines 2051--2052
 \OT1/cmr/m/n/7 (detached
  []
 
 
-Overfull \hbox (8.82454pt too wide) in paragraph at lines 1936--1937
+Overfull \hbox (8.82454pt too wide) in paragraph at lines 2054--2055
 []$\OML/cmm/m/it/7 ^^[\OT1/cmr/m/n/7 (\OMS/cmsy/m/n/7 ^^A\OT1/cmr/m/n/7 )[]\OMS/cmsy/m/n/7 r[] [] \OML/cmm/m/it/7 ^^Y[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 y[]\OT1/cmr/m/n/7 ) \OMS/cmsy/m/n/7 ^^@
  []
 
 
-Underfull \hbox (badness 3482) in paragraph at lines 1943--1944
+Underfull \hbox (badness 3482) in paragraph at lines 2061--2062
 []\OT1/cmr/m/n/7 No (op-tional IS
  []
 
 
-Underfull \hbox (badness 1478) in paragraph at lines 1943--1944
+Underfull \hbox (badness 1478) in paragraph at lines 2061--2062
 \OT1/cmr/m/n/7 cor-rec-tion if off-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1945--1946
+Underfull \hbox (badness 10000) in paragraph at lines 2063--2064
 []\OT1/cmr/m/n/7 No (IS weights
  []
 
 
-Underfull \hbox (badness 6876) in paragraph at lines 1945--1946
+Underfull \hbox (badness 6876) in paragraph at lines 2063--2064
 \OT1/cmr/m/n/7 op-tional for off-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1948--1949
+Underfull \hbox (badness 10000) in paragraph at lines 2066--2067
 []\OT1/cmr/m/n/7 N/A (single-
  []
 
 
-Overfull \hbox (10.42665pt too wide) in paragraph at lines 1949--1950
+Overfull \hbox (10.42665pt too wide) in paragraph at lines 2067--2068
 []$\OMS/cmsy/m/n/7 ^^@  [][] \OML/cmm/m/it/7 w[] [] ^^Y[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 a[]\OMS/cmsy/m/n/7 j\OML/cmm/m/it/7 s[]\OT1/cmr/m/n/7 )$
  []
 
 
-Overfull \hbox (10.42665pt too wide) in paragraph at lines 1950--1951
+Overfull \hbox (10.42665pt too wide) in paragraph at lines 2068--2069
 []$\OMS/cmsy/m/n/7 ^^@  [][] \OML/cmm/m/it/7 w[] [] ^^Y[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 a[]\OMS/cmsy/m/n/7 j\OML/cmm/m/it/7 s[]\OT1/cmr/m/n/7 )$
  []
 
 
-Overfull \hbox (10.905pt too wide) in paragraph at lines 1951--1952
+Overfull \hbox (10.905pt too wide) in paragraph at lines 2069--2070
 []$\OMS/cmsy/m/n/7 ^^@  [][] \OML/cmm/m/it/7 w[] [] ^^Y[]\OT1/cmr/m/n/7 (\OML/cmm/m/it/7 y[]\OMS/cmsy/m/n/7 j\OML/cmm/m/it/7 x[]\OT1/cmr/m/n/7 )$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1953--1954
+Underfull \hbox (badness 10000) in paragraph at lines 2071--2072
 []$\OMS/cmsy/m/n/7 ^^@\U/msb/m/n/7 E[]\OT1/cmr/m/n/7 [[] \OML/cmm/m/it/7 ^^Y[]\OT1/cmr/m/n/7 ] +
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1959--1960
+Underfull \hbox (badness 10000) in paragraph at lines 2077--2078
 []\OT1/cmr/m/n/7 No; DAR-TR
  []
 
 
-Underfull \hbox (badness 1072) in paragraph at lines 1959--1960
+Underfull \hbox (badness 1072) in paragraph at lines 2077--2078
 \OT1/cmr/m/n/7 vari-ant adds KL
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1961--1962
+Underfull \hbox (badness 10000) in paragraph at lines 2079--2080
 []\OT1/cmr/m/n/7 Optional ($\OML/cmm/m/it/7 D[]$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1969--1970
+Underfull \hbox (badness 10000) in paragraph at lines 2087--2088
 []\OT1/cmr/m/n/7 Configurable ($\OMS/cmsy/m/n/7 F$\OT1/cmr/m/n/7 :
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1971--1972
+Underfull \hbox (badness 10000) in paragraph at lines 2089--2090
 []\OT1/cmr/bx/n/7 Value func-tion /
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1973--1974
+Underfull \hbox (badness 10000) in paragraph at lines 2091--2092
 []\OT1/cmr/m/n/7 Yes | $\OML/cmm/m/it/7 n$\OT1/cmr/m/n/7 -step
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1979--1980
+Underfull \hbox (badness 10000) in paragraph at lines 2097--2098
 []\OT1/cmr/bx/n/7 Explicit re-ward
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1984--1985
+Underfull \hbox (badness 10000) in paragraph at lines 2102--2103
 []\OT1/cmr/m/n/7 No | im-plicit
  []
 
 
-Underfull \hbox (badness 1281) in paragraph at lines 1985--1986
+Underfull \hbox (badness 1281) in paragraph at lines 2103--2104
 []\OT1/cmr/m/n/7 Yes (typ-i-cal; not
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1985--1986
+Underfull \hbox (badness 10000) in paragraph at lines 2103--2104
 \OT1/cmr/m/n/7 man-dated by
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1988--1989
+Underfull \hbox (badness 10000) in paragraph at lines 2106--2107
 \OT1/cmr/m/n/7 roll-outs; mini-
  []
 
 
-Underfull \hbox (badness 4441) in paragraph at lines 1990--1991
+Underfull \hbox (badness 4441) in paragraph at lines 2108--2109
 []\OT1/cmr/m/n/7 Offline or near-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1991--1992
+Underfull \hbox (badness 10000) in paragraph at lines 2109--2110
 []\OT1/cmr/m/n/7 Online (roll-outs
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1992--1993
+Underfull \hbox (badness 10000) in paragraph at lines 2110--2111
 []\OT1/cmr/m/n/7 Offline (fixed
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1992--1993
+Underfull \hbox (badness 10000) in paragraph at lines 2110--2111
 \OT1/cmr/m/n/7 pref-er-ence
  []
 
 
-Underfull \hbox (badness 2529) in paragraph at lines 1995--1996
+Underfull \hbox (badness 2529) in paragraph at lines 2113--2114
 []\OT1/cmr/bx/n/7 Training data for-
  []
 
 
-Underfull \hbox (badness 1888) in paragraph at lines 1996--1997
+Underfull \hbox (badness 1888) in paragraph at lines 2114--2115
 []\OT1/cmr/m/n/7 State{action tra-
  []
 
 
-Underfull \hbox (badness 1888) in paragraph at lines 1997--1998
+Underfull \hbox (badness 1888) in paragraph at lines 2115--2116
 []\OT1/cmr/m/n/7 State{action tra-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1998--1999
+Underfull \hbox (badness 10000) in paragraph at lines 2116--2117
 []\OT1/cmr/m/n/7 State{action
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1998--1999
+Underfull \hbox (badness 10000) in paragraph at lines 2116--2117
 \OT1/cmr/m/n/7 tra-jec-to-ries $+$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1999--2000
+Underfull \hbox (badness 10000) in paragraph at lines 2117--2118
 []\OT1/cmr/m/n/7 Prompt{response
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 1999--2000
+Underfull \hbox (badness 10000) in paragraph at lines 2117--2118
 \OT1/cmr/m/n/7 pairs $+$ scalar
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2000--2001
+Underfull \hbox (badness 10000) in paragraph at lines 2118--2119
 []\OT1/cmr/m/n/7 Pairwise pref-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2000--2001
+Underfull \hbox (badness 10000) in paragraph at lines 2118--2119
 \OT1/cmr/m/n/7 er-ence triples
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2003--2004
+Underfull \hbox (badness 10000) in paragraph at lines 2121--2122
 []\OT1/cmr/bx/n/7 Dropout com-pat-i-
  []
 
 
-Underfull \hbox (badness 5105) in paragraph at lines 2004--2005
+Underfull \hbox (badness 5105) in paragraph at lines 2122--2123
 []\OT1/cmr/bx/n/7 No \OT1/cmr/m/n/7 | stochas-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2005--2006
+Underfull \hbox (badness 10000) in paragraph at lines 2123--2124
 \OT1/cmr/m/n/7 M-step weights;
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2009--2010
+Underfull \hbox (badness 10000) in paragraph at lines 2127--2128
 []\OT1/cmr/bx/n/7 Yes \OT1/cmr/m/n/7 | guar-an-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2014--2015
+Underfull \hbox (badness 10000) in paragraph at lines 2132--2133
 []\OT1/cmr/bx/n/7 Yes \OT1/cmr/m/n/7 | con-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2014--2015
+Underfull \hbox (badness 10000) in paragraph at lines 2132--2133
 \OT1/cmr/m/n/7 strained pol-icy
  []
 
 
-Underfull \hbox (badness 1533) in paragraph at lines 2014--2015
+Underfull \hbox (badness 1533) in paragraph at lines 2132--2133
 \OT1/cmr/m/n/7 search $\OMS/cmsy/m/n/7 !$ \OT1/cmr/m/n/7 Boltz-
  []
 
 
-Underfull \hbox (badness 1688) in paragraph at lines 2015--2016
+Underfull \hbox (badness 1688) in paragraph at lines 2133--2134
 []\OT1/cmr/bx/n/7 Yes \OT1/cmr/m/n/7 | dual-KL
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2015--2016
+Underfull \hbox (badness 10000) in paragraph at lines 2133--2134
 \OT1/cmr/m/n/7 op-ti-mi-sa-tion $\OMS/cmsy/m/n/7 !$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2016--2017
+Underfull \hbox (badness 10000) in paragraph at lines 2134--2135
 \OT1/cmr/m/n/7 pol-icy de-rived,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2016--2017
+Underfull \hbox (badness 10000) in paragraph at lines 2134--2135
 \OT1/cmr/m/n/7 then EM col-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2016--2017
+Underfull \hbox (badness 10000) in paragraph at lines 2134--2135
 \OT1/cmr/m/n/7 lapsed via BT
  []
 
 
-Underfull \hbox (badness 1701) in paragraph at lines 2017--2018
+Underfull \hbox (badness 1701) in paragraph at lines 2135--2136
 \OT1/cmr/m/n/7 gen-eral EM tem-
  []
 
 
-Underfull \hbox (badness 3386) in paragraph at lines 2019--2020
+Underfull \hbox (badness 3386) in paragraph at lines 2137--2138
 []\OT1/cmr/bx/n/7 Adaptive tem-per-a-
  []
 
 
-Underfull \hbox (badness 3271) in paragraph at lines 2023--2024
+Underfull \hbox (badness 3271) in paragraph at lines 2141--2142
 []\OT1/cmr/m/n/7 No (fixed $\OML/cmm/m/it/7 ; ^^L$\OT1/cmr/m/n/7 );
  []
 
 
-Underfull \hbox (badness 3612) in paragraph at lines 2023--2024
+Underfull \hbox (badness 3612) in paragraph at lines 2141--2142
 \OT1/cmr/m/n/7 AT-DAR vari-ant
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2028--2029
+Underfull \hbox (badness 10000) in paragraph at lines 2146--2147
 []\OT1/cmr/m/n/7 N/A (policy-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2028--2029
+Underfull \hbox (badness 10000) in paragraph at lines 2146--2147
 \OT1/cmr/m/n/7 gradient
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2029--2030
+Underfull \hbox (badness 10000) in paragraph at lines 2147--2148
 []$\OML/cmm/m/it/7 m[]\OT1/cmr/m/n/7 1$, $\OML/cmm/m/it/7 D[][][]$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 4726) in paragraph at lines 2029--2030
+Underfull \hbox (badness 4726) in paragraph at lines 2147--2148
 \OML/cmm/m/it/7 ^^Y[][]^^Y[]$\OT1/cmr/m/n/7 , dual $\OML/cmm/m/it/7 ^^Q$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2030--2031
+Underfull \hbox (badness 10000) in paragraph at lines 2148--2149
 []$\OML/cmm/m/it/7 m[]\OT1/cmr/m/n/7 1$, $\OML/cmm/m/it/7 ^^Y[][]^^Y[]$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 4266) in paragraph at lines 2030--2031
+Underfull \hbox (badness 4266) in paragraph at lines 2148--2149
 \OML/cmm/m/it/7 ^^U[][]^^L$ \OT1/cmr/m/n/7 fixed, no
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2031--2032
+Underfull \hbox (badness 10000) in paragraph at lines 2149--2150
 []$\OML/cmm/m/it/7 m[]\OT1/cmr/m/n/7 2$, $\OML/cmm/m/it/7 ^^Y[][]^^Y[]$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2031--2032
+Underfull \hbox (badness 10000) in paragraph at lines 2149--2150
 \OML/cmm/m/it/7 ^^Y[][]^^Y[]$\OT1/cmr/m/n/7 , $(\OML/cmm/m/it/7 ; ^^L\OT1/cmr/m/n/7 )$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2032--2033
+Underfull \hbox (badness 10000) in paragraph at lines 2150--2151
 []$\OML/cmm/m/it/7 m[]\OT1/cmr/m/n/7 1$, $\OML/cmm/m/it/7 ^^Y[][]^^Y[]$\OT1/cmr/m/n/7 ,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2032--2033
+Underfull \hbox (badness 10000) in paragraph at lines 2150--2151
 \OT1/cmr/m/n/7 ^^C[]\OML/cmm/m/it/7 ^^L$\OT1/cmr/m/n/7 , E-step
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2032--2033
+Underfull \hbox (badness 10000) in paragraph at lines 2150--2151
 \OT1/cmr/m/n/7 col-lapsed (no
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2036--2037
+Underfull \hbox (badness 10000) in paragraph at lines 2154--2155
 []\OT1/cmr/m/n/7 Seq-level PPO
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2037--2038
+Underfull \hbox (badness 10000) in paragraph at lines 2155--2156
 []\OT1/cmr/m/n/7 LLM V-MPO
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2037--2038
+Underfull \hbox (badness 10000) in paragraph at lines 2155--2156
 \OT1/cmr/m/n/7 (seq-level E/M-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2039--2040
+Underfull \hbox (badness 10000) in paragraph at lines 2157--2158
 []\OT1/cmr/m/n/7 AT-DAR; DAR-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2040--2041
+Underfull \hbox (badness 10000) in paragraph at lines 2158--2159
 []\OT1/cmr/m/n/7 IPO, $\OML/cmm/m/it/7 ^^L$\OT1/cmr/m/n/7 -DPO,
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2044--2045
+Underfull \hbox (badness 10000) in paragraph at lines 2162--2163
 []\OT1/cmr/m/n/7 Online RLHF
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2044--2045
+Underfull \hbox (badness 10000) in paragraph at lines 2162--2163
 \OT1/cmr/m/n/7 (In-struct-GPT,
  []
 
 
-Underfull \hbox (badness 3199) in paragraph at lines 2045--2046
+Underfull \hbox (badness 3199) in paragraph at lines 2163--2164
 []\OT1/cmr/m/n/7 Online RL fine-
  []
 
 
-Underfull \hbox (badness 1590) in paragraph at lines 2045--2046
+Underfull \hbox (badness 1590) in paragraph at lines 2163--2164
 \OT1/cmr/m/n/7 tuning with EM
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2046--2047
+Underfull \hbox (badness 10000) in paragraph at lines 2164--2165
 []\OT1/cmr/m/n/7 Near-offline
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2046--2047
+Underfull \hbox (badness 10000) in paragraph at lines 2164--2165
 \OT1/cmr/m/n/7 advantage-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 2049--2050
+Underfull \hbox (badness 10000) in paragraph at lines 2167--2168
 []\OT1/cmr/m/n/7 Unifying de-sign
  []
 
 
-Overfull \hbox (44.33401pt too wide) in paragraph at lines 1864--2053
+Overfull \hbox (44.33401pt too wide) in paragraph at lines 1982--2171
  [] 
  []
 
 
-
-[22]
 
 [23]
 Overfull \vbox (7.29697pt too high) has occurred while \output is active []
@@ -1340,6 +1340,16 @@ Overfull \vbox (7.29697pt too high) has occurred while \output is active []
 
 
 [24]
+Overfull \hbox (36.54117pt too wide) in paragraph at lines 2187--2188
+\OT1/cmr/m/n/10 com-ple-ment V-MPO's EM struc-ture. Ref-er-ence im-ple-men-ta-tions are avail-able at []github.com/kimiyoung/transformer-
+ []
+
+
+Overfull \hbox (1.26364pt too wide) in paragraph at lines 2195--2196
+ []\OT1/cmr/bx/n/10 GRU Gat-ing Lay-ers.[] \OT1/cmr/m/n/10 Resid-ual con-nec-tions are re-placed with learn-able gat-ing lay-ers. The best-performing
+ []
+
+
 
 [25] (./main.aux)
  ***********
@@ -1351,24 +1361,24 @@ L3 programming layer <2025-01-18>
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 6801A7E4B85ACF9B3B7A846407889BA2;6169.
+(rerunfilecheck)             Checksum: FF6C9DF4E4F7C42568BD073F778094A5;5358.
 Package logreq Info: Writing requests to 'main.run.xml'.
 \openout1 = `main.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 19204 strings out of 473190
- 329466 string characters out of 5715800
- 1202761 words of memory out of 5000000
- 42079 multiletter control sequences out of 15000+600000
+ 19242 strings out of 473190
+ 330147 string characters out of 5715800
+ 1204659 words of memory out of 5000000
+ 42092 multiletter control sequences out of 15000+600000
  570634 words of font info for 81 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,13n,86p,855b,1527s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,13n,86p,1231b,1527s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx9.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy5.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm7.pfb></usr/local/texlive/2025/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb>
-Output written on main.pdf (25 pages, 470808 bytes).
+Output written on main.pdf (25 pages, 485635 bytes).
 PDF statistics:
- 622 PDF objects out of 1000 (max. 8388607)
- 531 compressed objects within 6 object streams
- 168 named destinations out of 1000 (max. 500000)
- 241 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 649 PDF objects out of 1000 (max. 8388607)
+ 558 compressed objects within 6 object streams
+ 193 named destinations out of 1000 (max. 500000)
+ 209 words of extra memory for PDF output out of 10000 (max. 10000000)
 

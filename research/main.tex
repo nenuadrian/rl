@@ -24,7 +24,6 @@
 \tableofcontents
 \clearpage
 
-
 \section{Research Questions}
 Transformer language models are commonly adapted to downstream tasks via supervised fine-tuning (SFT), and further improved via RL fine-tuning against a learned or human preference reward. While these procedures are usually presented as distinct (cross-entropy training versus policy optimization), both can be interpreted as alternating between constructing a training target distribution and then fitting the model to that target.
 
@@ -217,10 +216,9 @@ often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$.
 
 Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform policy improvement in distribution space first, then do weighted maximum-likelihood fitting. This is why V-MPO is naturally viewed as regularized policy iteration in EM form rather than as a pure policy-gradient method.
 
-
 \section{V-MPO: Maximum a Posteriori Policy Optimization}
 
-V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} decomposes optimisation into EM phases.
+V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} decomposes optimisation into EM phases. Its pairing with the Gated Transformer-XL architecture for RL is described in Appendix~\ref{sec:gtrxl}.
 
 The total objective is
 \begin{equation*}
@@ -463,7 +461,7 @@ The Lagrangian form is
       \pi_\theta
     )
   \Big).
-  \tag{12}
+  \label{eq:vmpo_mstep_lag}
 \end{equation}
 
 In implementation, the loss becomes
@@ -538,7 +536,6 @@ To reuse data collected under $\pi_{\theta_{\mathrm{old}}}$, importance sampling
 
 The unclipped surrogate objective is then $L^{\mathrm{PG}}(\theta) = \mathbb{E}_t\!\left[r_t(\theta)\, A_t\right]$, but without further constraint this can lead to destructively large updates.
 
-PPO resolves this by clipping the ratio to $[1-\epsilon,\, 1+\epsilon]$ and taking the pessimistic (minimum) of the clipped and unclipped terms:
 \[
   L^{\mathrm{CLIP}}(\theta)
   =
@@ -552,8 +549,7 @@ PPO resolves this by clipping the ratio to $[1-\epsilon,\, 1+\epsilon]$ and taki
     \right)
   \right].
 \]
-When the advantage is positive the update is capped at a ratio of $1+\epsilon$; when negative it is capped at $1-\epsilon$. 
-
+When the advantage is positive the update is capped at a ratio of $1+\epsilon$; when negative it is capped at $1-\epsilon$.
 
 The critic is fitted by minimising a squared regression loss to the empirical returns:
 \[
@@ -571,7 +567,6 @@ An entropy bonus encourages exploration by penalising premature policy collapse:
   =
   -\sum_a \pi_\theta(a \mid s_t) \log \pi_\theta(a \mid s_t).
 \]
-
 
 Rather than using raw Monte Carlo returns to estimate $A_t$, PPO typically uses GAE, which trades off bias and variance via a decay parameter $\lambda \in [0,1]$.
 
@@ -591,12 +586,6 @@ which satisfies the efficient recurrence
   A_t = \delta_t + \gamma\lambda\, A_{t+1}.
 \]
 
-Advantages are then batch-normalised before use:
-\[
-  \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \varepsilon}.
-\]
-
-
 \paragraph{Full Objective}
 
 The three terms are combined into a single objective (to minimise):
@@ -610,7 +599,6 @@ The three terms are combined into a single objective (to minimise):
   c_2\, \mathbb{E}_t\!\left[S(\pi_\theta(\cdot \mid s_t))\right],
 \]
 where $c_1$ and $c_2$ are scalar coefficients balancing the three losses.
-
 
 \paragraph{Sequence-Level PPO (LLM Case)}
 
@@ -631,7 +619,6 @@ A KL penalty between the updated and old policy can be estimated cheaply as
   \mathbb{E}_t\!\left[\ell_{\mathrm{old},t} - \ell_{\theta,t}\right],
 \]
 and is often added to the objective or used as an early-stopping criterion to keep the sequence-level ratio well-behaved.
-
 
 \section{The Case for Dropout}
 \label{sec:dropout_case}
@@ -718,7 +705,6 @@ Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a preference
 
 Unlike policy-gradient methods, DPO needs no reward model (the reward is implicit), no value function, no advantage estimation, no importance-sampling ratios, and no online rollouts. The entire training signal comes from offline preference pairs.
 
-
 The standard RLHF objective is
 \begin{equation}\label{eq:dpo_rlhf}
   \max_{\pi}
@@ -796,7 +782,6 @@ The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs--
 \]
 where $\hat{r}_\theta(y) \coloneqq \beta\log(\pi_\theta(y\mid x)/\pi_{\mathrm{ref}}(y\mid x))$ is the implicit reward. The sigmoid weight measures how wrong the current model is on this pair: it is large when the model incorrectly prefers $y_l$, and vanishes as the model learns the correct ranking. This is a weighted MLE update that increases the log-probability of the preferred response and decreases that of the dispreferred one.
 
-
 \paragraph{DPO and the EM Framework}
 
 The closed-form optimal policy \eqref{eq:dpo_optpolicy} is identical to GEMPI with $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$, $\Lambda=\beta$:
@@ -820,74 +805,73 @@ By collapsing the two stages, DPO gives up several degrees of freedom available 
 \paragraph{Dropout compatibility.}
 DPO's gradient involves only single forward passes through $\pi_\theta$ (computing $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$), with no ratio between two forward passes under different modes. Dropout is therefore fully compatible with DPO, for the same structural reason it is compatible with SFT and EM-style M-steps.
 
-
 \section{AWR: Advantage-Weighted Regression}
 
 Consider an MDP with states \(s\in\mathcal{S}\), actions \(a\in\mathcal{A}\), reward \(r(s,a)\) and discount
 \( \gamma\in[0,1)\). For a policy \(\pi\) define the return of a state--action pair under a sampling policy
 \(\mu\) as
 \[
-R^\mu_{s,a} \;=\; \sum_{t=0}^{\infty} \gamma^{t} r_t \qquad\text{(trajectory return when action \(a\) is taken in \(s\) then follow \(\mu\)).}
+  R^\mu_{s,a} \;=\; \sum_{t=0}^{\infty} \gamma^{t} r_t \qquad\text{(trajectory return when action \(a\) is taken in \(s\) then follow \(\mu\)).}
 \]
 The value and advantage under \(\mu\) are
 \[
-V^\mu(s) \;=\; \mathbb{E}_{a\sim\mu(\cdot|s)}\big[ R^\mu_{s,a} \big],
-\qquad
-A^\mu(s,a) \;=\; R^\mu_{s,a} - V^\mu(s).
+  V^\mu(s) \;=\; \mathbb{E}_{a\sim\mu(\cdot|s)}\big[ R^\mu_{s,a} \big],
+  \qquad
+  A^\mu(s,a) \;=\; R^\mu_{s,a} - V^\mu(s).
 \]
 
 \paragraph{Expected improvement objective.}
 Define the expected improvement of a candidate policy \(\pi\) over \(\mu\) as
 \[
-\eta(\pi) \;=\; J(\pi) - J(\mu)
-\;=\;
-\mathbb{E}_{s\sim d_\pi}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big],
+  \eta(\pi) \;=\; J(\pi) - J(\mu)
+  \;=\;
+  \mathbb{E}_{s\sim d_\pi}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big],
 \]
 where \(d_\pi(s)=\sum_{t=0}^\infty \gamma^{t} p(s_t=s\mid\pi)\) is the unnormalised discounted state distribution.
 To avoid sampling from \(\pi\) during the optimisation we use the common first-order surrogate that uses the
 sampling state distribution \(d_\mu\):
 \[
-\widehat{\eta}(\pi)
-\;=\;
-\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big].
+  \widehat{\eta}(\pi)
+  \;=\;
+  \mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big].
 \]
 
 \paragraph{Constrained policy search (primal).}
 We formulate a constrained optimisation that maximises the surrogate expected improvement while
 keeping \(\pi\) close to \(\mu\) in KL averaged under \(d_\mu\):
 \[
-\begin{aligned}
-&\max_{\pi} \quad 
-\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a} - V^\mu(s) \big],\\[4pt]
-&\text{s.t.}\quad 
-\mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\!\big(\pi(\cdot|s)\,\|\,\mu(\cdot|s)\big)\big] \le \varepsilon,
-\qquad \forall s:\ \int_a \pi(a|s)\,da = 1.
-\end{aligned}
+  \begin{aligned}
+    &\max_{\pi} \quad
+    \mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a} - V^\mu(s) \big],\\[4pt]
+    &\text{s.t.}\quad
+    \mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\!\big(\pi(\cdot|s)\,\|\,\mu(\cdot|s)\big)\big] \le \varepsilon,
+    \qquad \forall s:\ \int_a \pi(a|s)\,da = 1.
+  \end{aligned}
 \]
 
 \paragraph{Lagrangian and stationarity.}
 Introduce Lagrange multiplier \(\beta>0\) for the KL constraint and pointwise normaliser \(\alpha_s\).
 The (softened) Lagrangian is
 \[
-\mathcal{L}(\pi,\beta,\alpha)
-=
-\mathbb{E}_{s\sim d_\mu}\!\Big[ 
-\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a}-V^\mu(s) \big]
-\Big]
-+ \beta\Big(\varepsilon - \mathbb{E}_{s\sim d_\mu}\!\big[ D_{\mathrm{KL}}(\pi(\cdot|s)\|\mu(\cdot|s))\big]\Big)
-+ \mathbb{E}_{s\sim d_\mu}\!\big[ \alpha_s(1-\!\!\int_a\pi(a|s)\,da)\big].
+  \mathcal{L}(\pi,\beta,\alpha)
+  =
+  \mathbb{E}_{s\sim d_\mu}\!\Big[
+    \mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a}-V^\mu(s) \big]
+  \Big]
+  + \beta\Big(\varepsilon - \mathbb{E}_{s\sim d_\mu}\!\big[ D_{\mathrm{KL}}(\pi(\cdot|s)\|\mu(\cdot|s))\big]\Big)
+  + \mathbb{E}_{s\sim d_\mu}\!\big[ \alpha_s(1-\!\!\int_a\pi(a|s)\,da)\big].
 \]
 Differentiate \(\mathcal{L}\) w.r.t. \(\pi(a|s)\), set derivative to zero and solve for \(\pi\). Rearranging yields the
 Boltzmann-tilted closed form for the optimal (per-state) conditional distribution:
 \[
-\pi^\star(a|s)
-\;=\;
-\frac{1}{Z(s)}\;
-\mu(a|s)\;
-\exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big),
-\qquad
-Z(s)\;=\;\int \mu(a'|s)\exp\!\Big(\tfrac{1}{\beta}\big(R^\mu_{s,a'}-V^\mu(s)\big)\Big)\,da'.
-\tag{1}
+  \pi^\star(a|s)
+  \;=\;
+  \frac{1}{Z(s)}\;
+  \mu(a|s)\;
+  \exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big),
+  \qquad
+  Z(s)\;=\;\int \mu(a'|s)\exp\!\Big(\tfrac{1}{\beta}\big(R^\mu_{s,a'}-V^\mu(s)\big)\Big)\,da'.
+  \label{eq:awr_opt_policy}
 \]
 
 This formula is obtained by solving the stationarity condition
@@ -898,20 +882,20 @@ reweighting of the behaviour distribution \(\mu(a|s)\).
 If \(\pi\) is parameterised (e.g. neural network) we cannot set it equal to \(\pi^\star\) pointwise. Instead
 project \(\pi^\star\) onto the parameterised family by minimising expected KL:
 \[
-\pi_{k+1} \;=\; \arg\min_{\pi\in\Pi}\;
-\mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\big(\pi^\star(\cdot|s)\,\|\,\pi(\cdot|s)\big)\big].
+  \pi_{k+1} \;=\; \arg\min_{\pi\in\Pi}\;
+  \mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\big(\pi^\star(\cdot|s)\,\|\,\pi(\cdot|s)\big)\big].
 \]
-Expanding the KL and substituting \(\pi^\star\) (Equation (1)) yields an equivalent supervised regression objective:
+Expanding the KL and substituting \(\pi^\star\) \eqref{eq:awr_opt_policy} yields an equivalent supervised regression objective:
 \[
-\pi_{k+1}
-\;=\;
-\arg\max_{\pi\in\Pi}\;
-\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\mu(\cdot|s)}
-\Big[
-\log\pi(a|s)\;
-\exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big)
-\Big].
-\tag{2}
+  \pi_{k+1}
+  \;=\;
+  \arg\max_{\pi\in\Pi}\;
+  \mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\mu(\cdot|s)}
+  \Big[
+    \log\pi(a|s)\;
+    \exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big)
+  \Big].
+  \label{eq:awr_regression}
 \]
 This is the central AWR policy update: fit \(\pi\) by maximum likelihood on behaviour data weighted by exponentiated advantages.
 
@@ -919,9 +903,9 @@ This is the central AWR policy update: fit \(\pi\) by maximum likelihood on beha
 AWR alternates the policy update with a value regression that fits \(V\) to returns in \(\mathcal{D}\),
 typically by minimising a squared TD($\lambda$) or Monte-Carlo return loss:
 \[
-V^{\mathcal{D}} \;=\; \arg\min_{V}\;
-\mathbb{E}_{(s,a)\sim\mathcal{D}}\big[\,\big(R^{\mathcal{D}}_{s,a} - V(s)\big)^2\big].
-\tag{4}
+  V^{\mathcal{D}} \;=\; \arg\min_{V}\;
+  \mathbb{E}_{(s,a)\sim\mathcal{D}}\big[\,\big(R^{\mathcal{D}}_{s,a} - V(s)\big)^2\big].
+  \label{eq:awr_value_update}
 \]
 
 \section{DAR: Direct Advantage Regression}
@@ -1273,47 +1257,184 @@ The per-sequence weights differ only by the base factor:
   w_i^{\mathrm{V\!-\!MPO}} \propto \exp\!\Big(\log\pi_t^{(i)} + \tfrac{1}{\eta}A^{(i)}\Big).
 \]
 
-\section{(G)TrXL - Transformers for RL}
+\section{MaxMin-RLHF}
+\label{sec:maxmin_method}
 
-The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
+MaxMin-RLHF \parencite{chakraborty2024maxminrlhfalignmentdiversehuman} can be interpreted as a nested Expectation–Maximisation procedure for alignment under heterogeneous preferences. In the first stage, an EM algorithm learns a mixture of subgroup-specific reward models from pairwise preference data by treating subgroup identity as a latent variable and alternating between estimating subgroup responsibilities (E-step) and maximising subgroup-specific reward likelihoods (M-step). In the second stage, policy optimisation proceeds via a KL-regularised EM update, but with the reward model selected adversarially: at each iteration the subgroup whose expected utility is currently minimal under the policy is identified, and the policy is updated through an exponential-tilted target distribution derived from that subgroup’s reward, followed by a projection back to the parametric policy family. Thus, MaxMin-RLHF is a robust EM framework in which reward learning and worst-case policy improvement are coupled through alternating latent inference and KL-regularised projection steps.
 
+\paragraph{Method.}
 
+Let $\mathcal{V}$ be the token vocabulary and $\mathcal{X}$ the space of prompts. A
+language model (policy) is $\pi_\theta(\cdot\mid x)$ parameterised by $\theta$ and, given a prompt
+$x\in\mathcal{X}$, produces a response sequence $y\sim\pi_\theta(\cdot\mid x)$.
 
-\subsection{GTrXL with V-MPO}
+Preference data are pairwise comparisons $(x,y_1,y_2)$ where a human annotator prefers $y_1$ to $y_2$.
+Under the Bradley--Terry (BT) parametrisation the preference probability induced by a latent reward
+$r^\star(y,x)$ is
+\begin{equation}
+  p^\star(y_1 \succ y_2 \mid x)
+  \;=\;
+  \sigma\!\big(r^\star(y_1,x)-r^\star(y_2,x)\big)
+  \;=\;
+  \frac{\exp(r^\star(y_1,x))}{\exp(r^\star(y_1,x))+\exp(r^\star(y_2,x))},
+  \label{eq:bt}
+\end{equation}
+where $\sigma$ is the logistic function. A parametric reward model is $r_\phi(y,x)$, trained by
+binary cross-entropy (negative log-likelihood)
+\[
+  \mathcal{L}_R(\phi; \mathcal{D})
+  =
+  -\mathbb{E}_{(x,y_1,y_2)\sim\mathcal{D}}
+  \Big[
+    \log\sigma\big(r_\phi(y_1,x)-r_\phi(y_2,x)\big)
+  \Big].
+\]
 
-The V-MPO paper \parencite{song2019vmpoonpolicymaximumposteriori} replaces the LSTM core with a Transformer-XL (TrXL) for single-task Atari, motivated by the argument that in a fully observable environment recurrent architectures enable the agent to utilise more useful representations than are available in the immediate observation. However, standard TrXL fails in RL, performing at random-policy level on benchmarks such as DMLab-30. The Gated Transformer-XL (GTrXL) \parencite{parisotto2019stabilizingtransformersreinforcementlearning} addresses this with two targeted modifications.
+The KL-regularised reinforcement objective used for policy fine-tuning is
+\begin{equation}
+  \mathcal{J}(\pi; r)
+  =
+  \mathbb{E}_{x\sim\mathcal{P},\,y\sim\pi(\cdot\mid x)}
+  \big[ r(y,x) \big]
+  - \beta\, \mathbb{E}_{x\sim\mathcal{P}}
+  \big[ D_{\mathrm{KL}}(\pi(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x))\big],
+  \label{eq:kl_reg_obj}
+\end{equation}
+with regularisation weight $\beta>0$ and reference policy $\pi_{\mathrm{ref}}$ (SFT checkpoint). :contentReference[oaicite:3]{index=3}
 
-\subsubsection{Identity Map Reordering (TrXL-I)}
+\paragraph{Diversity and an impossibility bound. }
+Define a population composed of $|U|$ sub-populations $H=\bigcup_{u=1}^{|U|} H_u$.
+Let $p_u^\star$ denote the preference distribution for sub-population $H_u$.
+Diversity between two sub-populations is measured by total variation
+\[
+  \mathrm{Diversity}(i,j)\coloneqq \mathrm{TV}(p_i^\star,p_j^\star).
+\]
+The paper proves (Theorem 1) that, under reasonable assumptions (linear reward parametrisation,
+bounded features, Lipschitz mapping from reward to policy) the alignment gap for single-reward RLHF
+admits a lower bound proportional to the population diversity and inversely proportional to model
+regularity constants. In one scalar form (adapted notation) the lower bound reads
+\begin{equation}
+  \mathrm{Align\!-\!Gap} \ \gtrsim\ \frac{\lambda_\Psi}{\beta^2 L_\pi}\; \frac{\epsilon(1-\eta(u))}{D^2},
+  \label{eq:align_gap}
+\end{equation}
+where $\lambda_\Psi$ is the minimum eigenvalue of the empirical feature matrix, $L_\pi$ a Lipschitz
+constant relating policy and reward, $\beta$ the KL weight, $D$ a feature bound, $\eta(u)$ the mixing
+weight of subgroup $u$, and $\epsilon$ a gap derived from pairwise total-variation distances. The
+consequence is that high subpopulation diversity or vanishing subgroup mass $\eta(u)$ make accurate
+alignment via a single reward improbable. See the original proof and the supporting lemma for the
+precise constants and derivation. :contentReference[oaicite:4]{index=4}
 
-Layer normalisation is moved to the input of each sub-layer rather than the output, creating a direct identity path from the first layer's input to the last layer's output. At initialisation this biases the network towards a Markovian (reactive) policy and provides a clear gradient path, making the training landscape far more amenable to policy-gradient methods.
+To address this failure mode, we learn a mixture of $|U|$ reward models
+$\{r_{\phi_u}\}_{u=1}^{|U|}$ and simultaneously clusters annotators (or annotator-derived signals)
+so that each component models a coherent sub-population preference. Algorithmically this is solved
+with a standard hard/soft EM procedure. We reproduce the key steps and the small algebraic derivation
+that yields the E-step responsibilities.
 
-\subsubsection{Gating Layers}
+\paragraph{Generative model for pairwise labels.}
+For a fixed subpopulation index $u$, assume the pairwise preference likelihood under reward
+$r_{\phi_u}$ follows \eqref{eq:bt}. For an observed labelled pair $(x,y_1,y_2)$ where $y_1$ is preferred,
+the likelihood is
+\[
+  p\big(z=(y_1\succ y_2)\mid u,\phi_u,x\big)
+  \;=\;
+  \frac{\exp(r_{\phi_u}(y_1,x))}{\exp(r_{\phi_u}(y_1,x))+\exp(r_{\phi_u}(y_2,x))}.
+\]
+This can be re-written as a normalised exponential,
+\[
+  p(z\mid u,\phi_u,x)
+  =
+  \frac{\exp(r_{\phi_u}(y_1,x))}{\exp(r_{\phi_u}(y_1,x))+\exp(r_{\phi_u}(y_2,x))}
+  \;=\;
+  \frac{\exp(r_{\phi_u}(y_1,x))}{\sum_{j\in\{1,2\}}\exp(r_{\phi_u}(y_j,x))}.
+\]
 
-Residual connections are replaced with learnable gating layers. The best-performing variant uses GRU-type gates:
-\begin{align*}
-  r &= \sigma(W_r y + U_r x), \\
-  z &= \sigma(W_z y + U_z x - b_g), \\
-  \hat{h} &= \tanh(W_g y + U_g (r \odot x)), \\
-  g(x,y) &= (1-z) \odot x + z \odot \hat{h},
-\end{align*}
-where $x$ is the residual input and $y$ is the sub-layer output. Initialising the bias $b_g = 2$ places each gate near the identity at the start of training, preserving the reactive-policy initialisation provided by the layer-norm reordering.
+\paragraph{E-step (responsibilities).}
+Given a current parameter set $\{\phi_u\}$ and prior cluster weights, the posterior responsibility
+(or soft assignment) of cluster $u$ for datum $(x,y_1,y_2)$ is proportional to the product of the
+cluster prior and the pairwise likelihood. Under equal priors (or when priors are absorbed in normalisation)
+the local responsibility used in the paper's hard-assignment E-step reduces to the BT soft-likelihood:
+\begin{equation}
+  w(\phi_u; x,y_1,y_2)
+  \;=\;
+  \frac{\exp(r_{\phi_u}(y_1,x))}
+  {\exp(r_{\phi_u}(y_1,x))+\exp(r_{\phi_u}(y_2,x))}.
+  \label{eq:em_weight}
+\end{equation}
+This expression follows directly from the BT model and is the quantity used to assign users to clusters
+(Algorithm~\ref{alg:em_reward}). :contentReference[oaicite:5]{index=5}
 
-\subsubsection{Why GTrXL Suits V-MPO}
+\paragraph{M-step (reward update).}
+Given cluster assignments (hard or soft), update each reward parameter $\phi_u$ by minimising the
+negative log-likelihood restricted to the data assigned to cluster $u$, i.e.
+\[
+  \phi_u \leftarrow \arg\min_\phi\;
+  -\sum_{(x,y_1,y_2)\in \mathcal{D}_u}
+  \log \sigma\big(r_\phi(y_1,x) - r_\phi(y_2,x)\big),
+\]
+where $\mathcal{D}_u$ are the pairs assigned to cluster $u$. In practice this is SGD on
+the binary cross-entropy loss. Convergence of the EM loop is monitored by cluster-stability or
+likelihood improvement. :contentReference[oaicite:6]{index=6}
 
-V-MPO is an on-policy algorithm that performs policy improvement via an EM procedure (E-step top-$k$ advantage weighting; M-step weighted maximum-likelihood with a KL trust-region). Because it collects fresh trajectories each update, the memory architecture is critical: the agent must integrate information over long horizons to form useful state representations. GTrXL provides:
+\paragraph{Objective and policy iteration. }
+Once a set of reward models $\{r_{\phi_u}\}$ is obtained, the alignment objective pursued is an
+Egalitarian (max--min) social-utility objective:
+\begin{equation}
+  \pi^\star_{\mathrm{MM}}
+  \;=\;
+  \arg\max_{\pi}\ \min_{u\in U}\;
+  \Big\{ F_{r_{\phi_u}}(\pi) - \beta\,\mathbb{E}_x\big[ D_{\mathrm{KL}}(\pi(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x))\big] \Big\},
+  \label{eq:maxmin_obj}
+\end{equation}
+with $F_{r}(\pi) := \mathbb{E}_{x\sim\mathcal{P},\,y\sim\pi(\cdot\mid x)}[r(y,x)]$ the expected return.
+Optimisation is performed by iterated policy improvement that (1) selects the worst-performing
+sub-population under the current policy and (2) updates the policy using a standard RL fine-tuner
+(e.g. PPO) toward improving that subgroup's objective. Concretely the paper proposes:
 
-\begin{itemize}
-  \item \textbf{Long-range memory.} Relative position encodings inherited from TrXL let the network attend over a memory tensor spanning up to thousands of past time-steps, far beyond what an LSTM can retain.
-  \item \textbf{Stable optimisation.} The GRU gating achieves a 0\% divergence rate across hyperparameter sweeps, compared with 16\% for the plain TrXL-I variant, making it compatible with V-MPO's fixed Adam learning rate and without requiring population-based hyperparameter search.
-  \item \textbf{Robust performance on memory tasks.} On DMLab-30, GTrXL (GRU) reaches a human-normalised score of $117.6 \pm 0.3$ versus $99.3 \pm 1.0$ for LSTM, with the largest gains on memory-dependent levels and no regression on reactive ones.
-\end{itemize}
+\begin{enumerate}
+  \item Compute $u_{\min} \leftarrow \arg\min_{u\in U} F_{r_{\phi_u}}(\pi_t)$.
+  \item Perform a policy update (PPO) to maximise $F_{r_{\phi_{u_{\min}}}}(\pi) - \beta\,\mathrm{KL}(\pi_t\|\pi_{\mathrm{ref}})$,
+    producing $\pi_{t+1}$.
+  \item Repeat until convergence.
+\end{enumerate}
 
-\subsubsection{Architecture and Training Configuration}
+This iterated max--min policy iteration is summarised in Algorithm~\ref{alg:maxmin} below. :contentReference[oaicite:7]{index=7}
 
-For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
+\paragraph{Algorithm 1: MaxMin-RLHF (policy-level)}\label{alg:maxmin}
+\begin{enumerate}
+  \item \textbf{Input:} preference dataset $\mathcal{D}$, initial reward parameters $\{\phi_{u}^{(0)}\}_{u=1}^{|U|}$ (or pretraining),
+    initial policy $\pi_0$, KL weight $\beta$, PPO (or other RL) trainer.
+  \item \textbf{Reward learning:} run Algorithm~\ref{alg:em_reward} to estimate $\{\phi_u\}$ (mixture learning via EM).
+  \item \textbf{For} $t=0,\dots,T-1$:
+    \begin{enumerate}
+      \item Evaluate subgroup utilities $F_{r_{\phi_u}}(\pi_t)$ for all $u\in U$ (via rollouts or importance-weighted evaluation).
+      \item Select $u_{\min} \leftarrow \arg\min_u F_{r_{\phi_u}}(\pi_t)$.
+      \item Update policy using PPO (or another KL-regularised optimiser) towards improving subgroup $u_{\min}$:
+        \[
+          \pi_{t+1} \leftarrow \text{PPO\_step}\Big(\pi_t,\; r_{\phi_{u_{\min}}},\; \beta,\; \pi_{\mathrm{ref}}\Big).
+        \]
+    \end{enumerate}
+  \item \textbf{Output:} $\pi_T$ aligned to the max-min objective.
+\end{enumerate}
+
+\paragraph{Algorithm 2: Learning rewards with EM (clustered reward models)}\label{alg:em_reward}
+\begin{enumerate}
+  \item \textbf{Input:} pairwise preference dataset $\mathcal{D}$, number of clusters $|U|$, initial $\{\phi_u\}$.
+  \item \textbf{Repeat until convergence:}
+    \begin{enumerate}
+      \item \textbf{E-step (hard or soft):} for each annotator (or datum) compute responsibilities
+        $w(\phi_u; x,y_1,y_2)$ as in \eqref{eq:em_weight} and assign datum to the cluster with largest responsibility (hard assignment) or keep soft weights.
+      \item \textbf{M-step:} for each $u$ update $\phi_u$ by minimising the binary cross-entropy over data assigned to $u$:
+        \[
+          \phi_u \leftarrow \arg\min_\phi -\sum_{(x,y_1,y_2)\in\mathcal{D}_u}
+          \log\sigma\big(r_\phi(y_1,x)-r_\phi(y_2,x)\big).
+        \]
+    \end{enumerate}
+  \item \textbf{Return:} $\{\phi_u\}$ and cluster assignments.
+\end{enumerate}
 
 
 \section{Generalized EM Policy Improvement (GEMPI)}
+This is an attempt to describe a generalised EM policy improvement method that encompasses a wide range of algorithms as special cases. The key idea is to allow multiple anchor policies and multiple divergence functionals in the E-step, as well as flexible temperature and filtering mechanisms.
 
 \paragraph{The GEMPI tuple.}
 A Generalized EM Policy Improvement method is specified by
@@ -1724,6 +1845,7 @@ is an unbiased estimator of the weighted-MLE gradient under the dropout distribu
 
 % ============================================================
 \subsection{Novel Instantiations}
+\label{sec:gempi_novel}
 
 The GEMPI framework, by making the axes of variation explicit, suggests several unexplored combinations.
 
@@ -1837,15 +1959,11 @@ Because E-step weights are detached from current parameters, the M-step with dro
 which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
 
 
-
 \section*{References}
 
 \printbibliography[title={~}]
 
-
 \appendix
-
-\section*{Appendix}
 
 \section{Comprehensive Method Comparison}
 \label{sec:appendix_comparison}
@@ -1860,196 +1978,196 @@ explicit two-phase EM methods (AWR, V-MPO, DAR), with GEMPI as the unifying fram
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.4}
 \begin{center}
-\scriptsize
-\begin{tabular}{p{2.8cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.3cm}}
-\toprule
-\textbf{Criterion}
-  & \textbf{PPO}
-  & \textbf{MPO / V-MPO}
-  & \textbf{AWR}
-  & \textbf{DAR}
-  & \textbf{DPO}
-  & \textbf{GEMPI} \\
-\midrule
+  \scriptsize
+  \begin{tabular}{p{2.8cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.3cm}}
+    \toprule
+    \textbf{Criterion}
+    & \textbf{PPO}
+    & \textbf{MPO / V-MPO}
+    & \textbf{AWR}
+    & \textbf{DAR}
+    & \textbf{DPO}
+    & \textbf{GEMPI} \\
+    \midrule
 
-\textbf{Optimisation paradigm}
-  & Policy gradient (PMD, neg.\ entropy mirror map)
-  & EM / regularised policy iteration
-  & EM / weighted regression
-  & EM / closed-form dual-KL target
-  & Preference MLE (collapsed EM)
-  & Generalised EM (subsumes all) \\
+    \textbf{Optimisation paradigm}
+    & Policy gradient (PMD, neg.\ entropy mirror map)
+    & EM / regularised policy iteration
+    & EM / weighted regression
+    & EM / closed-form dual-KL target
+    & Preference MLE (collapsed EM)
+    & Generalised EM (subsumes all) \\
 
-\textbf{Core objective}
-  & Clipped IS surrogate $L^{\text{CLIP}}(\theta)$
-  & MAP improvement $\log p_\theta(I{=}1){+}\log p(\theta)$
-  & Advantage-weighted MLE (KL-constrained)
-  & Dual-KL advantage maximisation $J_{\text{DAR}}$
-  & Binary cross-entropy on pref.\ pairs $\mathcal{L}_{\text{DPO}}$
-  & $\max_q\,\mathbb{E}_q[A]-\textstyle\sum_j\lambda_j D_j(q\|\pi_j)$, then project \\
+    \textbf{Core objective}
+    & Clipped IS surrogate $L^{\text{CLIP}}(\theta)$
+    & MAP improvement $\log p_\theta(I{=}1){+}\log p(\theta)$
+    & Advantage-weighted MLE (KL-constrained)
+    & Dual-KL advantage maximisation $J_{\text{DAR}}$
+    & Binary cross-entropy on pref.\ pairs $\mathcal{L}_{\text{DPO}}$
+    & $\max_q\,\mathbb{E}_q[A]-\textstyle\sum_j\lambda_j D_j(q\|\pi_j)$, then project \\
 
-\textbf{Update phases}
-  & Single-phase gradient step
-  & E-step (non-parametric target) $+$ M-step (parametric projection)
-  & E-step $+$ M-step
-  & E-step (closed form) $+$ M-step
-  & Single-phase; no explicit E-step
-  & E-step $+$ M-step (fully configurable) \\
+    \textbf{Update phases}
+    & Single-phase gradient step
+    & E-step (non-parametric target) $+$ M-step (parametric projection)
+    & E-step $+$ M-step
+    & E-step (closed form) $+$ M-step
+    & Single-phase; no explicit E-step
+    & E-step $+$ M-step (fully configurable) \\
 
-\textbf{E-step target $q^\star$}
-  & N/A
-  & $\pi_t\exp(A/\eta)$
-  & $\pi_t\exp(A/\beta)$
-  & $\pi_{\text{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda}\exp(A/\Lambda)$
-  & $\pi_{\text{ref}}\exp(r/\beta)$ (implicit; never materialised)
-  & $\prod_j\pi_j^{\lambda_j/\Lambda}\exp(A/\Lambda)$ \\
+    \textbf{E-step target $q^\star$}
+    & N/A
+    & $\pi_t\exp(A/\eta)$
+    & $\pi_t\exp(A/\beta)$
+    & $\pi_{\text{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda}\exp(A/\Lambda)$
+    & $\pi_{\text{ref}}\exp(r/\beta)$ (implicit; never materialised)
+    & $\prod_j\pi_j^{\lambda_j/\Lambda}\exp(A/\Lambda)$ \\
 
-\textbf{E-step anchors ($m$)}
-  & N/A
-  & 1 \;($\pi_t$)
-  & 1 \;($\pi_t$)
-  & 2 \;($\pi_{\text{ref}},\pi_t$)
-  & 1 \;($\pi_{\text{ref}}$, implicit)
-  & $m\!\geq\!0$ (free) \\
+    \textbf{E-step anchors ($m$)}
+    & N/A
+    & 1 \;($\pi_t$)
+    & 1 \;($\pi_t$)
+    & 2 \;($\pi_{\text{ref}},\pi_t$)
+    & 1 \;($\pi_{\text{ref}}$, implicit)
+    & $m\!\geq\!0$ (free) \\
 
-\textbf{KL anchor(s)}
-  & Implicit via clipping; optional $\hat{\text{KL}}$ penalty to $\pi_{\text{old}}$
-  & $\pi_t$ (E-step); $\pi_t$ (M-step trust region)
-  & $\pi_t$ (E-step only)
-  & $\pi_{\text{ref}}$ and $\pi_t$ (dual anchor)
-  & $\pi_{\text{ref}}$ (single, fixed)
-  & Any set $\{\pi_j\}$ \\
+    \textbf{KL anchor(s)}
+    & Implicit via clipping; optional $\hat{\text{KL}}$ penalty to $\pi_{\text{old}}$
+    & $\pi_t$ (E-step); $\pi_t$ (M-step trust region)
+    & $\pi_t$ (E-step only)
+    & $\pi_{\text{ref}}$ and $\pi_t$ (dual anchor)
+    & $\pi_{\text{ref}}$ (single, fixed)
+    & Any set $\{\pi_j\}$ \\
 
-\textbf{Temperature mechanism}
-  & N/A; clip threshold $\epsilon$ fixed
-  & Adaptive dual: $\eta$ optimised via convex $\mathcal{L}_\eta$
-  & Fixed $\beta$
-  & Fixed $(\alpha,\beta)$; AT-DAR variant makes both adaptive
-  & Fixed $\beta$
-  & Fixed or dual-adaptive ($\lambda_j$ per anchor) \\
+    \textbf{Temperature mechanism}
+    & N/A; clip threshold $\epsilon$ fixed
+    & Adaptive dual: $\eta$ optimised via convex $\mathcal{L}_\eta$
+    & Fixed $\beta$
+    & Fixed $(\alpha,\beta)$; AT-DAR variant makes both adaptive
+    & Fixed $\beta$
+    & Fixed or dual-adaptive ($\lambda_j$ per anchor) \\
 
-\textbf{Gradient signal}
-  & $\nabla_\theta r_t(\theta)\,A_t$ \newline (ratio-coupled to $\theta$)
-  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached weights)
-  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
-  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
-  & $\sigma(\cdot)\bigl(\nabla_\theta\log\pi_\theta(y_w)-\nabla_\theta\log\pi_\theta(y_l)\bigr)$
-  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached) \\
+    \textbf{Gradient signal}
+    & $\nabla_\theta r_t(\theta)\,A_t$ \newline (ratio-coupled to $\theta$)
+    & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached weights)
+    & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
+    & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
+    & $\sigma(\cdot)\bigl(\nabla_\theta\log\pi_\theta(y_w)-\nabla_\theta\log\pi_\theta(y_l)\bigr)$
+    & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached) \\
 
-\textbf{IS ratio $\pi_\theta/\pi_{\text{old}}$ required?}
-  & \textbf{Yes} — clipped to $[1{\pm}\epsilon]$
-  & No
-  & No
-  & No (optional IS correction if off-policy)
-  & No
-  & No (IS weights optional for off-policy) \\
+    \textbf{IS ratio $\pi_\theta/\pi_{\text{old}}$ required?}
+    & \textbf{Yes} — clipped to $[1{\pm}\epsilon]$
+    & No
+    & No
+    & No (optional IS correction if off-policy)
+    & No
+    & No (IS weights optional for off-policy) \\
 
-\textbf{M-step loss}
-  & N/A (single-phase)
-  & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ $+$ KL trust region
-  & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ (unconstrained)
-  & $-\!\sum_i w_i\log\pi_\theta(y_i|x_i)$ (unconstrained)
-  & N/A (collapsed)
-  & $-\mathbb{E}_{q^\star}[\log\pi_\theta]+\gamma D_M(\pi_{\theta_k}\|\pi_\theta)$ \\
+    \textbf{M-step loss}
+    & N/A (single-phase)
+    & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ $+$ KL trust region
+    & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ (unconstrained)
+    & $-\!\sum_i w_i\log\pi_\theta(y_i|x_i)$ (unconstrained)
+    & N/A (collapsed)
+    & $-\mathbb{E}_{q^\star}[\log\pi_\theta]+\gamma D_M(\pi_{\theta_k}\|\pi_\theta)$ \\
 
-\textbf{M-step trust region}
-  & N/A
-  & \textbf{Yes} — KL with Lagrange dual $\alpha$ (Eq.\,12)
-  & No
-  & No; DAR-TR variant adds KL constraint
-  & N/A
-  & Optional ($D_M$, budget $\varepsilon_M$) \\
+    \textbf{M-step trust region}
+    & N/A
+    & \textbf{Yes} — KL with Lagrange dual $\alpha$ \eqref{eq:vmpo_mstep_lag}
+    & No
+    & No; DAR-TR variant adds KL constraint
+    & N/A
+    & Optional ($D_M$, budget $\varepsilon_M$) \\
 
-\textbf{Top-$k$ / sample filtering}
-  & No (full-batch IS)
-  & \textbf{Yes} — top-$k$ fraction $\rho$ by advantage
-  & No (all samples)
-  & No; Top-$k$ DAR variant available
-  & No
-  & Configurable ($\mathcal{F}$: identity or top-$k$) \\
+    \textbf{Top-$k$ / sample filtering}
+    & No (full-batch IS)
+    & \textbf{Yes} — top-$k$ fraction $\rho$ by advantage
+    & No (all samples)
+    & No; Top-$k$ DAR variant available
+    & No
+    & Configurable ($\mathcal{F}$: identity or top-$k$) \\
 
-\textbf{Value function / baseline?}
-  & Yes — GAE with $V_\phi$
-  & Yes — $n$-step bootstrapped $V^\pi_\phi$
-  & Yes — $V^\mu(s)$ by TD/$\lambda$
-  & Yes — $V^{\pi_t}(x)$ for advantage
-  & No
-  & Yes (when $A$ uses a learned baseline) \\
+    \textbf{Value function / baseline?}
+    & Yes — GAE with $V_\phi$
+    & Yes — $n$-step bootstrapped $V^\pi_\phi$
+    & Yes — $V^\mu(s)$ by TD/$\lambda$
+    & Yes — $V^{\pi_t}(x)$ for advantage
+    & No
+    & Yes (when $A$ uses a learned baseline) \\
 
-\textbf{Explicit reward model?}
-  & Yes
-  & Yes
-  & Yes
-  & Yes
-  & No — implicit $\hat r_\theta{=}\beta\log(\pi_\theta/\pi_{\text{ref}})$
-  & Yes (typical; not mandated by framework) \\
+    \textbf{Explicit reward model?}
+    & Yes
+    & Yes
+    & Yes
+    & Yes
+    & No — implicit $\hat r_\theta{=}\beta\log(\pi_\theta/\pi_{\text{ref}})$
+    & Yes (typical; not mandated by framework) \\
 
-\textbf{Online / offline?}
-  & Online (on-policy rollouts; mini-epochs with IS)
-  & Online (on-policy rollouts)
-  & Offline or near-off-policy
-  & Online (rollouts from $\pi_t$)
-  & Offline (fixed preference dataset)
-  & Configurable \\
+    \textbf{Online / offline?}
+    & Online (on-policy rollouts; mini-epochs with IS)
+    & Online (on-policy rollouts)
+    & Offline or near-off-policy
+    & Online (rollouts from $\pi_t$)
+    & Offline (fixed preference dataset)
+    & Configurable \\
 
-\textbf{Training data format}
-  & State–action trajectories $+$ scalar rewards
-  & State–action trajectories $+$ scalar rewards
-  & State–action trajectories $+$ returns
-  & Prompt–response pairs $+$ scalar rewards
-  & Pairwise preference triples $(x,y_w,y_l)$
-  & General (reward or preference signals) \\
+    \textbf{Training data format}
+    & State–action trajectories $+$ scalar rewards
+    & State–action trajectories $+$ scalar rewards
+    & State–action trajectories $+$ returns
+    & Prompt–response pairs $+$ scalar rewards
+    & Pairwise preference triples $(x,y_w,y_l)$
+    & General (reward or preference signals) \\
 
-\textbf{Dropout compatible?}
-  & \textbf{No} — stochastic numerator corrupts IS ratio; inconsistent denominator
-  & \textbf{Yes} — detached M-step weights; no ratio in objective
-  & \textbf{Yes} — detached weights; standard cross-entropy
-  & \textbf{Yes} — detached weights
-  & \textbf{Yes} — single forward passes only; no ratio
-  & \textbf{Yes} — guaranteed when M-step weights detached \\
+    \textbf{Dropout compatible?}
+    & \textbf{No} — stochastic numerator corrupts IS ratio; inconsistent denominator
+    & \textbf{Yes} — detached M-step weights; no ratio in objective
+    & \textbf{Yes} — detached weights; standard cross-entropy
+    & \textbf{Yes} — detached weights
+    & \textbf{Yes} — single forward passes only; no ratio
+    & \textbf{Yes} — guaranteed when M-step weights detached \\
 
-\textbf{EM / MAP derivation?}
-  & No — direct PG theorem
-  & \textbf{Yes} — full MAP EM (Sections~3--4)
-  & \textbf{Yes} — constrained policy search $\to$ Boltzmann $\pi^\star$
-  & \textbf{Yes} — dual-KL optimisation $\to$ closed-form $\pi^\star$
-  & Partial — optimal policy derived, then EM collapsed via BT cancellation
-  & \textbf{Yes} — defines the general EM template \\
+    \textbf{EM / MAP derivation?}
+    & No — direct PG theorem
+    & \textbf{Yes} — full MAP EM (Sections~3--4)
+    & \textbf{Yes} — constrained policy search $\to$ Boltzmann $\pi^\star$
+    & \textbf{Yes} — dual-KL optimisation $\to$ closed-form $\pi^\star$
+    & Partial — optimal policy derived, then EM collapsed via BT cancellation
+    & \textbf{Yes} — defines the general EM template \\
 
-\textbf{Adaptive temperature?}
-  & No
-  & \textbf{Yes} ($\eta$ via dual $\mathcal{L}_\eta$)
-  & No ($\beta$ fixed)
-  & No (fixed $\alpha,\beta$); AT-DAR variant adds it
-  & No ($\beta$ fixed)
-  & Yes (dual-adaptive mode) \\
+    \textbf{Adaptive temperature?}
+    & No
+    & \textbf{Yes} ($\eta$ via dual $\mathcal{L}_\eta$)
+    & No ($\beta$ fixed)
+    & No (fixed $\alpha,\beta$); AT-DAR variant adds it
+    & No ($\beta$ fixed)
+    & Yes (dual-adaptive mode) \\
 
-\textbf{GEMPI tuple}
-  & N/A (policy-gradient paradigm)
-  & $m{=}1$, $D_1{=}\mathrm{KL}$, $\pi_1{=}\pi_t$, dual $\eta$, top-$k$, $D_M{=}\mathrm{KL}$
-  & $m{=}1$, $\pi_1{=}\pi_t$, $\lambda_1{=}\beta$ fixed, no $D_M$, no filter
-  & $m{=}2$, $\pi_1{=}\pi_{\text{ref}}$, $\pi_2{=}\pi_t$, $(\alpha,\beta)$ fixed, no $D_M$
-  & $m{=}1$, $\pi_1{=}\pi_{\text{ref}}$, $\Lambda{=}\beta$, E-step collapsed (no M-step)
-  & Full tuple $\mathcal{G}$ — all axes free \\
+    \textbf{GEMPI tuple}
+    & N/A (policy-gradient paradigm)
+    & $m{=}1$, $D_1{=}\mathrm{KL}$, $\pi_1{=}\pi_t$, dual $\eta$, top-$k$, $D_M{=}\mathrm{KL}$
+    & $m{=}1$, $\pi_1{=}\pi_t$, $\lambda_1{=}\beta$ fixed, no $D_M$, no filter
+    & $m{=}2$, $\pi_1{=}\pi_{\text{ref}}$, $\pi_2{=}\pi_t$, $(\alpha,\beta)$ fixed, no $D_M$
+    & $m{=}1$, $\pi_1{=}\pi_{\text{ref}}$, $\Lambda{=}\beta$, E-step collapsed (no M-step)
+    & Full tuple $\mathcal{G}$ — all axes free \\
 
-\textbf{Novel variants / extensions}
-  & Seq-level PPO (product IS ratio; KL early stop)
-  & LLM V-MPO (seq-level E/M-step, Section~\ref{sec:vmpo_llm_gempi})
-  & ---
-  & AT-DAR; DAR-TR (M-step KL); Top-$k$ DAR
-  & IPO, $\beta$-DPO, rDPO
-  & Any combo of $m$, $D_j$, $\mathcal{T}$, $\mathcal{F}$, $D_M$ \\
+    \textbf{Novel variants / extensions}
+    & Seq-level PPO (product IS ratio; KL early stop)
+    & LLM V-MPO (seq-level E/M-step, Section~\ref{sec:vmpo_llm_gempi})
+    & ---
+    & AT-DAR; DAR-TR (M-step KL); Top-$k$ DAR
+    & IPO, $\beta$-DPO, rDPO
+    & Any combo of $m$, $D_j$, $\mathcal{T}$, $\mathcal{F}$, $D_M$ \\
 
-\textbf{Primary LLM use-case}
-  & Online RLHF (InstructGPT, LLaMA-RLHF)
-  & Online RL fine-tuning with EM stability
-  & Near-offline advantage-weighted SFT
-  & Online alignment with dual regularisation
-  & Offline preference alignment (no RM needed)
-  & Unifying design framework \\
+    \textbf{Primary LLM use-case}
+    & Online RLHF (InstructGPT, LLaMA-RLHF)
+    & Online RL fine-tuning with EM stability
+    & Near-offline advantage-weighted SFT
+    & Online alignment with dual regularisation
+    & Offline preference alignment (no RM needed)
+    & Unifying design framework \\
 
-\bottomrule
-\end{tabular}
+    \bottomrule
+  \end{tabular}
 \end{center}
 
 \medskip
@@ -2059,7 +2177,34 @@ computed with \texttt{stop\_gradient}, so gradients flow only through
 $\log\pi_\theta$, not through the weights.
 $\Lambda\!\coloneqq\!\sum_j\lambda_j$ is the effective temperature in the GEMPI E-step.
 AT-DAR and DAR-TR are novel instantiations derived within GEMPI
-(Section~\ref{sec:vmpo_llm_gempi}).
+(Section~\ref{sec:gempi_novel}).
 \textit{BT}: Bradley--Terry preference model used in the DPO derivation.
+
+% ============================================================
+\section{GTrXL: Gated Transformer-XL for RL}
+\label{sec:gtrxl}
+
+The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results pairing V-MPO with a Transformer-XL (TrXL) backbone \parencite{dai2019transformerxlattentivelanguagemodels} on Atari, and later with the Gated Transformer-XL (GTrXL) \parencite{parisotto2019stabilizingtransformersreinforcementlearning} on DMLab-30. This appendix summarises the GTrXL modifications and why they complement V-MPO's EM structure. Reference implementations are available at \href{https://github.com/kimiyoung/transformer-xl}{github.com/kimiyoung/transformer-xl} and \href{https://github.com/nenuadrian/DI-engine/tree/main/benchmarks}{github.com/nenuadrian/DI-engine}.
+
+Standard TrXL fails in RL, performing at random-policy level on benchmarks such as DMLab-30. GTrXL addresses this with two targeted modifications.
+
+\paragraph{Identity Map Reordering (TrXL-I).}
+Layer normalisation is moved to the \emph{input} of each sub-layer rather than the output, creating a direct identity path from the first layer's input to the last layer's output. At initialisation this biases the network towards a Markovian (reactive) policy and provides a clean gradient path, making the training landscape more amenable to policy optimisation.
+
+\paragraph{GRU Gating Layers.}
+Residual connections are replaced with learnable gating layers. The best-performing variant uses GRU-type gates:
+\begin{align*}
+  r &= \sigma(W_r y + U_r x), \\
+  z &= \sigma(W_z y + U_z x - b_g), \\
+  \hat{h} &= \tanh(W_g y + U_g (r \odot x)), \\
+  g(x,y) &= (1-z) \odot x + z \odot \hat{h},
+\end{align*}
+where $x$ is the residual input and $y$ is the sub-layer output. Initialising $b_g = 2$ places each gate near the identity at the start of training, preserving the reactive-policy initialisation from the layer-norm reordering.
+
+\paragraph{Why GTrXL suits V-MPO.}
+V-MPO collects fresh on-policy trajectories each update, making long-horizon memory critical. GTrXL provides: (i) \textbf{long-range memory} via relative position encodings spanning thousands of past time-steps; (ii) \textbf{stable optimisation} — GRU gating achieves a 0\% divergence rate across hyperparameter sweeps vs.\ 16\% for plain TrXL-I, compatible with V-MPO's fixed Adam learning rate; (iii) \textbf{robust performance} — on DMLab-30, GTrXL (GRU) reaches $117.6 \pm 0.3$ human-normalised score vs.\ $99.3 \pm 1.0$ for LSTM.
+
+\paragraph{Architecture and training configuration.}
+For Atari, the shared policy-value network uses a convolutional ResNet backbone feeding the transformer core, with previous reward and action as additional inputs. Representative hyperparameters: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. Parameters are updated jointly under $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at $10^{-4}$.
 
 \end{document}

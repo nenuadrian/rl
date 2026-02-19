@@ -2377,14 +2377,13 @@
     <bcf:citekey order="2" intorder="1">srivastava2014dropout</bcf:citekey>
     <bcf:citekey order="3" intorder="1">rafailov2023dpo</bcf:citekey>
     <bcf:citekey order="4" intorder="1">he2025directadvantageregressionaligning</bcf:citekey>
-    <bcf:citekey order="5" intorder="1">song2019vmpoonpolicymaximumposteriori</bcf:citekey>
-    <bcf:citekey order="6" intorder="1">dai2019transformerxlattentivelanguagemodels</bcf:citekey>
-    <bcf:citekey order="7" intorder="1">parisotto2019stabilizingtransformersreinforcementlearning</bcf:citekey>
+    <bcf:citekey order="5" intorder="1">chakraborty2024maxminrlhfalignmentdiversehuman</bcf:citekey>
+    <bcf:citekey order="6" intorder="1">Hesterberg1995</bcf:citekey>
+    <bcf:citekey order="6" intorder="2">mcbook</bcf:citekey>
+    <bcf:citekey order="7" intorder="1">peng2019advantageweightedregression</bcf:citekey>
     <bcf:citekey order="8" intorder="1">song2019vmpoonpolicymaximumposteriori</bcf:citekey>
-    <bcf:citekey order="9" intorder="1">parisotto2019stabilizingtransformersreinforcementlearning</bcf:citekey>
-    <bcf:citekey order="10" intorder="1">Hesterberg1995</bcf:citekey>
-    <bcf:citekey order="10" intorder="2">mcbook</bcf:citekey>
-    <bcf:citekey order="11" intorder="1">peng2019advantageweightedregression</bcf:citekey>
+    <bcf:citekey order="9" intorder="1">dai2019transformerxlattentivelanguagemodels</bcf:citekey>
+    <bcf:citekey order="10" intorder="1">parisotto2019stabilizingtransformersreinforcementlearning</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="nyt">

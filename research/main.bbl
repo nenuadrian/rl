@@ -19,6 +19,85 @@
 
 \refsection{0}
   \datalist[entry]{nyt/global//global/global/global}
+    \entry{chakraborty2024maxminrlhfalignmentdiversehuman}{misc}{}{}
+      \name{author}{8}{}{%
+        {{un=0,uniquepart=base,hash=a1c1677c3df6c5ec042859d4b0a57f46}{%
+           family={Chakraborty},
+           familyi={C\bibinitperiod},
+           given={Souradip},
+           giveni={S\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=227779db18741210fb3b905415593ee1}{%
+           family={Qiu},
+           familyi={Q\bibinitperiod},
+           given={Jiahao},
+           giveni={J\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=8f3ed4b2f5fd45048b82c0528592a87c}{%
+           family={Yuan},
+           familyi={Y\bibinitperiod},
+           given={Hui},
+           giveni={H\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=38398e7c2e72ef7c44d50914b45fed17}{%
+           family={Koppel},
+           familyi={K\bibinitperiod},
+           given={Alec},
+           giveni={A\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=23118b73b64c99e8852504622b4b9eb3}{%
+           family={Huang},
+           familyi={H\bibinitperiod},
+           given={Furong},
+           giveni={F\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=d350899843e74c7cb6f945d48def0dfa}{%
+           family={Manocha},
+           familyi={M\bibinitperiod},
+           given={Dinesh},
+           giveni={D\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=0a3df83f9386cd5ba853e25f1ed6881f}{%
+           family={Bedi},
+           familyi={B\bibinitperiod},
+           given={Amrit\bibnamedelima Singh},
+           giveni={A\bibinitperiod\bibinitdelim S\bibinitperiod},
+           givenun=0}}%
+        {{un=0,uniquepart=base,hash=e9f8934a7fd3f4e4f22f98122c51a59d}{%
+           family={Wang},
+           familyi={W\bibinitperiod},
+           given={Mengdi},
+           giveni={M\bibinitperiod},
+           givenun=0}}%
+      }
+      \strng{namehash}{5b82ff4d4e58187fbbf23a5fb9f7c4b6}
+      \strng{fullhash}{6d1c4331956ad65adf5372b17c511770}
+      \strng{fullhashraw}{6d1c4331956ad65adf5372b17c511770}
+      \strng{bibnamehash}{5b82ff4d4e58187fbbf23a5fb9f7c4b6}
+      \strng{authorbibnamehash}{5b82ff4d4e58187fbbf23a5fb9f7c4b6}
+      \strng{authornamehash}{5b82ff4d4e58187fbbf23a5fb9f7c4b6}
+      \strng{authorfullhash}{6d1c4331956ad65adf5372b17c511770}
+      \strng{authorfullhashraw}{6d1c4331956ad65adf5372b17c511770}
+      \field{sortinit}{C}
+      \field{sortinithash}{4d103a86280481745c9c897c925753c0}
+      \field{extradatescope}{labelyear}
+      \field{labeldatesource}{}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.CL}
+      \field{eprinttype}{arXiv}
+      \field{title}{MaxMin-RLHF: Alignment with Diverse Human Preferences}
+      \field{year}{2024}
+      \verb{eprint}
+      \verb 2402.08925
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2402.08925
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2402.08925
+      \endverb
+    \endentry
     \entry{dai2019transformerxlattentivelanguagemodels}{misc}{}{}
       \name{author}{6}{}{%
         {{un=0,uniquepart=base,hash=74ae4c193de464cda59c8066619514fd}{%
