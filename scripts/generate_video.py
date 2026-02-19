@@ -6,7 +6,7 @@ from pprint import pformat
 
 import torch
 
-from utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy_video
+from minerva.utils.video import VideoRenderConfig, find_latest_checkpoint, render_policy_video
 
 
 def _default_mujoco_gl_backend() -> str:

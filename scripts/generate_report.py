@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 import time
 import torch
-from utils.video import VideoRenderConfig, render_policy_video
+from minerva.utils.video import VideoRenderConfig, render_policy_video
 
 
 if "MPLCONFIGDIR" not in os.environ:
