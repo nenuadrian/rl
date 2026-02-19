@@ -197,7 +197,7 @@ Policy gradients optimize parameters directly via noisy first-order steps. EM-st
 
 \section{PPO}
 
-Proximal Policy Optimisation (PPO) is an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
+PPO is a \emph{policy-gradient} method: it directly estimates and follows the gradient of expected return in parameter space. Specifically, it is an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
 
 A trajectory $\tau = (s_0,a_0,\dots,s_{T-1},a_{T-1})$ is collected under the current policy $\pi_{\theta_{\mathrm{old}}}$. Per-step log-probabilities and their sum are
 \[
@@ -674,6 +674,117 @@ which is an unbiased estimate of the true weighted-MLE gradient under the dropou
 \subsection{Practical Implications}
 
 In the LLM fine-tuning regime where data is limited and overfitting is a practical concern, V-MPO's EM structure therefore offers a regularisation advantage over PPO: dropout (and related stochastic regularisers such as DropPath or stochastic depth) can be enabled during the M-step without any algorithmic modification, providing the same generalisation benefits observed in supervised fine-tuning. PPO, by contrast, must rely on non-architectural regularisation (weight decay, gradient clipping, early stopping) because its core mechanism is incompatible with stochastic forward passes.
+
+\section{DPO: Direct Preference Optimization}
+\label{sec:dpo}
+
+Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a \emph{preference MLE} method: it bypasses reward modelling and policy-gradient estimation entirely, reducing alignment to a single binary cross-entropy objective over preference pairs. This section derives DPO from the same KL-regularised RLHF objective used throughout this document, characterises it as maximum-likelihood estimation, and relates it to the GEMPI framework.
+
+\subsection{Derivation from the KL-Regularised Objective}
+
+The standard RLHF objective is
+\begin{equation}\label{eq:dpo_rlhf}
+  \max_{\pi}
+  \mathbb{E}_{x\sim\mathcal{D},\, y\sim\pi(\cdot|x)}
+  \big[r(x,y)\big]
+  -
+  \beta\,
+  D_{\mathrm{KL}}\!\big(\pi(\cdot|x)\,\|\,\pi_{\mathrm{ref}}(\cdot|x)\big),
+\end{equation}
+where $\beta > 0$ controls regularisation toward the reference policy $\pi_{\mathrm{ref}}$.
+
+\paragraph{Closed-form optimal policy.}
+The optimisation over $\pi$ for each $x$ is a KL-regularised linear problem with the same structure as the GEMPI E-step. The solution is
+\begin{equation}\label{eq:dpo_optpolicy}
+  \pi^\star(y\mid x)
+  =
+  \frac{1}{Z(x)}\,
+  \pi_{\mathrm{ref}}(y\mid x)\,
+  \exp\!\Big(\frac{r(x,y)}{\beta}\Big),
+\end{equation}
+where $Z(x) = \sum_y \pi_{\mathrm{ref}}(y\mid x)\exp(r(x,y)/\beta)$ is the partition function. This is a GEMPI E-step with $m=1$, $\pi_1=\pi_{\mathrm{ref}}$, $\lambda_1=\beta$, $\Lambda=\beta$.
+
+\paragraph{Reward reparameterisation.}
+Rearranging \eqref{eq:dpo_optpolicy} expresses the reward as a function of the optimal policy:
+\begin{equation}\label{eq:dpo_reward_reparam}
+  r(x,y)
+  =
+  \beta\log\frac{\pi^\star(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
+  +
+  \beta\log Z(x).
+\end{equation}
+
+\paragraph{Bradley--Terry preference model.}
+The probability of preferring response $y_w$ over $y_l$ under the Bradley--Terry model is $p(y_w \succ y_l \mid x) = \sigma\big(r(x,y_w) - r(x,y_l)\big)$, where $\sigma$ is the logistic function. Substituting \eqref{eq:dpo_reward_reparam}:
+\begin{equation}\label{eq:dpo_bt_sub}
+  p(y_w \succ y_l \mid x)
+  =
+  \sigma\!\bigg(
+    \beta\log\frac{\pi^\star(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+    -
+    \beta\log\frac{\pi^\star(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+  \bigg).
+\end{equation}
+The partition function $Z(x)$ cancels in the reward difference---this is the key algebraic step that makes DPO tractable.
+
+\paragraph{The DPO loss.}
+Replacing the unknown $\pi^\star$ with a parametric policy $\pi_\theta$ and maximising the log-likelihood of observed preferences yields the DPO objective:
+\begin{equation}\label{eq:dpo_loss}
+  \mathcal{L}_{\mathrm{DPO}}(\theta)
+  =
+  -\mathbb{E}_{(x,y_w,y_l)\sim\mathcal{D}}
+  \left[
+    \log\sigma\!\bigg(
+      \beta\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+      -
+      \beta\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+    \bigg)
+  \right].
+\end{equation}
+
+\subsection{DPO as Preference MLE}
+
+The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs---structurally, it is maximum likelihood estimation on a classification task. The gradient has the form
+\[
+  \nabla_\theta \mathcal{L}_{\mathrm{DPO}}
+  =
+  -\beta\,\mathbb{E}\!\Big[
+    \sigma\!\big(\hat{r}_\theta(y_l) - \hat{r}_\theta(y_w)\big)
+    \big(
+      \nabla_\theta\log\pi_\theta(y_w\mid x)
+      -
+      \nabla_\theta\log\pi_\theta(y_l\mid x)
+    \big)
+  \Big],
+\]
+where $\hat{r}_\theta(y) \coloneqq \beta\log(\pi_\theta(y\mid x)/\pi_{\mathrm{ref}}(y\mid x))$ is the \emph{implicit reward}. The sigmoid weight measures how wrong the current model is on this pair: it is large when the model incorrectly prefers $y_l$, and vanishes as the model learns the correct ranking. This is a weighted MLE update that increases the log-probability of the preferred response and decreases that of the dispreferred one.
+
+\paragraph{What DPO does not require.}
+Unlike policy-gradient methods, DPO needs no reward model (the reward is implicit), no value function, no advantage estimation, no importance-sampling ratios, and no online rollouts. The entire training signal comes from offline preference pairs.
+
+\subsection{DPO and the EM Framework}
+
+\paragraph{Shared E-step form.}
+The closed-form optimal policy \eqref{eq:dpo_optpolicy} is identical to GEMPI with $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$, $\Lambda=\beta$:
+\[
+  q^\star(y\mid x) \propto \pi_{\mathrm{ref}}(y\mid x)\,\exp\!\Big(\frac{r(x,y)}{\beta}\Big).
+\]
+In a standard EM method (V-MPO, DAR, AWR), one would now \emph{construct} this target distribution and then project to $\pi_\theta$ via weighted MLE in the M-step.
+
+\paragraph{The ``collapsed EM'' interpretation.}
+DPO eliminates the explicit E-step entirely. Instead of constructing $q^\star$ and then fitting $\pi_\theta$ to it, DPO substitutes the \emph{functional form} of the optimal policy directly into the Bradley--Terry preference likelihood. The intractable partition function $Z(x)$ cancels in the reward difference $r(x,y_w) - r(x,y_l)$, yielding a closed-form objective that implicitly solves both the E-step and M-step in a single stage.
+
+\paragraph{What is lost.}
+By collapsing the two stages, DPO gives up several degrees of freedom available to explicit EM methods:
+\begin{itemize}
+  \item \textbf{Reward flexibility.} DPO's reward is \emph{defined} as $\beta\log(\pi_\theta/\pi_{\mathrm{ref}})$; it cannot incorporate richer reward signals (e.g.\ multi-aspect scores, process rewards) without redefining the objective.
+  \item \textbf{Temperature adaptation.} The coefficient $\beta$ is fixed; there is no dual mechanism to adapt it online as in V-MPO.
+  \item \textbf{Multi-anchor regularisation.} DPO anchors to $\pi_{\mathrm{ref}}$ only. DAR's dual-anchor structure ($\pi_{\mathrm{ref}}$ and $\pi_t$) is not available within the DPO framework.
+  \item \textbf{Online data.} DPO operates on a fixed offline preference dataset; the policy does not generate new rollouts during training.
+\end{itemize}
+
+\paragraph{Dropout compatibility.}
+DPO's gradient involves only single forward passes through $\pi_\theta$ (computing $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$), with no ratio between two forward passes under different modes. Dropout is therefore fully compatible with DPO, for the same structural reason it is compatible with SFT and EM-style M-steps.
 
 \section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
@@ -1348,6 +1459,15 @@ The GEMPI framework subsumes the EM-style methods derived in the preceding secti
     & Fixed
     & Optional KL
     & None \\
+    \midrule
+    DPO (collapsed)
+    & 1
+    & $\pi_{\mathrm{ref}}$
+    & $\beta$
+    & $\beta$
+    & Fixed
+    & None
+    & --- \\
     \bottomrule
   \end{tabular}
 \end{center}
@@ -1376,6 +1496,9 @@ Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual op
 
 \paragraph{SFT.}
 The degenerate case with no E-step optimization: $q(\tau\mid x) = \delta(\tau=y)$ places all mass on demonstrated responses, and the M-step is pure maximum likelihood. This corresponds to $m=0$ in the GEMPI tuple.
+
+\paragraph{DPO (collapsed).}
+The KL-regularised RLHF objective \eqref{eq:dpo_rlhf} yields the same E-step closed form as GEMPI with $m=1$, $\pi_1=\pi_{\mathrm{ref}}$, $\Lambda=\beta$: namely $q^\star \propto \pi_{\mathrm{ref}}\exp(r/\beta)$. DPO does not construct this target explicitly. Instead, it substitutes the optimal policy form into the Bradley--Terry preference likelihood, and the partition function $Z(x)$ cancels in the reward difference. The result is a single-stage preference MLE \eqref{eq:dpo_loss} that implicitly solves both the E-step and M-step. DPO can thus be viewed as a degenerate GEMPI instantiation in which the E-step is analytically eliminated.
 
 \paragraph{DAR$\to$V-MPO as corollary.}
 The reduction derived in the DAR-to-V-MPO mapping above is now a direct consequence of the GEMPI parameterisation: collapsing two anchors to one ($\pi_{\mathrm{ref}}=\pi_t$) merges the geometric mixture powers $\pi_{\mathrm{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda} = \pi_t^{1} = \pi_t$, recovering the single-anchor form with $\eta = \alpha+\beta$. Alternatively, sending $\alpha\to 0$ zeros out the $\pi_{\mathrm{ref}}$ contribution, yielding the same result.
@@ -1444,6 +1567,92 @@ Adding a KL trust-region constraint to DAR's currently unconstrained M-step crea
 
 \paragraph{Top-$k$ DAR.}
 Applying V-MPO's top-$k$ filtering to the DAR E-step. Currently DAR uses all samples; restricting to the top-$k$ by advantage before computing the geometric mixture weights could improve sample efficiency by focusing the M-step on demonstrably high-quality sequences.
+
+\section{Three Paradigms for LLM Alignment}
+\label{sec:three_paradigms}
+
+The methods derived in this paper, together with PPO, fall into three structurally distinct paradigms for aligning language models. Making these paradigms explicit clarifies the design space and motivates the paper's focus on EM-based methods.
+
+\subsection{Paradigm 1: Policy Gradient (PPO)}
+
+The gradient signal is $\nabla_\theta r_t(\theta)\,A_t$---direct parameter-space ascent on the expected return. The importance-sampling ratio $r_t(\theta) = \pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$ couples the gradient to the current parameters. Trust regions are enforced via clipping (a heuristic approximation to a KL constraint). In the Policy Mirror Descent (PMD) framework \parencite{lan2023policymirrordescentrl, tomar2022mdpo}, PPO corresponds to the negative-entropy mirror map. The method is online and on-policy: fresh rollouts are required for each update.
+
+\subsection{Paradigm 2: Preference MLE (DPO)}
+
+The gradient signal is a weighted cross-entropy on preference pairs:
+\[
+  \nabla_\theta \mathcal{L}_{\mathrm{DPO}}
+  \propto
+  \sigma(\hat{r}_\theta(y_l) - \hat{r}_\theta(y_w))
+  \big(\nabla_\theta\log\pi_\theta(y_w) - \nabla_\theta\log\pi_\theta(y_l)\big).
+\]
+There is no explicit reward model, no E-step, and no importance ratios. The method operates offline on a fixed preference dataset. The implicit reward $\hat{r}_\theta = \beta\log(\pi_\theta/\pi_{\mathrm{ref}})$ substitutes for explicit reward modelling. As derived in Section~\ref{sec:dpo}, DPO can be viewed as ``collapsed EM'': the Boltzmann optimal policy is substituted analytically into Bradley--Terry, bypassing the E-step entirely.
+
+\subsection{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}
+
+The update is two-phase: an E-step constructs a non-parametric target $q^\star$, and an M-step projects to $\pi_\theta$ via weighted MLE. The gradient signal is $w_i\nabla_\theta\log\pi_\theta(y)$, where the weights $w_i$ are detached from the current parameters $\theta$. Explicit reward or advantage signals are required, and rollouts are typically generated online. Trust regions operate in the E-step (via adaptive temperature or KL constraints on $q^\star$) and/or the M-step (via KL penalties on $\pi_\theta$). The GEMPI tuple parameterises the full space of choices: divergences, anchors, temperature mechanism, filtering, and M-step constraint.
+
+\subsection{Comparison}
+
+\medskip
+\begin{center}
+  \small
+  \begin{tabular}{lccc}
+    \toprule
+    & \textbf{Policy Gradient (PPO)}
+    & \textbf{Preference MLE (DPO)}
+    & \textbf{EM-Based (GEMPI)} \\
+    \midrule
+    Gradient form
+    & $\nabla_\theta\, r_t(\theta)\, A_t$
+    & $\sigma(\cdot)\,\nabla_\theta\log\pi_\theta$
+    & $w_i\,\nabla_\theta\log\pi_\theta$ \\
+    Reward model?
+    & Yes (explicit)
+    & No (implicit)
+    & Yes (explicit) \\
+    Value function?
+    & Yes
+    & No
+    & Yes \\
+    Online rollouts?
+    & Yes
+    & No
+    & Yes \\
+    Importance ratio?
+    & Yes
+    & No
+    & No \\
+    Dropout compatible?
+    & No
+    & Yes
+    & Yes \\
+    Trust region mechanism
+    & Clipping (param.\ space)
+    & $\beta$ (implicit KL)
+    & E-step + M-step (distr.\ space) \\
+    GEMPI instantiation
+    & N/A
+    & Collapsed ($m\!=\!1$)
+    & Direct \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+\medskip
+
+\subsection{Key Structural Differences}
+
+\paragraph{Parameter space vs.\ distribution space.}
+PPO optimises in parameter space via noisy gradient steps; GEMPI optimises in distribution space first (E-step), then projects to the parametric family (M-step). This two-phase structure is what yields detached weights and, consequently, dropout compatibility.
+
+\paragraph{DPO as collapsed EM.}
+DPO avoids the E-step by exploiting the Bradley--Terry cancellation of $Z(x)$. This elegantly removes the need for reward modelling and online rollouts, but ties the method to pairwise preference data and prevents it from incorporating richer reward signals (e.g.\ multi-aspect scores, process supervision) or adapting temperature online.
+
+\paragraph{DAR as a bridge.}
+Like DPO, it derives a closed-form optimal policy from a KL-regularised objective; like V-MPO, it uses that target in an explicit M-step with advantage weighting. DAR's dual-anchor structure ($\pi_{\mathrm{ref}}$ and $\pi_t$) generalises both the DPO anchor ($\pi_{\mathrm{ref}}$ only) and the V-MPO anchor ($\pi_t$ only). Within GEMPI, DAR is the natural meeting point of the preference-MLE and EM paradigms.
+
+\paragraph{EM-based methods.}
+Offer the most flexible design space: any reward signal can be used, temperature can be adapted online via dual optimisation, multiple anchors can regularise the target distribution, and the M-step inherits dropout compatibility from its weighted-MLE structure. The GEMPI framework makes these axes of variation explicit and enables principled construction of new methods by selecting from the tuple $\mathcal{G}$. Policy-gradient and preference-MLE methods are important baselines and limiting cases, but neither offers the same combinatorial flexibility.
 
 \section{V-MPO for LLM RL within GEMPI}
 \label{sec:vmpo_llm_gempi}
@@ -1525,12 +1734,13 @@ This keeps the update in standard transformer training form (teacher forcing ove
 
 \subsection{Transformer-Specific Practicalities}
 
-\begin{itemize}
-  \item \textbf{Sequence-level credit assignment.} Rewards are naturally sequence-level in LLM alignment; the EM weighting avoids unstable token-wise importance ratios.
-  \item \textbf{Long-context batching.} Variable-length prompts and completions require masking and packed batches; the weighted M-step remains unchanged under standard attention masks.
-  \item \textbf{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
-  \item \textbf{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
-\end{itemize}
+\paragraph{Sequence-level credit assignment.} Rewards are naturally sequence-level in LLM alignment; the EM weighting avoids unstable token-wise importance ratios.
+
+\paragraph{Long-context batching.} Variable-length prompts and completions require masking and packed batches; the weighted M-step remains unchanged under standard attention masks.
+
+\paragraph{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
+
+\paragraph{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
 
 \subsection{Dropout in the LLM V-MPO M-Step}
 
