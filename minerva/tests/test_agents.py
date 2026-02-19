@@ -69,6 +69,52 @@ def test_vmpo_agent_act_and_update():
     assert "kl/std" in metrics
 
 
+def test_vmpo_agent_ppo_like_backbone_act_and_update():
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    obs_dim = 6
+    act_dim = 2
+    action_low = -np.ones(act_dim, dtype=np.float32)
+    action_high = np.ones(act_dim, dtype=np.float32)
+
+    agent = VMPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        action_low=action_low,
+        action_high=action_high,
+        device=torch.device("cpu"),
+        policy_layer_sizes=(32, 32),
+        value_layer_sizes=(32, 32),
+        ppo_like_backbone=True,
+    )
+    assert agent.policy.ppo_like_backbone is True
+    assert len(agent.policy.policy_logstd_parameters()) == 1
+
+    obs = np.random.randn(obs_dim).astype(np.float32)
+    action, value, mean, log_std = agent.act(obs, deterministic=False)
+
+    assert action.shape == (act_dim,)
+    assert mean.shape == (act_dim,)
+    assert log_std.shape == (act_dim,)
+    assert isinstance(value, float)
+
+    batch_size = 12
+    batch = {
+        "obs": torch.randn(batch_size, obs_dim),
+        "actions": torch.randn(batch_size, act_dim),
+        "returns": torch.randn(batch_size, 1),
+        "advantages": torch.randn(batch_size, 1),
+        "old_means": torch.randn(batch_size, act_dim),
+        "old_log_stds": torch.randn(batch_size, act_dim),
+    }
+
+    metrics = agent.update(batch)
+    assert "loss/policy" in metrics
+    assert "kl/mean" in metrics
+    assert "kl/std" in metrics
+
+
 def test_vmpo_agent_supports_sgd_optimizer():
     obs_dim = 6
     act_dim = 2
