@@ -35,4 +35,3 @@ research/*SAVE-ERROR
 research/*.fls
 research/*.fdb_latexmk
 research/*.synctex.gz
-research/*.pdf
