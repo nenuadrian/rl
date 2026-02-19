@@ -2,374 +2,776 @@
 
 _Source: `minerva/trainers/mpo/agent.py`_
 
-Each `# LaTeX:` annotation is rendered below next to its source line.
+Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.
 
 ## Rendered Math Annotations
 
-### Line 281
+### Line 282
 
 ```python
         policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))
+        self.policy_opt = self._build_optimizer(
+            self.policy.parameters(), lr=policy_lr_effective
+        )
+
+        # Critic optimizer.
+        self.q_opt = self._build_optimizer(self.q.parameters(), lr=self.q_lr)
+
+        # Dual variables (temperature + KL multipliers) in log-space.
+        self.log_temperature = nn.Parameter(
+            torch.tensor(self.temperature_init, device=device)
+        )
 ```
 
 $$
 \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
 $$
 
-### Line 356
+### Line 358
 
 ```python
         q_detached = q_values.detach() / temperature
+        # LaTeX: q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
+        weights = torch.softmax(q_detached, dim=1).detach()
+        # LaTeX: \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
+        q_logsumexp = torch.logsumexp(q_detached, dim=1)
+        log_num_actions = math.log(q_values.shape[1])
+        # LaTeX: \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+        loss_temperature = temperature * (
+            float(epsilon) + q_logsumexp.mean() - log_num_actions
+        )
+        return weights, loss_temperature
 ```
 
 $$
 \bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
 $$
 
-### Line 357
+### Line 360
 
 ```python
         weights = torch.softmax(q_detached, dim=1).detach()
+        # LaTeX: \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
+        q_logsumexp = torch.logsumexp(q_detached, dim=1)
+        log_num_actions = math.log(q_values.shape[1])
+        # LaTeX: \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+        loss_temperature = temperature * (
+            float(epsilon) + q_logsumexp.mean() - log_num_actions
+        )
+        return weights, loss_temperature
+
+    def _compute_nonparametric_kl_from_weights(
+        self, weights: torch.Tensor
 ```
 
 $$
 q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
 $$
 
-### Line 358
+### Line 362
 
 ```python
         q_logsumexp = torch.logsumexp(q_detached, dim=1)
+        log_num_actions = math.log(q_values.shape[1])
+        # LaTeX: \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+        loss_temperature = temperature * (
+            float(epsilon) + q_logsumexp.mean() - log_num_actions
+        )
+        return weights, loss_temperature
+
+    def _compute_nonparametric_kl_from_weights(
+        self, weights: torch.Tensor
+    ) -> torch.Tensor:
+        """Estimates KL(nonparametric || target) like Acme's diagnostics.
 ```
 
 $$
 \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
 $$
 
-### Line 360
+### Line 365
 
 ```python
         loss_temperature = temperature * (
+            float(epsilon) + q_logsumexp.mean() - log_num_actions
+        )
+        return weights, loss_temperature
+
+    def _compute_nonparametric_kl_from_weights(
+        self, weights: torch.Tensor
+    ) -> torch.Tensor:
+        """Estimates KL(nonparametric || target) like Acme's diagnostics.
+
+        weights shape (B,N). Returns (B,) KL.
+        """
 ```
 
 $$
 \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
 $$
 
-### Line 373
+### Line 379
 
 ```python
         integrand = torch.log(n * weights + 1e-8)
+        # LaTeX: D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
+        return (weights * integrand).sum(dim=1)
+
+    def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -> torch.Tensor:
+        """Fast path for float32 host arrays -> device tensors."""
+        if isinstance(value, torch.Tensor):
+            return value.to(
+                device=self.device,
+                dtype=torch.float32,
+                non_blocking=True,
+            )
 ```
 
 $$
 \ell_{b,i} = \log\!\left(N q_{b,i}\right)
 $$
 
-### Line 374
+### Line 381
 
 ```python
         return (weights * integrand).sum(dim=1)
+
+    def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -> torch.Tensor:
+        """Fast path for float32 host arrays -> device tensors."""
+        if isinstance(value, torch.Tensor):
+            return value.to(
+                device=self.device,
+                dtype=torch.float32,
+                non_blocking=True,
+            )
+
+        arr = np.asarray(value, dtype=np.float32)
 ```
 
 $$
 D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
 $$
 
-### Line 467
+### Line 476
 
 ```python
             delta = rewards_seq + (1.0 - dones_seq) * self.gamma * v_next - q_t
+
+            mean, log_std = self.policy_target(obs_flat)
+            actions_raw_flat = actions_raw_seq.reshape(batch_size * seq_len, act_dim)
+            log_pi = self.policy_target.log_prob(
+                mean, log_std, actions_raw_flat
+            ).reshape(batch_size, seq_len, 1)
+            log_b = behaviour_logp_seq
+            # LaTeX: \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
+            log_ratio = log_pi - log_b
+            # LaTeX: \rho_t = \exp(\log \rho_t)
+            rho = torch.exp(log_ratio).squeeze(-1)
 ```
 
 $$
 \delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
 $$
 
-### Line 475
+### Line 485
 
 ```python
             log_ratio = log_pi - log_b
+            # LaTeX: \rho_t = \exp(\log \rho_t)
+            rho = torch.exp(log_ratio).squeeze(-1)
+            # LaTeX: c_t = \lambda \min(1, \rho_t)
+            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
+
+            # Correct Retrace recursion:
+            # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
+            # LaTeX: Q^{ret} \leftarrow Q(s_0, a_0)
+            q_ret = q_t[:, 0, :].clone()
+            cont = torch.ones((batch_size, 1), device=self.device)
+            c_prod = torch.ones((batch_size, 1), device=self.device)
 ```
 
 $$
 \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
 $$
 
-### Line 476
+### Line 487
 
 ```python
             rho = torch.exp(log_ratio).squeeze(-1)
+            # LaTeX: c_t = \lambda \min(1, \rho_t)
+            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
+
+            # Correct Retrace recursion:
+            # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
+            # LaTeX: Q^{ret} \leftarrow Q(s_0, a_0)
+            q_ret = q_t[:, 0, :].clone()
+            cont = torch.ones((batch_size, 1), device=self.device)
+            c_prod = torch.ones((batch_size, 1), device=self.device)
+            discount = torch.ones((batch_size, 1), device=self.device)
 ```
 
 $$
 \rho_t = \exp(\log \rho_t)
 $$
 
-### Line 477
+### Line 489
 
 ```python
             c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
+
+            # Correct Retrace recursion:
+            # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
+            # LaTeX: Q^{ret} \leftarrow Q(s_0, a_0)
+            q_ret = q_t[:, 0, :].clone()
+            cont = torch.ones((batch_size, 1), device=self.device)
+            c_prod = torch.ones((batch_size, 1), device=self.device)
+            discount = torch.ones((batch_size, 1), device=self.device)
+
+            dones_flat = dones_seq.squeeze(-1)  # (B,T)
 ```
 
 $$
 c_t = \lambda \min(1, \rho_t)
 $$
 
-### Line 481
+### Line 494
 
 ```python
             q_ret = q_t[:, 0, :].clone()
+            cont = torch.ones((batch_size, 1), device=self.device)
+            c_prod = torch.ones((batch_size, 1), device=self.device)
+            discount = torch.ones((batch_size, 1), device=self.device)
+
+            dones_flat = dones_seq.squeeze(-1)  # (B,T)
+
+            for t in range(seq_len):
+                if t > 0:
+                    # LaTeX: m_t \leftarrow m_{t-1}(1-d_{t-1})
+                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])
+                    # LaTeX: C_t \leftarrow C_{t-1} c_t
 ```
 
 $$
 Q^{ret} \leftarrow Q(s_0, a_0)
 $$
 
-### Line 490
+### Line 504
 
 ```python
                     cont = cont * (1.0 - dones_flat[:, t - 1 : t])
+                    # LaTeX: C_t \leftarrow C_{t-1} c_t
+                    c_prod = c_prod * c[:, t : t + 1]
+                    # LaTeX: \Gamma_t \leftarrow \Gamma_{t-1}\gamma
+                    discount = discount * self.gamma
+
+                # LaTeX: Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
+
+        return q_ret
 ```
 
 $$
 m_t \leftarrow m_{t-1}(1-d_{t-1})
 $$
 
-### Line 491
+### Line 506
 
 ```python
                     c_prod = c_prod * c[:, t : t + 1]
+                    # LaTeX: \Gamma_t \leftarrow \Gamma_{t-1}\gamma
+                    discount = discount * self.gamma
+
+                # LaTeX: Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
+
+        return q_ret
+
+    def update(self, batch: dict) -> dict | None:
+        if self._num_steps % self.target_networks_update_period == 0:
 ```
 
 $$
 C_t \leftarrow C_{t-1} c_t
 $$
 
-### Line 492
+### Line 508
 
 ```python
                     discount = discount * self.gamma
+
+                # LaTeX: Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
+
+        return q_ret
+
+    def update(self, batch: dict) -> dict | None:
+        if self._num_steps % self.target_networks_update_period == 0:
+            self.policy_target.load_state_dict(self.policy.state_dict())
+            self.q_target.load_state_dict(self.q.state_dict())
 ```
 
 $$
 \Gamma_t \leftarrow \Gamma_{t-1}\gamma
 $$
 
-### Line 494
+### Line 512
 
 ```python
                 q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
+
+        return q_ret
+
+    def update(self, batch: dict) -> dict | None:
+        if self._num_steps % self.target_networks_update_period == 0:
+            self.policy_target.load_state_dict(self.policy.state_dict())
+            self.q_target.load_state_dict(self.q.state_dict())
+
+        obs_batch = batch.get("obs")
+        is_sequence_batch = isinstance(obs_batch, (np.ndarray, torch.Tensor)) and (
+            obs_batch.ndim == 3
 ```
 
 $$
 Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
 $$
 
-### Line 579
+### Line 598
 
 ```python
                 target = rewards + (1.0 - dones) * self.gamma * q_target
+
+        if not self._assert_finite_tensors(
+            {"obs": obs, "actions": actions, "target": target}
+        ):
+            return None
+
+        q = self.q(obs, actions)
+        # LaTeX: \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
+        q_loss = F.mse_loss(q, target)
+        if not self._assert_finite_tensors({"q": q, "q_loss": q_loss}):
+            return None
 ```
 
 $$
 y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
 $$
 
-### Line 587
+### Line 607
 
 ```python
         q_loss = F.mse_loss(q, target)
+        if not self._assert_finite_tensors({"q": q, "q_loss": q_loss}):
+            return None
+
+        # Phase A: critic update
+        self.q_opt.zero_grad()
+        q_loss.backward()
+        nn.utils.clip_grad_norm_(
+            self.q.parameters(),
+            self.max_grad_norm,
+        )
+        self.q_opt.step()
 ```
 
 $$
 \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
 $$
 
-### Line 629
+### Line 650
 
 ```python
         temperature = F.softplus(log_temp) + 1e-8
+        weights, loss_temperature = self._compute_weights_and_temperature_loss(
+            q_vals, self.kl_epsilon, temperature
+        )
+
+        # KL(nonparametric || target) diagnostic (relative).
+        kl_nonparametric = self._compute_nonparametric_kl_from_weights(weights)
+        # LaTeX: \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
+        kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)
+
+        # Compute Acme-style decomposed losses.
+        std_online = torch.exp(log_std_online)
 ```
 
 $$
 \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
 $$
 
-### Line 636
+### Line 658
 
 ```python
         kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)
+
+        # Compute Acme-style decomposed losses.
+        std_online = torch.exp(log_std_online)
+        std_target = torch.exp(log_std_target)
+
+        # Fixed distributions for decomposition.
+        actions = sampled_actions_raw.detach()  # (B,N,D), stop-gradient wrt sampling.
+        mean_online_exp = mean_online.unsqueeze(1)
+        std_online_exp = std_online.unsqueeze(1)
+        mean_target_exp = mean_target.unsqueeze(1)
+        std_target_exp = std_target.unsqueeze(1)
 ```
 
 $$
 \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
 $$
 
-### Line 659
+### Line 682
 
 ```python
         loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
+        # LaTeX: \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
+        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
+        # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
+        loss_policy = loss_policy_mean + loss_policy_std
+
+        kl_mean = self._kl_diag_gaussian_per_dim(
+            mean_target.detach(),
+            log_std_target.detach(),
+            mean_online,
+            log_std_target.detach(),
+        )  # (B,D)
 ```
 
 $$
 \mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma'}(a_{b,i}|s_b)
 $$
 
-### Line 660
+### Line 684
 
 ```python
         loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
+        # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
+        loss_policy = loss_policy_mean + loss_policy_std
+
+        kl_mean = self._kl_diag_gaussian_per_dim(
+            mean_target.detach(),
+            log_std_target.detach(),
+            mean_online,
+            log_std_target.detach(),
+        )  # (B,D)
+        kl_std = self._kl_diag_gaussian_per_dim(
+            mean_target.detach(),
 ```
 
 $$
 \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
 $$
 
-### Line 661
+### Line 686
 
 ```python
         loss_policy = loss_policy_mean + loss_policy_std
+
+        kl_mean = self._kl_diag_gaussian_per_dim(
+            mean_target.detach(),
+            log_std_target.detach(),
+            mean_online,
+            log_std_target.detach(),
+        )  # (B,D)
+        kl_std = self._kl_diag_gaussian_per_dim(
+            mean_target.detach(),
+            log_std_target.detach(),
+            mean_target.detach(),
 ```
 
 $$
 \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
 $$
 
-### Line 676
+### Line 703
 
 ```python
         mean_kl_mean = kl_mean.mean(dim=0)
+        # LaTeX: \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
+        mean_kl_std = kl_std.mean(dim=0)
+
+        log_alpha_mean = torch.maximum(self.log_alpha_mean, min_log)
+        log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)
+
+        # LaTeX: \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
+
+        alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+        # LaTeX: \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
 ```
 
 $$
 \bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
 $$
 
-### Line 677
+### Line 705
 
 ```python
         mean_kl_std = kl_std.mean(dim=0)
+
+        log_alpha_mean = torch.maximum(self.log_alpha_mean, min_log)
+        log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)
+
+        # LaTeX: \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
+
+        alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+        # LaTeX: \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
+
+        # LaTeX: \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
 ```
 
 $$
 \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
 $$
 
-### Line 682
+### Line 712
 
 ```python
         alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+        # LaTeX: \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
+
+        # LaTeX: \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
+
+        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+        # LaTeX: \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
 ```
 
 $$
 \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 $$
 
-### Line 683
+### Line 714
 
 ```python
         alpha_std = F.softplus(log_alpha_stddev) + 1e-8
+
+        # LaTeX: \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
+
+        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+        # LaTeX: \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+        loss_alpha_mean = (
+            alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
 ```
 
 $$
 \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 $$
 
-### Line 685
+### Line 718
 
 ```python
         loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+        # LaTeX: \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+        loss_alpha_mean = (
+            alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+        ).sum()
+        loss_alpha_std = (
+            alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
 ```
 
 $$
 \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
 $$
 
-### Line 686
+### Line 720
 
 ```python
         loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+        loss_alpha_mean = (
+            alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+        ).sum()
+        loss_alpha_std = (
+            alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+        ).sum()
 ```
 
 $$
 \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
 $$
 
-### Line 687
+### Line 722
 
 ```python
         loss_kl_penalty = loss_kl_mean + loss_kl_std
+
+        loss_alpha_mean = (
+            alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+        ).sum()
+        loss_alpha_std = (
+            alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+        ).sum()
+
+        # Update dual variables (temperature + alphas).
 ```
 
 $$
 \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
 $$
 
-### Line 691
+### Line 727
 
 ```python
         ).sum()
+        loss_alpha_std = (
+            alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
+        # LaTeX: \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+        ).sum()
+
+        # Update dual variables (temperature + alphas).
+        # LaTeX: \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
+        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
+        self.dual_opt.zero_grad()
+        dual_loss.backward()
+        nn.utils.clip_grad_norm_(
 ```
 
 $$
 \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
 $$
 
-### Line 694
+### Line 731
 
 ```python
         ).sum()
+
+        # Update dual variables (temperature + alphas).
+        # LaTeX: \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
+        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
+        self.dual_opt.zero_grad()
+        dual_loss.backward()
+        nn.utils.clip_grad_norm_(
+            [
+                p
+                for p in [
+                    self.log_temperature,
 ```
 
 $$
 \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
 $$
 
-### Line 697
+### Line 735
 
 ```python
         dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
+        self.dual_opt.zero_grad()
+        dual_loss.backward()
+        nn.utils.clip_grad_norm_(
+            [
+                p
+                for p in [
+                    self.log_temperature,
+                    self.log_alpha_mean,
+                    self.log_alpha_stddev,
+                ]
+                if p is not None
 ```
 
 $$
 \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
 $$
 
-### Line 724
+### Line 763
 
 ```python
         alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()
+        # LaTeX: \alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()
+
+        # Parameter delta diagnostic: snapshot BEFORE M-step
+        with torch.no_grad():
+            params_before = (
+                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()
+            )
+
+        # Inner M-step (recompute online outputs each iteration)
+        for _ in range(int(self.m_steps)):
 ```
 
 $$
 \alpha_{\mu,j}' = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 $$
 
-### Line 725
+### Line 765
 
 ```python
         alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()
+
+        # Parameter delta diagnostic: snapshot BEFORE M-step
+        with torch.no_grad():
+            params_before = (
+                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()
+            )
+
+        # Inner M-step (recompute online outputs each iteration)
+        for _ in range(int(self.m_steps)):
+            mean_online, log_std_online = self.policy(obs)  # (B,D), (B,D)
+            std_online = torch.exp(log_std_online)
 ```
 
 $$
 \alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 $$
 
-### Line 774
+### Line 816
 
 ```python
             policy_total_loss = loss_policy + loss_kl_penalty
+
+            self.policy_opt.zero_grad()
+            policy_total_loss.backward()
+            nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            self.policy_opt.step()
+
+        # snapshot after M-step
+        with torch.no_grad():
+            params_after = (
+                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()
+            )
 ```
 
 $$
 \mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
 $$
 
-### Line 796
+### Line 840
 
 ```python
         entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
+
+        return {
+            "train/param_delta": float(param_delta.item()),
+            "loss/q": float(q_loss.item()),
+            "loss/policy": float(loss_policy.item()),
+            "loss/dual_eta": float(loss_temperature.detach().item()),
+            "loss/dual": float(dual_loss.detach().item()),
+            "kl/q_pi": float(kl_q_rel.detach().item()),
+            "kl/mean": float(mean_kl_mean.mean().detach().item()),
+            "kl/std": float(mean_kl_std.mean().detach().item()),
+            "eta": temperature_val,
 ```
 
 $$
@@ -659,7 +1061,8 @@ class MPOAgent:
         self.q_target.eval()
 
         # Train policy encoder + head together; critics share a separate encoder.
-        policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))  # LaTeX: \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
+        # LaTeX: \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
+        policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))
         self.policy_opt = self._build_optimizer(
             self.policy.parameters(), lr=policy_lr_effective
         )
@@ -734,11 +1137,15 @@ class MPOAgent:
 
         q_values shape (B,N). Returns weights (B,N) detached and loss scalar.
         """
-        q_detached = q_values.detach() / temperature  # LaTeX: \bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
-        weights = torch.softmax(q_detached, dim=1).detach()  # LaTeX: q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
-        q_logsumexp = torch.logsumexp(q_detached, dim=1)  # LaTeX: \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
+        # LaTeX: \bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
+        q_detached = q_values.detach() / temperature
+        # LaTeX: q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
+        weights = torch.softmax(q_detached, dim=1).detach()
+        # LaTeX: \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
+        q_logsumexp = torch.logsumexp(q_detached, dim=1)
         log_num_actions = math.log(q_values.shape[1])
-        loss_temperature = temperature * (  # LaTeX: \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+        # LaTeX: \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+        loss_temperature = temperature * (
             float(epsilon) + q_logsumexp.mean() - log_num_actions
         )
         return weights, loss_temperature
@@ -751,8 +1158,10 @@ class MPOAgent:
         weights shape (B,N). Returns (B,) KL.
         """
         n = float(weights.shape[1])
-        integrand = torch.log(n * weights + 1e-8)  # LaTeX: \ell_{b,i} = \log\!\left(N q_{b,i}\right)
-        return (weights * integrand).sum(dim=1)  # LaTeX: D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
+        # LaTeX: \ell_{b,i} = \log\!\left(N q_{b,i}\right)
+        integrand = torch.log(n * weights + 1e-8)
+        # LaTeX: D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
+        return (weights * integrand).sum(dim=1)
 
     def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Fast path for float32 host arrays -> device tensors."""
@@ -845,7 +1254,9 @@ class MPOAgent:
                 batch_size, seq_len, 1
             )
 
-            delta = rewards_seq + (1.0 - dones_seq) * self.gamma * v_next - q_t  # LaTeX: \delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
+            # LaTeX: \delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
+
+            delta = rewards_seq + (1.0 - dones_seq) * self.gamma * v_next - q_t
 
             mean, log_std = self.policy_target(obs_flat)
             actions_raw_flat = actions_raw_seq.reshape(batch_size * seq_len, act_dim)
@@ -853,13 +1264,17 @@ class MPOAgent:
                 mean, log_std, actions_raw_flat
             ).reshape(batch_size, seq_len, 1)
             log_b = behaviour_logp_seq
-            log_ratio = log_pi - log_b  # LaTeX: \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
-            rho = torch.exp(log_ratio).squeeze(-1)  # LaTeX: \rho_t = \exp(\log \rho_t)
-            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()  # LaTeX: c_t = \lambda \min(1, \rho_t)
+            # LaTeX: \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
+            log_ratio = log_pi - log_b
+            # LaTeX: \rho_t = \exp(\log \rho_t)
+            rho = torch.exp(log_ratio).squeeze(-1)
+            # LaTeX: c_t = \lambda \min(1, \rho_t)
+            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
 
             # Correct Retrace recursion:
             # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
-            q_ret = q_t[:, 0, :].clone()  # LaTeX: Q^{ret} \leftarrow Q(s_0, a_0)
+            # LaTeX: Q^{ret} \leftarrow Q(s_0, a_0)
+            q_ret = q_t[:, 0, :].clone()
             cont = torch.ones((batch_size, 1), device=self.device)
             c_prod = torch.ones((batch_size, 1), device=self.device)
             discount = torch.ones((batch_size, 1), device=self.device)
@@ -868,11 +1283,16 @@ class MPOAgent:
 
             for t in range(seq_len):
                 if t > 0:
-                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])  # LaTeX: m_t \leftarrow m_{t-1}(1-d_{t-1})
-                    c_prod = c_prod * c[:, t : t + 1]  # LaTeX: C_t \leftarrow C_{t-1} c_t
-                    discount = discount * self.gamma  # LaTeX: \Gamma_t \leftarrow \Gamma_{t-1}\gamma
+                    # LaTeX: m_t \leftarrow m_{t-1}(1-d_{t-1})
+                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])
+                    # LaTeX: C_t \leftarrow C_{t-1} c_t
+                    c_prod = c_prod * c[:, t : t + 1]
+                    # LaTeX: \Gamma_t \leftarrow \Gamma_{t-1}\gamma
+                    discount = discount * self.gamma
 
-                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]  # LaTeX: Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+                # LaTeX: Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
 
         return q_ret
 
@@ -957,7 +1377,8 @@ class MPOAgent:
                 q_target = q_target.reshape(batch_size, self.action_samples).mean(
                     dim=1, keepdim=True
                 )
-                target = rewards + (1.0 - dones) * self.gamma * q_target  # LaTeX: y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
+                # LaTeX: y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
+                target = rewards + (1.0 - dones) * self.gamma * q_target
 
         if not self._assert_finite_tensors(
             {"obs": obs, "actions": actions, "target": target}
@@ -965,7 +1386,8 @@ class MPOAgent:
             return None
 
         q = self.q(obs, actions)
-        q_loss = F.mse_loss(q, target)  # LaTeX: \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
+        # LaTeX: \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
+        q_loss = F.mse_loss(q, target)
         if not self._assert_finite_tensors({"q": q, "q_loss": q_loss}):
             return None
 
@@ -1007,14 +1429,16 @@ class MPOAgent:
 
         min_log = torch.tensor(-18.0, device=self.device)
         log_temp = torch.maximum(self.log_temperature, min_log)
-        temperature = F.softplus(log_temp) + 1e-8  # LaTeX: \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
+        # LaTeX: \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
+        temperature = F.softplus(log_temp) + 1e-8
         weights, loss_temperature = self._compute_weights_and_temperature_loss(
             q_vals, self.kl_epsilon, temperature
         )
 
         # KL(nonparametric || target) diagnostic (relative).
         kl_nonparametric = self._compute_nonparametric_kl_from_weights(weights)
-        kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)  # LaTeX: \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
+        # LaTeX: \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
+        kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)
 
         # Compute Acme-style decomposed losses.
         std_online = torch.exp(log_std_online)
@@ -1037,9 +1461,12 @@ class MPOAgent:
         )
 
         # Cross entropy / weighted log-prob.
-        loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()  # LaTeX: \mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma'}(a_{b,i}|s_b)
-        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()  # LaTeX: \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
-        loss_policy = loss_policy_mean + loss_policy_std  # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
+        # LaTeX: \mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma'}(a_{b,i}|s_b)
+        loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
+        # LaTeX: \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
+        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
+        # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
+        loss_policy = loss_policy_mean + loss_policy_std
 
         kl_mean = self._kl_diag_gaussian_per_dim(
             mean_target.detach(),
@@ -1054,28 +1481,41 @@ class MPOAgent:
             log_std_online,
         )  # (B,D)
 
-        mean_kl_mean = kl_mean.mean(dim=0)  # LaTeX: \bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
-        mean_kl_std = kl_std.mean(dim=0)  # LaTeX: \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
+        # LaTeX: \bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
+
+        mean_kl_mean = kl_mean.mean(dim=0)
+        # LaTeX: \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
+        mean_kl_std = kl_std.mean(dim=0)
 
         log_alpha_mean = torch.maximum(self.log_alpha_mean, min_log)
         log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)
 
-        alpha_mean = F.softplus(log_alpha_mean) + 1e-8  # LaTeX: \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
-        alpha_std = F.softplus(log_alpha_stddev) + 1e-8  # LaTeX: \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        # LaTeX: \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 
-        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()  # LaTeX: \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
-        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()  # LaTeX: \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
-        loss_kl_penalty = loss_kl_mean + loss_kl_std  # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+        # LaTeX: \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
+
+        # LaTeX: \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
+
+        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+        # LaTeX: \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+        # LaTeX: \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
 
         loss_alpha_mean = (
             alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
-        ).sum()  # LaTeX: \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+        # LaTeX: \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+        ).sum()
         loss_alpha_std = (
             alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
-        ).sum()  # LaTeX: \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+        # LaTeX: \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+        ).sum()
 
         # Update dual variables (temperature + alphas).
-        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std  # LaTeX: \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
+        # LaTeX: \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
+        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
         self.dual_opt.zero_grad()
         dual_loss.backward()
         nn.utils.clip_grad_norm_(
@@ -1102,8 +1542,10 @@ class MPOAgent:
             actions_det = actions.detach()  # (B,N,D)
 
         # Recompute dual multipliers AFTER dual_opt.step()
-        alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()  # LaTeX: \alpha_{\mu,j}' = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
-        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()  # LaTeX: \alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        # LaTeX: \alpha_{\mu,j}' = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
+        alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()
+        # LaTeX: \alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()
 
         # Parameter delta diagnostic: snapshot BEFORE M-step
         with torch.no_grad():
@@ -1152,7 +1594,9 @@ class MPOAgent:
             loss_kl_std = (alpha_std_det * mean_kl_std).sum()
             loss_kl_penalty = loss_kl_mean + loss_kl_std
 
-            policy_total_loss = loss_policy + loss_kl_penalty  # LaTeX: \mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
+            # LaTeX: \mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
+
+            policy_total_loss = loss_policy + loss_kl_penalty
 
             self.policy_opt.zero_grad()
             policy_total_loss.backward()
@@ -1174,7 +1618,9 @@ class MPOAgent:
             (F.softplus(self.log_temperature) + 1e-8).detach().item()
         )
 
-        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()  # LaTeX: \mathcal{H}(q) = -\mathbb{E}_b\sum_i q_{b,i}\log q_{b,i}
+        # LaTeX: \mathcal{H}(q) = -\mathbb{E}_b\sum_i q_{b,i}\log q_{b,i}
+
+        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
 
         return {
             "train/param_delta": float(param_delta.item()),

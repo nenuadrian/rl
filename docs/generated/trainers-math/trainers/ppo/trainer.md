@@ -2,334 +2,692 @@
 
 _Source: `minerva/trainers/ppo/trainer.py`_
 
-Each `# LaTeX:` annotation is rendered below next to its source line.
+Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.
 
 ## Rendered Math Annotations
 
-### Line 263
+### Line 264
 
 ```python
         action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return (
+            action,
+            # LaTeX: \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
+            probs.log_prob(action).sum(1),
+            # LaTeX: \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
+            probs.entropy().sum(1),
+            self.critic(x),
+        )
 ```
 
 $$
 \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
 $$
 
-### Line 269
+### Line 271
 
 ```python
             probs.log_prob(action).sum(1),
+            # LaTeX: \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
+            probs.entropy().sum(1),
+            self.critic(x),
+        )
+
+
+class PPOTrainer:
+    def __init__(
+        self,
+        env_id: str,
+        seed: int,
 ```
 
 $$
 \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
 $$
 
-### Line 270
+### Line 273
 
 ```python
             probs.entropy().sum(1),
+            self.critic(x),
+        )
+
+
+class PPOTrainer:
+    def __init__(
+        self,
+        env_id: str,
+        seed: int,
+        device: torch.device,
+        policy_layer_sizes: Tuple[int, ...],
 ```
 
 $$
 \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
 $$
 
-### Line 409
+### Line 413
 
 ```python
         eval_interval = max(1, total_steps // 150)
+
+        # LaTeX: U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
+
+        num_updates = total_steps // self.batch_size
+        if num_updates <= 0:
+            print(
+                "[PPO] no updates scheduled because requested_total_steps < batch_size "
+                f"({total_steps} < {self.batch_size})."
+            )
+            self.envs.close()
+            self.eval_env.close()
 ```
 
 $$
 \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
 $$
 
-### Line 411
+### Line 417
 
 ```python
         num_updates = total_steps // self.batch_size
+        if num_updates <= 0:
+            print(
+                "[PPO] no updates scheduled because requested_total_steps < batch_size "
+                f"({total_steps} < {self.batch_size})."
+            )
+            self.envs.close()
+            self.eval_env.close()
+            return
+
+        obs = torch.zeros(
+            (self.num_steps, self.num_envs) + self.envs.single_observation_space.shape,
 ```
 
 $$
 U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
 $$
 
-### Line 447
+### Line 454
 
 ```python
                 frac = 1.0 - (update - 1.0) / num_updates
+                # LaTeX: \lambda_u = f_u \lambda_0
+                lrnow = frac * self.learning_rate
+                self.optimizer.param_groups[0]["lr"] = lrnow
+
+            for step in range(0, self.num_steps):
+                # LaTeX: t \leftarrow t + N
+                global_step += self.num_envs
+                obs[step] = next_obs
+                dones[step] = next_done
+
+                with torch.no_grad():
 ```
 
 $$
 f_u = 1 - \frac{u-1}{U}
 $$
 
-### Line 448
+### Line 456
 
 ```python
                 lrnow = frac * self.learning_rate
+                self.optimizer.param_groups[0]["lr"] = lrnow
+
+            for step in range(0, self.num_steps):
+                # LaTeX: t \leftarrow t + N
+                global_step += self.num_envs
+                obs[step] = next_obs
+                dones[step] = next_done
+
+                with torch.no_grad():
+                    action, logprob, _, value = self.agent.get_action_and_value(
+                        next_obs
 ```
 
 $$
 \lambda_u = f_u \lambda_0
 $$
 
-### Line 452
+### Line 461
 
 ```python
                 global_step += self.num_envs
+                obs[step] = next_obs
+                dones[step] = next_done
+
+                with torch.no_grad():
+                    action, logprob, _, value = self.agent.get_action_and_value(
+                        next_obs
+                    )
+                    values[step] = value.flatten()
+                actions[step] = action
+                logprobs[step] = logprob
 ```
 
 $$
 t \leftarrow t + N
 $$
 
-### Line 467
+### Line 477
 
 ```python
                 done = np.logical_or(terminated, truncated)
+
+                rewards[step] = torch.as_tensor(
+                    reward, dtype=torch.float32, device=self.device
+                ).view(-1)
+                next_obs = torch.as_tensor(
+                    next_obs_np, dtype=torch.float32, device=self.device
+                )
+                next_done = torch.as_tensor(
+                    done, dtype=torch.float32, device=self.device
+                )
 ```
 
 $$
 d_t = d_t^{term} \lor d_t^{trunc}
 $$
 
-### Line 534
+### Line 545
 
 ```python
                             nextnonterminal = 1.0 - next_done
+                            nextvalues = next_value
+                        else:
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - dones[t + 1]
+                            nextvalues = values[t + 1]
+                        # LaTeX: \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
+                        delta = (
+                            rewards[t]
+                            + self.gamma * nextvalues * nextnonterminal
+                            - values[t]
+                        )
 ```
 
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
 
-### Line 537
+### Line 549
 
 ```python
                             nextnonterminal = 1.0 - dones[t + 1]
+                            nextvalues = values[t + 1]
+                        # LaTeX: \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
+                        delta = (
+                            rewards[t]
+                            + self.gamma * nextvalues * nextnonterminal
+                            - values[t]
+                        )
+                        # LaTeX: A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
+                        advantages[t] = lastgaelam = (
+                            delta
+                            + self.gamma
 ```
 
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
 
-### Line 539
+### Line 552
 
 ```python
                         delta = (
+                            rewards[t]
+                            + self.gamma * nextvalues * nextnonterminal
+                            - values[t]
+                        )
+                        # LaTeX: A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
+                        advantages[t] = lastgaelam = (
+                            delta
+                            + self.gamma
+                            * self.gae_lambda
+                            * nextnonterminal
+                            * lastgaelam
 ```
 
 $$
 \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
 $$
 
-### Line 544
+### Line 558
 
 ```python
                         advantages[t] = lastgaelam = (
+                            delta
+                            + self.gamma
+                            * self.gae_lambda
+                            * nextnonterminal
+                            * lastgaelam
+                        )
+                    # LaTeX: R_t = A_t + V(s_t)
+                    returns = advantages + values
+                else:
+                    returns = torch.zeros_like(rewards, device=self.device)
+                    for t in reversed(range(self.num_steps)):
 ```
 
 $$
 A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
 $$
 
-### Line 551
+### Line 566
 
 ```python
                     returns = advantages + values
+                else:
+                    returns = torch.zeros_like(rewards, device=self.device)
+                    for t in reversed(range(self.num_steps)):
+                        if t == self.num_steps - 1:
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - next_done
+                            next_return = next_value
+                        else:
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - dones[t + 1]
+                            next_return = returns[t + 1]
 ```
 
 $$
 R_t = A_t + V(s_t)
 $$
 
-### Line 556
+### Line 572
 
 ```python
                             nextnonterminal = 1.0 - next_done
+                            next_return = next_value
+                        else:
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - dones[t + 1]
+                            next_return = returns[t + 1]
+                        # LaTeX: R_t = r_t + \gamma m_{t+1} R_{t+1}
+                        returns[t] = (
+                            rewards[t] + self.gamma * nextnonterminal * next_return
+                        )
+                    # LaTeX: A_t = R_t - V(s_t)
+                    advantages = returns - values
 ```
 
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
 
-### Line 559
+### Line 576
 
 ```python
                             nextnonterminal = 1.0 - dones[t + 1]
+                            next_return = returns[t + 1]
+                        # LaTeX: R_t = r_t + \gamma m_{t+1} R_{t+1}
+                        returns[t] = (
+                            rewards[t] + self.gamma * nextnonterminal * next_return
+                        )
+                    # LaTeX: A_t = R_t - V(s_t)
+                    advantages = returns - values
+
+            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
+            b_logprobs = logprobs.reshape(-1)
+            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)
 ```
 
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
 
-### Line 561
+### Line 579
 
 ```python
                         returns[t] = (
+                            rewards[t] + self.gamma * nextnonterminal * next_return
+                        )
+                    # LaTeX: A_t = R_t - V(s_t)
+                    advantages = returns - values
+
+            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
+            b_logprobs = logprobs.reshape(-1)
+            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)
+            b_advantages = advantages.reshape(-1)
+            b_returns = returns.reshape(-1)
+            b_values = values.reshape(-1)
 ```
 
 $$
 R_t = r_t + \gamma m_{t+1} R_{t+1}
 $$
 
-### Line 564
+### Line 583
 
 ```python
                     advantages = returns - values
+
+            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
+            b_logprobs = logprobs.reshape(-1)
+            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)
+            b_advantages = advantages.reshape(-1)
+            b_returns = returns.reshape(-1)
+            b_values = values.reshape(-1)
+
+            b_inds = np.arange(self.batch_size)
+            clipfracs = []
 ```
 
 $$
 A_t = R_t - V(s_t)
 $$
 
-### Line 592
+### Line 612
 
 ```python
                     logratio = newlogprob - b_logprobs[mb_inds]
+                    # LaTeX: r_t = \exp(\log r_t)
+                    ratio = logratio.exp()
+
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
+                        old_approx_kl = (-logratio).mean()
+                        # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
 ```
 
 $$
 \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
 $$
 
-### Line 593
+### Line 614
 
 ```python
                     ratio = logratio.exp()
+
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
+                        old_approx_kl = (-logratio).mean()
+                        # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
+                        ]
 ```
 
 $$
 r_t = \exp(\log r_t)
 $$
 
-### Line 597
+### Line 619
 
 ```python
                         old_approx_kl = (-logratio).mean()
+                        # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
+                        ]
+
+                    mb_advantages = b_advantages[mb_inds]
+                    if self.norm_adv:
+                        # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                            mb_advantages.std() + 1e-8
 ```
 
 $$
 \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
 $$
 
-### Line 598
+### Line 621
 
 ```python
                         approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
+                        ]
+
+                    mb_advantages = b_advantages[mb_inds]
+                    if self.norm_adv:
+                        # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                            mb_advantages.std() + 1e-8
+                        )
 ```
 
 $$
 \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
 $$
 
-### Line 605
+### Line 629
 
 ```python
                         mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                            mb_advantages.std() + 1e-8
+                        )
+
+                    # LaTeX: \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
+
+                    pg_loss1 = -mb_advantages * ratio
+                    # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+                    pg_loss2 = -mb_advantages * torch.clamp(
+                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
+                    )
+                    # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
 ```
 
 $$
 \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
 $$
 
-### Line 609
+### Line 635
 
 ```python
                     pg_loss1 = -mb_advantages * ratio
+                    # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+                    pg_loss2 = -mb_advantages * torch.clamp(
+                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
+                    )
+                    # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    newvalue = newvalue.view(-1)
+                    if self.clip_vloss:
+                        # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
 ```
 
 $$
 \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
 $$
 
-### Line 610
+### Line 637
 
 ```python
                     pg_loss2 = -mb_advantages * torch.clamp(
+                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
+                    )
+                    # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    newvalue = newvalue.view(-1)
+                    if self.clip_vloss:
+                        # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                        v_clipped = b_values[mb_inds] + torch.clamp(
 ```
 
 $$
 \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
 $$
 
-### Line 613
+### Line 641
 
 ```python
                     pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    newvalue = newvalue.view(-1)
+                    if self.clip_vloss:
+                        # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -self.clip_coef,
+                            self.clip_coef,
+                        )
 ```
 
 $$
 \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
 $$
 
-### Line 617
+### Line 646
 
 ```python
                         v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -self.clip_coef,
+                            self.clip_coef,
+                        )
+                        # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                        v_loss = 0.5 * v_loss_max.mean()
 ```
 
 $$
 \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
 $$
 
-### Line 618
+### Line 648
 
 ```python
                         v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -self.clip_coef,
+                            self.clip_coef,
+                        )
+                        # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
 ```
 
 $$
 V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
 $$
 
-### Line 623
+### Line 654
 
 ```python
                         v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    entropy_loss = entropy.mean()
+                    # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                    loss = (
+                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
 ```
 
 $$
 \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
 $$
 
-### Line 625
+### Line 657
 
 ```python
                         v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    entropy_loss = entropy.mean()
+                    # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                    loss = (
+                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
+                    )
+
+                    self.optimizer.zero_grad()
 ```
 
 $$
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
 $$
 
-### Line 627
+### Line 660
 
 ```python
                         v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    entropy_loss = entropy.mean()
+                    # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                    loss = (
+                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
+                    )
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(
+                        self.agent.parameters(), self.max_grad_norm
 ```
 
 $$
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
 $$
 
-### Line 630
+### Line 664
 
 ```python
                     loss = (
+                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
+                    )
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(
+                        self.agent.parameters(), self.max_grad_norm
+                    )
+                    self.optimizer.step()
+
+                if self.target_kl is not None:
 ```
 
 $$
 \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
 $$
 
-### Line 647
+### Line 682
 
 ```python
             explained_var = (
+                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            )
+
+            sps = int(global_step / max(time.time() - start_time, 1e-8))
+            log_wandb(
+                {
+                    "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
+                    "losses/value_loss": v_loss.item(),
+                    "losses/policy_loss": pg_loss.item(),
+                    "losses/entropy": entropy_loss.item(),
+                    "losses/old_approx_kl": old_approx_kl.item(),
 ```
 
 $$
@@ -601,14 +959,17 @@ class Agent(nn.Module):
     def get_action_and_value(self, x, action=None):
         action_mean = self.actor_mean(x)
         action_logstd = self.actor_logstd.expand_as(action_mean)
-        action_std = torch.exp(action_logstd)  # LaTeX: \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
+        # LaTeX: \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
+        action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
         return (
             action,
-            probs.log_prob(action).sum(1),  # LaTeX: \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
-            probs.entropy().sum(1),  # LaTeX: \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
+            # LaTeX: \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
+            probs.log_prob(action).sum(1),
+            # LaTeX: \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
+            probs.entropy().sum(1),
             self.critic(x),
         )
 
@@ -747,9 +1108,12 @@ class PPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 150)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
+        # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
+        eval_interval = max(1, total_steps // 150)
 
-        num_updates = total_steps // self.batch_size  # LaTeX: U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
+        # LaTeX: U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
+
+        num_updates = total_steps // self.batch_size
         if num_updates <= 0:
             print(
                 "[PPO] no updates scheduled because requested_total_steps < batch_size "
@@ -785,12 +1149,15 @@ class PPOTrainer:
 
         for update in range(1, num_updates + 1):
             if self.anneal_lr:
-                frac = 1.0 - (update - 1.0) / num_updates  # LaTeX: f_u = 1 - \frac{u-1}{U}
-                lrnow = frac * self.learning_rate  # LaTeX: \lambda_u = f_u \lambda_0
+                # LaTeX: f_u = 1 - \frac{u-1}{U}
+                frac = 1.0 - (update - 1.0) / num_updates
+                # LaTeX: \lambda_u = f_u \lambda_0
+                lrnow = frac * self.learning_rate
                 self.optimizer.param_groups[0]["lr"] = lrnow
 
             for step in range(0, self.num_steps):
-                global_step += self.num_envs  # LaTeX: t \leftarrow t + N
+                # LaTeX: t \leftarrow t + N
+                global_step += self.num_envs
                 obs[step] = next_obs
                 dones[step] = next_done
 
@@ -805,7 +1172,8 @@ class PPOTrainer:
                 next_obs_np, reward, terminated, truncated, infos = self.envs.step(
                     action.cpu().numpy()
                 )
-                done = np.logical_or(terminated, truncated)  # LaTeX: d_t = d_t^{term} \lor d_t^{trunc}
+                # LaTeX: d_t = d_t^{term} \lor d_t^{trunc}
+                done = np.logical_or(terminated, truncated)
 
                 rewards[step] = torch.as_tensor(
                     reward, dtype=torch.float32, device=self.device
@@ -872,37 +1240,46 @@ class PPOTrainer:
                     lastgaelam = 0
                     for t in reversed(range(self.num_steps)):
                         if t == self.num_steps - 1:
-                            nextnonterminal = 1.0 - next_done  # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - next_done
                             nextvalues = next_value
                         else:
-                            nextnonterminal = 1.0 - dones[t + 1]  # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - dones[t + 1]
                             nextvalues = values[t + 1]
-                        delta = (  # LaTeX: \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
+                        # LaTeX: \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
+                        delta = (
                             rewards[t]
                             + self.gamma * nextvalues * nextnonterminal
                             - values[t]
                         )
-                        advantages[t] = lastgaelam = (  # LaTeX: A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
+                        # LaTeX: A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
+                        advantages[t] = lastgaelam = (
                             delta
                             + self.gamma
                             * self.gae_lambda
                             * nextnonterminal
                             * lastgaelam
                         )
-                    returns = advantages + values  # LaTeX: R_t = A_t + V(s_t)
+                    # LaTeX: R_t = A_t + V(s_t)
+                    returns = advantages + values
                 else:
                     returns = torch.zeros_like(rewards, device=self.device)
                     for t in reversed(range(self.num_steps)):
                         if t == self.num_steps - 1:
-                            nextnonterminal = 1.0 - next_done  # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - next_done
                             next_return = next_value
                         else:
-                            nextnonterminal = 1.0 - dones[t + 1]  # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            # LaTeX: m_{t+1} = 1 - d_{t+1}
+                            nextnonterminal = 1.0 - dones[t + 1]
                             next_return = returns[t + 1]
-                        returns[t] = (  # LaTeX: R_t = r_t + \gamma m_{t+1} R_{t+1}
+                        # LaTeX: R_t = r_t + \gamma m_{t+1} R_{t+1}
+                        returns[t] = (
                             rewards[t] + self.gamma * nextnonterminal * next_return
                         )
-                    advantages = returns - values  # LaTeX: A_t = R_t - V(s_t)
+                    # LaTeX: A_t = R_t - V(s_t)
+                    advantages = returns - values
 
             b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
             b_logprobs = logprobs.reshape(-1)
@@ -930,45 +1307,60 @@ class PPOTrainer:
                     _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
                         b_obs[mb_inds], b_actions[mb_inds]
                     )
-                    logratio = newlogprob - b_logprobs[mb_inds]  # LaTeX: \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
-                    ratio = logratio.exp()  # LaTeX: r_t = \exp(\log r_t)
+                    # LaTeX: \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
+                    logratio = newlogprob - b_logprobs[mb_inds]
+                    # LaTeX: r_t = \exp(\log r_t)
+                    ratio = logratio.exp()
 
                     with torch.no_grad():
                         # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                        old_approx_kl = (-logratio).mean()  # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
-                        approx_kl = ((ratio - 1) - logratio).mean()  # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                        # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
+                        old_approx_kl = (-logratio).mean()
+                        # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                        approx_kl = ((ratio - 1) - logratio).mean()
                         clipfracs += [
                             ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
                         ]
 
                     mb_advantages = b_advantages[mb_inds]
                     if self.norm_adv:
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (  # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+                        # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
                             mb_advantages.std() + 1e-8
                         )
 
-                    pg_loss1 = -mb_advantages * ratio  # LaTeX: \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
-                    pg_loss2 = -mb_advantages * torch.clamp(  # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+                    # LaTeX: \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
+
+                    pg_loss1 = -mb_advantages * ratio
+                    # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+                    pg_loss2 = -mb_advantages * torch.clamp(
                         ratio, 1 - self.clip_coef, 1 + self.clip_coef
                     )
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()  # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+                    # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                     newvalue = newvalue.view(-1)
                     if self.clip_vloss:
-                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2  # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
-                        v_clipped = b_values[mb_inds] + torch.clamp(  # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                        # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                        v_clipped = b_values[mb_inds] + torch.clamp(
                             newvalue - b_values[mb_inds],
                             -self.clip_coef,
                             self.clip_coef,
                         )
-                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2  # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+                        # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
                         v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                        v_loss = 0.5 * v_loss_max.mean()  # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                        v_loss = 0.5 * v_loss_max.mean()
                     else:
-                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()  # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                     entropy_loss = entropy.mean()
-                    loss = (  # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                    # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                    loss = (
                         pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
                     )
 
@@ -985,7 +1377,8 @@ class PPOTrainer:
 
             y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
             var_y = np.var(y_true)
-            explained_var = (  # LaTeX: \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
+            # LaTeX: \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
+            explained_var = (
                 np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
             )
 

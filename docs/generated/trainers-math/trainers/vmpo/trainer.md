@@ -2,7 +2,7 @@
 
 _Source: `minerva/trainers/vmpo/trainer.py`_
 
-Each `# LaTeX:` annotation is rendered below next to its source line.
+Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.
 
 No `# LaTeX:` annotations were found in this file.
 

@@ -1,6 +1,6 @@
 # Trainers Math-Annotated Source
 
-Trainer pages and annotated trainer modules that render inline `# LaTeX:` comments as formulas.
+Trainer pages and annotated trainer modules that render `# LaTeX:` comments as formulas with local source context.
 
 - [`trainers.mpo.trainer`](trainers/mpo/trainer.md)
 - [`trainers.ppo.trainer`](trainers/ppo/trainer.md)

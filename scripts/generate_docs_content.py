@@ -29,6 +29,7 @@ LATEX_INLINE_PATTERN = re.compile(
     r"^(?P<code>.*?)(?:\s+#\s*LaTeX:\s*(?P<formula>.+))\s*$"
 )
 LATEX_STANDALONE_PATTERN = re.compile(r"^\s*#\s*LaTeX:\s*(?P<formula>.+?)\s*$")
+MATH_CONTEXT_DOWN_LINES = 10
 
 
 def write_text(path: Path, content: str) -> None:
@@ -240,8 +241,8 @@ def docs_for_module(file_path: Path, module_name: str) -> str:
     return "\n".join(lines)
 
 
-def extract_latex_annotations(source: str) -> list[tuple[int, str, str]]:
-    annotations: list[tuple[int, str, str]] = []
+def extract_latex_annotations(source: str) -> list[tuple[int, str]]:
+    annotations: list[tuple[int, str]] = []
     pending_formula: str | None = None
 
     for line_no, raw_line in enumerate(source.splitlines(), start=1):
@@ -252,16 +253,16 @@ def extract_latex_annotations(source: str) -> list[tuple[int, str, str]]:
 
         inline_match = LATEX_INLINE_PATTERN.match(raw_line)
         if inline_match is not None and inline_match.group("formula") is not None:
-            code = inline_match.group("code").rstrip()
             formula = inline_match.group("formula").strip()
+            code = inline_match.group("code").rstrip()
             if code:
-                annotations.append((line_no, code, formula))
+                annotations.append((line_no, formula))
             pending_formula = None
             continue
 
         stripped = raw_line.strip()
         if pending_formula and stripped and not stripped.startswith("#"):
-            annotations.append((line_no, raw_line.rstrip(), pending_formula))
+            annotations.append((line_no, pending_formula))
             pending_formula = None
         elif stripped:
             pending_formula = None
@@ -271,6 +272,7 @@ def extract_latex_annotations(source: str) -> list[tuple[int, str, str]]:
 
 def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
     source = file_path.read_text(encoding="utf-8")
+    source_lines = source.splitlines()
     annotations = extract_latex_annotations(source)
     rel_path = file_path.relative_to(ROOT).as_posix()
 
@@ -279,7 +281,7 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
         "",
         f"_Source: `{rel_path}`_",
         "",
-        "Each `# LaTeX:` annotation is rendered below next to its source line.",
+        "Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.",
         "",
     ]
 
@@ -287,13 +289,16 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
         lines.extend(["No `# LaTeX:` annotations were found in this file.", ""])
     else:
         lines.extend(["## Rendered Math Annotations", ""])
-        for line_no, code, formula in annotations:
+        for line_no, formula in annotations:
+            start_idx = max(0, line_no - 1)
+            end_idx = min(len(source_lines), line_no + MATH_CONTEXT_DOWN_LINES + 1)
+            snippet = "\n".join(source_lines[start_idx:end_idx]).rstrip()
             lines.extend(
                 [
                     f"### Line {line_no}",
                     "",
                     "```python",
-                    code,
+                    snippet,
                     "```",
                     "",
                     "$$",
@@ -367,7 +372,7 @@ def generate_trainers_math_docs() -> None:
     index_lines = [
         "# Trainers Math-Annotated Source",
         "",
-        "Trainer pages and annotated trainer modules that render inline `# LaTeX:` comments as formulas.",
+        "Trainer pages and annotated trainer modules that render `# LaTeX:` comments as formulas with local source context.",
         "",
     ]
 
