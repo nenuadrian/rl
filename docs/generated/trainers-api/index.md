@@ -2,7 +2,6 @@
 
 Auto-generated reference for all modules in `trainers/`.
 
-- [`trainers`](trainers.md)
 - [`trainers.mpo`](trainers/mpo.md)
 - [`trainers.mpo.agent`](trainers/mpo/agent.md)
 - [`trainers.mpo.trainer`](trainers/mpo/trainer.md)

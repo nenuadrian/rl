@@ -1,6 +1,6 @@
 # `trainers.mpo.agent`
 
-_Source: `trainers/mpo/agent.py`_
+_Source: `minerva/trainers/mpo/agent.py`_
 
 ## Classes
 

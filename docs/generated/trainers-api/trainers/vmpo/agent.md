@@ -1,6 +1,6 @@
 # `trainers.vmpo.agent`
 
-_Source: `trainers/vmpo/agent.py`_
+_Source: `minerva/trainers/vmpo/agent.py`_
 
 ## Classes
 

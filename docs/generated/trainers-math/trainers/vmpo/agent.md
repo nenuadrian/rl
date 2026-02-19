@@ -1,3 +1,334 @@
+# `trainers.vmpo.agent` Math-Annotated Source
+
+_Source: `minerva/trainers/vmpo/agent.py`_
+
+Each `# LaTeX:` annotation is rendered below next to its source line.
+
+## Rendered Math Annotations
+
+### Line 76
+
+```python
+        policy_lr_eff = self.policy_lr / math.sqrt(self.m_steps)
+```
+
+$$
+\tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\sqrt{M}}
+$$
+
+### Line 77
+
+```python
+        value_lr_eff = self.value_lr / math.sqrt(self.m_steps)
+```
+
+$$
+\tilde{\lambda}_{V} = \frac{\lambda_{V}}{\sqrt{M}}
+$$
+
+### Line 114
+
+```python
+        effective_alpha_lr = self.alpha_lr / math.sqrt(self.m_steps)
+```
+
+$$
+\tilde{\lambda}_{\alpha} = \frac{\lambda_{\alpha}}{\sqrt{M}}
+$$
+
+### Line 203
+
+```python
+            )
+```
+
+$$
+\hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+$$
+
+### Line 214
+
+```python
+        eta = F.softplus(self.log_temperature) + 1e-8
+```
+
+$$
+\eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
+$$
+
+### Line 215
+
+```python
+        scaled_advantages = (restarting_weights * advantages) / eta
+```
+
+$$
+s_t = \frac{w_t^{restart}\hat{A}_t}{\eta}
+$$
+
+### Line 230
+
+```python
+                k = int(self.topk_fraction * valid_scaled_advantages.numel())
+```
+
+$$
+k = \lfloor \rho N \rfloor
+$$
+
+### Line 236
+
+```python
+                threshold = topk_vals.min()
+```
+
+$$
+\tau = \min(\operatorname{TopK}(s, k))
+$$
+
+### Line 239
+
+```python
+                )
+```
+
+$$
+m_t = \mathbf{1}[s_t \ge \tau]
+$$
+
+### Line 240
+
+```python
+                topk_restarting_weights = restarting_weights * topk_weights
+```
+
+$$
+\bar{w}_t = w_t^{restart} \cdot m_t
+$$
+
+### Line 242
+
+```python
+                threshold = scaled_advantages.detach().min()
+```
+
+$$
+\tau = \min_t s_t
+$$
+
+### Line 243
+
+```python
+                topk_restarting_weights = restarting_weights
+```
+
+$$
+\bar{w}_t = w_t^{restart}
+$$
+
+### Line 254
+
+```python
+        unnormalized_weights = (
+```
+
+$$
+\tilde{\psi}_t = \bar{w}_t \, w_t^{imp} \exp(s_t - s_{\max})
+$$
+
+### Line 259
+
+```python
+        sum_weights = unnormalized_weights.sum() + 1e-8
+```
+
+$$
+Z = \sum_t \tilde{\psi}_t
+$$
+
+### Line 260
+
+```python
+        num_samples = topk_restarting_weights.sum() + 1e-8
+```
+
+$$
+N_{sel} = \sum_t \bar{w}_t
+$$
+
+### Line 261
+
+```python
+        weights = unnormalized_weights / sum_weights
+```
+
+$$
+\psi_t = \frac{\tilde{\psi}_t}{Z}
+$$
+
+### Line 264
+
+```python
+        log_mean_weights = (
+```
+
+$$
+\log \bar{\psi} = \log Z + s_{\max} - \log N_{sel}
+$$
+
+### Line 267
+
+```python
+        dual_loss = eta * (self.epsilon_eta + log_mean_weights)
+```
+
+$$
+\mathcal{L}_{\eta} = \eta \left(\epsilon_{\eta} + \log \bar{\psi}\right)
+$$
+
+### Line 275
+
+```python
+            eta_final = F.softplus(self.log_temperature) + 1e-8
+```
+
+$$
+\eta' = \operatorname{softplus}(\tilde{\eta}) + \epsilon
+$$
+
+### Line 296
+
+```python
+            weighted_nll = -(weights_detached * log_prob).sum()
+```
+
+$$
+\mathcal{L}_{\pi}^{NLL} = -\sum_t \psi_t \log \pi_{\theta}(a_t|s_t)
+$$
+
+### Line 303
+
+```python
+                kl_mean_all = (
+```
+
+$$
+D_{\mu}^{all} = \mathbb{E}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
+$$
+
+### Line 308
+
+```python
+                kl_std_all = (
+```
+
+$$
+D_{\sigma}^{all} = \mathbb{E}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
+$$
+
+### Line 329
+
+```python
+            kl_mu_sel = (
+```
+
+$$
+D_{\mu} = \mathbb{E}_{t \in \mathcal{S}}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
+$$
+
+### Line 334
+
+```python
+            kl_sigma_sel = (
+```
+
+$$
+D_{\sigma} = \mathbb{E}_{t \in \mathcal{S}}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
+$$
+
+### Line 348
+
+```python
+            alpha_mu = F.softplus(self.log_alpha_mu) + 1e-8
+```
+
+$$
+\alpha_{\mu} = \operatorname{softplus}(\tilde{\alpha}_{\mu}) + \epsilon
+$$
+
+### Line 349
+
+```python
+            alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
+```
+
+$$
+\alpha_{\sigma} = \operatorname{softplus}(\tilde{\alpha}_{\sigma}) + \epsilon
+$$
+
+### Line 352
+
+```python
+            alpha_loss = alpha_mu * (
+```
+
+$$
+\mathcal{L}_{\alpha} = \alpha_{\mu}(\epsilon_{\mu} - D_{\mu}) + \alpha_{\sigma}(\epsilon_{\sigma} - D_{\sigma})
+$$
+
+### Line 365
+
+```python
+            policy_loss = (
+```
+
+$$
+\mathcal{L}_{\pi} = \mathcal{L}_{\pi}^{NLL} + \alpha_{\mu}D_{\mu} + \alpha_{\sigma}D_{\sigma}
+$$
+
+### Line 372
+
+```python
+            value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
+```
+
+$$
+\mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\phi}(s_t) - R_t)^2\right]
+$$
+
+### Line 374
+
+```python
+            total_loss = policy_loss + value_loss
+```
+
+$$
+\mathcal{L} = \mathcal{L}_{\pi} + \mathcal{L}_{V}
+$$
+
+### Line 405
+
+```python
+            explained_var = 1.0 - (y - v_pred).var(unbiased=False) / (var_y + 1e-8)
+```
+
+$$
+\operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R] + \epsilon}
+$$
+
+### Line 414
+
+```python
+            entropy = (
+```
+
+$$
+\mathcal{H} = \mathbb{E}\left[\sum_j \frac{1}{2}\left(1 + \log(2\pi\sigma_j^2)\right)\right]
+$$
+
+## Full Source
+
+```python
 from __future__ import annotations
 
 import math
@@ -456,3 +787,4 @@ class VMPOAgent:
             "value/pred_mean": float(v_pred.mean().item()),
             "value/pred_std": float(v_pred.std(unbiased=False).item()),
         }
+```

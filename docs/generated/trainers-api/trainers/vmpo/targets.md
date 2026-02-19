@@ -1,6 +1,6 @@
 # `trainers.vmpo.targets`
 
-_Source: `trainers/vmpo/targets.py`_
+_Source: `minerva/trainers/vmpo/targets.py`_
 
 ## Functions
 

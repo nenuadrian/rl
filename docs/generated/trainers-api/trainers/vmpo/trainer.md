@@ -1,6 +1,6 @@
 # `trainers.vmpo.trainer`
 
-_Source: `trainers/vmpo/trainer.py`_
+_Source: `minerva/trainers/vmpo/trainer.py`_
 
 ## Functions
 

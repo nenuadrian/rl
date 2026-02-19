@@ -1,6 +1,6 @@
 # `trainers.mpo.trainer`
 
-_Source: `trainers/mpo/trainer.py`_
+_Source: `minerva/trainers/mpo/trainer.py`_
 
 ## Functions
 

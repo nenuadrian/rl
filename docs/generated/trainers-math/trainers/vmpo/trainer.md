@@ -1,6 +1,6 @@
 # `trainers.vmpo.trainer` Math-Annotated Source
 
-_Source: `trainers/vmpo/trainer.py`_
+_Source: `minerva/trainers/vmpo/trainer.py`_
 
 Each `# LaTeX:` annotation is rendered below next to its source line.
 
@@ -83,7 +83,7 @@ $$
 ```
 
 $$
-\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
+\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
 $$
 
 ### Line 510
@@ -338,10 +338,10 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.vmpo.agent import VMPOAgent
-from trainers.vmpo.targets import compute_rollout_targets
-from utils.env import infer_obs_dim
-from utils.wandb_utils import log_wandb
+from minerva.trainers.vmpo.agent import VMPOAgent
+from minerva.trainers.vmpo.targets import compute_rollout_targets
+from minerva.utils.env import infer_obs_dim
+from minerva.utils.wandb_utils import log_wandb
 
 
 def _format_metrics(metrics: Mapping[str, float]) -> str:
@@ -809,7 +809,7 @@ class VMPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 150)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{50} \right\rfloor\right)
+        eval_interval = max(1, total_steps // 150)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
         console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[VMPO] training started: "

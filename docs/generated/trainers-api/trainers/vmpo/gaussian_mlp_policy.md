@@ -1,6 +1,6 @@
 # `trainers.vmpo.gaussian_mlp_policy`
 
-_Source: `trainers/vmpo/gaussian_mlp_policy.py`_
+_Source: `minerva/trainers/vmpo/gaussian_mlp_policy.py`_
 
 ## Classes
 
