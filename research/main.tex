@@ -767,7 +767,7 @@ Replacing the unknown $\pi^\star$ with a parametric policy $\pi_\theta$ and maxi
 
 \paragraph{DPO as Preference MLE}
 
-The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs---structurally, it is maximum likelihood estimation on a classification task. The gradient has the form
+The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs---structurally, it is MLE on a classification task. The gradient has the form
 \[
   \nabla_\theta \mathcal{L}_{\mathrm{DPO}}
   =
@@ -1768,10 +1768,10 @@ Set $m=2$, $D_1=D_2=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$ with coefficient $\
 with $\Lambda = \alpha+\beta$. This is precisely the DAR optimal policy in Eq.~\eqref{eq:dar_opt}.
 
 \paragraph{AWR.}
-Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual optimization, no filtering, unconstrained M-step. The target is $q^\star \propto \pi_t\exp(A/\beta)$, recovering standard Advantage Weighted Regression \parencite{peng2019advantageweightedregression}.
+Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$, $\lambda_1=\beta$ fixed. No dual optimization, no filtering, unconstrained M-step. The target is $q^\star \propto \pi_t\exp(A/\beta)$, recovering standard AWR \parencite{peng2019advantageweightedregression}.
 
 \paragraph{SFT.}
-The degenerate case with no E-step optimization: $q(\tau\mid x) = \delta(\tau=y)$ places all mass on demonstrated responses, and the M-step is pure maximum likelihood. This corresponds to $m=0$ in the GEMPI tuple.
+The degenerate case with no E-step optimization: $q(\tau\mid x) = \delta(\tau=y)$ places all mass on demonstrated responses, and the M-step is pure ML. This corresponds to $m=0$ in the GEMPI tuple.
 
 \paragraph{DPO (collapsed).}
 The KL-regularised RLHF objective \eqref{eq:dpo_rlhf} yields the same E-step closed form as GEMPI with $m=1$, $\pi_1=\pi_{\mathrm{ref}}$, $\Lambda=\beta$: namely $q^\star \propto \pi_{\mathrm{ref}}\exp(r/\beta)$. DPO does not construct this target explicitly. Instead, it substitutes the optimal policy form into the Bradley--Terry preference likelihood, and the partition function $Z(x)$ cancels in the reward difference. The result is a single-stage preference MLE \eqref{eq:dpo_loss} that implicitly solves both the E-step and M-step. DPO can thus be viewed as a degenerate GEMPI instantiation in which the E-step is analytically eliminated.
@@ -1782,7 +1782,7 @@ The reduction derived in the DAR-to-V-MPO mapping above is now a direct conseque
 % ============================================================
 \subsection{The Role of Divergence Choice}
 
-The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with other members of the $f$-divergence family changes the form of the advantage tilting: for KL the tilting is exponential in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields linear tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
+The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with another $f$-divergence changes the form of the advantage tilting: for KL the tilting is exponential in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields linear tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
 
 \medskip
 \begin{center}
@@ -1820,7 +1820,7 @@ The GEMPI template guarantees dropout compatibility whenever the M-step uses det
   =
   -\sum_{i\in S} w_i \sum_t \nabla_\theta\log\pi_\theta^{(\mathrm{mask})}(y_t^{(i)}\mid\cdot\,)
 \]
-is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property generalises the later dropout discussion to a consequence of the GEMPI decomposition: any method instantiated within GEMPI inherits dropout compatibility in its M-step.
+is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property generalises the later dropout discussion to a consequence of the GEMPI decomposition: methods instantiated within GEMPI inherit M-step dropout compatibility.
 
 % ============================================================
 \subsection{Novel Instantiations}
