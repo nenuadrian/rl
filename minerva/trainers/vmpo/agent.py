@@ -39,6 +39,7 @@ class VMPOAgent:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         shared_encoder: bool = False,
+        ppo_like_backbone: bool = False,
         m_steps: int = 1,
     ):
         self.device = device
@@ -68,6 +69,7 @@ class VMPOAgent:
             action_low=action_low,
             action_high=action_high,
             shared_encoder=shared_encoder,
+            ppo_like_backbone=ppo_like_backbone,
         ).to(device)
 
         value_params = list(self.policy.value_head.parameters())
@@ -85,7 +87,7 @@ class VMPOAgent:
                     "lr": policy_lr_eff,
                 },
                 {"params": self.policy.policy_mean.parameters(), "lr": policy_lr_eff},
-                {"params": self.policy.policy_logstd.parameters(), "lr": policy_lr_eff},
+                {"params": self.policy.policy_logstd_parameters(), "lr": policy_lr_eff},
                 {"params": value_params, "lr": value_lr_eff},
             ]
         )
@@ -410,7 +412,7 @@ class VMPOAgent:
             nn.utils.clip_grad_norm_(
                 list(self.policy.policy_encoder.parameters())
                 + list(self.policy.policy_mean.parameters())
-                + list(self.policy.policy_logstd.parameters())
+                + self.policy.policy_logstd_parameters()
                 + (
                     []
                     if self.policy.shared_encoder

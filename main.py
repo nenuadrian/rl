@@ -305,6 +305,7 @@ if __name__ == "__main__":
             "optimizer_type": str(args.optimizer_type),
             "sgd_momentum": float(args.sgd_momentum),
             "shared_encoder": bool(args.shared_encoder),
+            "ppo_like_backbone": bool(getattr(args, "ppo_like_backbone", False)),
             "m_steps": int(args.m_steps),
         }
         _print_config("VMPO config", vmpo_params)
@@ -333,6 +334,7 @@ if __name__ == "__main__":
             optimizer_type=str(args.optimizer_type),
             sgd_momentum=float(args.sgd_momentum),
             shared_encoder=bool(args.shared_encoder),
+            ppo_like_backbone=bool(getattr(args, "ppo_like_backbone", False)),
             num_envs=int(args.num_envs),
             m_steps=int(args.m_steps),
         )

@@ -338,6 +338,7 @@ class VMPOTrainer:
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
         shared_encoder: bool = False,
+        ppo_like_backbone: bool = False,
         m_steps: int = 1,
     ):
         self.num_envs = int(num_envs)
@@ -403,6 +404,7 @@ class VMPOTrainer:
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
             shared_encoder=shared_encoder,
+            ppo_like_backbone=ppo_like_backbone,
             m_steps=m_steps,
         )
 

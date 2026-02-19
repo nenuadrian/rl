@@ -97,6 +97,7 @@ def build_policy_for_algo(
     policy_layer_sizes: Iterable[int],
     value_layer_sizes: Iterable[int] | None,
     shared_encoder: bool = False,
+    ppo_like_backbone: bool = False,
     device: torch.device,
 ) -> torch.nn.Module:
     policy_sizes = _as_tuple_ints(policy_layer_sizes)
@@ -136,6 +137,7 @@ def build_policy_for_algo(
             action_low=action_low,
             action_high=action_high,
             shared_encoder=bool(shared_encoder),
+            ppo_like_backbone=bool(ppo_like_backbone),
         )
     else:
         raise ValueError(f"Unsupported algo for video rendering: {algo}")
@@ -260,6 +262,7 @@ def render_policy_video(
     policy_layer_sizes: Iterable[int] = (256, 256, 256),
     value_layer_sizes: Iterable[int] | None = None,
     shared_encoder: bool = False,
+    ppo_like_backbone: bool = False,
     device: torch.device | None = None,
     num_attempts: int = 10,
 ) -> tuple[str, str, int]:
@@ -304,6 +307,7 @@ def render_policy_video(
         policy_layer_sizes=policy_layer_sizes,
         value_layer_sizes=value_layer_sizes,
         shared_encoder=shared_encoder,
+        ppo_like_backbone=ppo_like_backbone,
         device=device,
     )
     _load_policy_state_from_checkpoint(policy, ckpt, algo=algo)

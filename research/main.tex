@@ -16,10 +16,9 @@
 
 \begin{document}
 
-% Remove numbering from all subsection titles
-\setcounter{secnumdepth}{1} % sections numbered, subsections and below unnumbered
+\setcounter{secnumdepth}{1}
 
-\title{Expectation--Maximization Formulations for SFT and RL Fine-Tuning of Transformers}
+\title{Expectation--Maximization Frameworks for LLM RL Fine-Tuning}
 
 \maketitle
 \tableofcontents
@@ -40,30 +39,55 @@ Transformer language models are commonly adapted to downstream tasks via supervi
 
 \section{Preliminaries}
 
-\subsection{Maximum Likelihood and Maximum a Posteriori}
+\subsection{Maximum Likelihood Estimation and Maximum a Posteriori}
+
+MLE and MAP are methods for estimating some variable in the setting of probability distributions. They compute a single estimate, instead of a full distribution.
 
 Given observed data $x$ and parameters $\theta$, maximum likelihood (ML) estimation solves
 \[
-  \theta_{\mathrm{ML}}
+  \theta_{\mathrm{MLE}}
   =
-  \arg\max_\theta \log p_\theta(x).
+  \arg\max_\theta \log p_\theta(X)
+  =
+  \arg\max_\theta
+  \sum_{i=1}^{N}
+  \log p_\theta(x_i).
 \]
 
-Maximum a posteriori (MAP) estimation adds a prior:
+Maximum a posteriori (MAP) estimation adds a prior, coming from the Bayesian perspective:
+\[
+  p(\theta \mid X)
+  =
+  \frac{p(x \mid \theta)\, p(\theta)}{p(x)}
+\]
+
+% Proportional form
+\[
+  p(\theta \mid X)
+  \propto
+  p(X \mid \theta)\, p(\theta)
+\]
+
+% With i.i.d. likelihood
 \[
   \theta_{\mathrm{MAP}}
   =
   \arg\max_\theta
+  \left[
+    \sum_{i=1}^{N}
+    \log p(x_i \mid \theta)
+    +
+    \log p(\theta)
+  \right] =
+  \arg\max_\theta
   \bigl(
-    \log p_\theta(x)
+    \log p_\theta(X)
     +
     \log p(\theta)
   \bigr).
 \]
 
-In optimization form, $-\log p(\theta)$ acts as a regularizer. A flat prior recovers ML.
-
-\subsection{EM Lower Bound}
+\subsection{EM Lower Bound -- ELBO}
 
 Assume a latent variable model with latent $z$. For any auxiliary distribution $q(z)$:
 \[
@@ -86,7 +110,7 @@ Since KL is nonnegative, $\mathcal{L}(q,\theta)$ is a lower bound on $\log p_\th
 
 For MAP, the objective
 \[
-  F_{\mathrm{MAP}}(\theta)
+  \mathcal{L}_{\mathrm{MAP}}(\theta)
   =
   \log p_\theta(x)
   +
@@ -94,7 +118,7 @@ For MAP, the objective
 \]
 admits the decomposition
 \[
-  F_{\mathrm{MAP}}(\theta)
+  \mathcal{L}_{\mathrm{MAP}}(\theta)
   =
   \mathcal{L}_{\mathrm{MAP}}(q,\theta)
   +
@@ -143,7 +167,7 @@ Equivalently, the MAP M-step maximises
 
 This gives the standard monotonic-improvement template: construct a target distribution in the E-step, then fit a parametric model to that target in the M-step.
 
-\subsection{EM-Style Policy Iteration vs Policy Gradients}
+\subsection{EM Policy Iteration vs Policy Gradients}
 
 Policy-gradient update (direct parameter-space step).
 
@@ -161,7 +185,6 @@ A policy-gradient method takes a local ascent step
 \]
 optionally with clipping or explicit KL penalties.
 
-\paragraph{EM-style policy iteration (distribution-space then projection).}
 EM-style methods introduce an auxiliary improved policy $q(a\mid s)$ and alternate:
 \[
   \text{E-step:}\quad
@@ -193,146 +216,10 @@ Then the M-step projects back to the parametric family:
 \]
 often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$.
 
-Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform \emph{policy improvement} in distribution space first, then do weighted maximum-likelihood fitting. This is why V-MPO is naturally viewed as regularized policy iteration in EM form rather than as a pure policy-gradient method.
+Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform policy improvement in distribution space first, then do weighted maximum-likelihood fitting. This is why V-MPO is naturally viewed as regularized policy iteration in EM form rather than as a pure policy-gradient method.
 
-\section{PPO}
 
-PPO is a \emph{policy-gradient} method: it directly estimates and follows the gradient of expected return in parameter space. Specifically, it is an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
-
-A trajectory $\tau = (s_0,a_0,\dots,s_{T-1},a_{T-1})$ is collected under the current policy $\pi_{\theta_{\mathrm{old}}}$. Per-step log-probabilities and their sum are
-\[
-  \ell_{\theta,t} = \log \pi_\theta(a_t \mid s_t),
-  \qquad
-  \ell_\theta(\tau) = \sum_{t=0}^{T-1} \ell_{\theta,t}.
-\]
-
-The discounted reward-to-go from step $t$ is
-\[
-  R_t = \sum_{k=t}^{T-1} \gamma^{k-t} r_k.
-\]
-
-\subsection{Policy Gradient Foundation}
-
-The policy gradient theorem gives the direction of steepest ascent for the expected return:
-\[
-  \nabla_\theta J(\theta)
-  =
-  \mathbb{E}_{\tau \sim \pi_\theta}
-  \left[
-    \sum_{t=0}^{T-1}
-    \nabla_\theta \log \pi_\theta(a_t \mid s_t)\, A_t
-  \right].
-\]
-
-To reuse data collected under $\pi_{\theta_{\mathrm{old}}}$, importance sampling introduces the per-step probability ratio
-\[
-  r_t(\theta)
-  =
-  \frac{\pi_\theta(a_t \mid s_t)}
-  {\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}
-  =
-  \exp\!\left(\ell_{\theta,t}-\ell_{\mathrm{old},t}\right).
-\]
-
-The unclipped surrogate objective is then $L^{\mathrm{PG}}(\theta) = \mathbb{E}_t\!\left[r_t(\theta)\, A_t\right]$, but without further constraint this can lead to destructively large updates.
-
-\subsection{Clipped Surrogate Objective}
-
-PPO resolves this by clipping the ratio to $[1-\epsilon,\, 1+\epsilon]$ and taking the pessimistic (minimum) of the clipped and unclipped terms:
-\[
-  L^{\mathrm{CLIP}}(\theta)
-  =
-  \mathbb{E}_t
-  \left[
-    \min\!\left(
-      r_t(\theta)\, A_t,\;
-      \operatorname{clip}\!\left(
-        r_t(\theta),\, 1-\epsilon,\, 1+\epsilon
-      \right) A_t
-    \right)
-  \right].
-\]
-When the advantage is positive the update is capped at a ratio of $1+\epsilon$; when negative it is capped at $1-\epsilon$. This prevents the policy from moving too far in either direction within a single update.
-
-\subsection{Value Function and Entropy}
-
-The critic is fitted by minimising a squared regression loss to the empirical returns:
-\[
-  L^{\mathrm{VF}}(\phi)
-  =
-  \mathbb{E}_t
-  \left[
-    \left(V_\phi(s_t) - R_t\right)^2
-  \right].
-\]
-
-An entropy bonus encourages exploration by penalising premature policy collapse:
-\[
-  S(\pi_\theta(\cdot \mid s_t))
-  =
-  -\sum_a \pi_\theta(a \mid s_t) \log \pi_\theta(a \mid s_t).
-\]
-
-\subsection{Full Objective}
-
-The three terms are combined into a single objective (to minimise):
-\[
-  \mathcal{L}(\theta,\phi)
-  =
-  -L^{\mathrm{CLIP}}(\theta)
-  +
-  c_1\, L^{\mathrm{VF}}(\phi)
-  -
-  c_2\, \mathbb{E}_t\!\left[S(\pi_\theta(\cdot \mid s_t))\right],
-\]
-where $c_1$ and $c_2$ are scalar coefficients balancing the three losses.
-
-\subsection{Generalised Advantage Estimation (GAE)}
-
-Rather than using raw Monte Carlo returns to estimate $A_t$, PPO typically uses GAE, which trades off bias and variance via a decay parameter $\lambda \in [0,1]$.
-
-The TD residual at each step is
-\[
-  \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t).
-\]
-
-GAE accumulates these residuals with exponentially decaying weights:
-\[
-  A_t^{\mathrm{GAE}(\gamma,\lambda)}
-  =
-  \sum_{l=0}^{\infty} (\gamma\lambda)^l\, \delta_{t+l},
-\]
-which satisfies the efficient recurrence
-\[
-  A_t = \delta_t + \gamma\lambda\, A_{t+1}.
-\]
-
-Advantages are then batch-normalised before use:
-\[
-  \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \varepsilon}.
-\]
-
-\subsection{Sequence-Level PPO (LLM Case)}
-
-When the ``action'' is an entire generated sequence (as in LLM fine-tuning), the per-step ratios multiply into a sequence-level ratio:
-\[
-  r_{\mathrm{seq}}(\theta)
-  =
-  \exp\!\left(
-    \sum_{t=0}^{T-1}
-    \bigl(\ell_{\theta,t} - \ell_{\mathrm{old},t}\bigr)
-  \right).
-\]
-
-A KL penalty between the updated and old policy can be estimated cheaply as
-\[
-  \widehat{\mathrm{KL}}
-  =
-  \mathbb{E}_t\!\left[\ell_{\mathrm{old},t} - \ell_{\theta,t}\right],
-\]
-and is often added to the objective or used as an early-stopping criterion to keep the sequence-level ratio well-behaved.
-
-\section{V-MPO}
+\section{V-MPO: Maximum a Posteriori Policy Optimization}
 
 V-MPO \parencite{song2019vmpoonpolicymaximumposteriori} decomposes optimisation into EM phases.
 
@@ -354,11 +241,8 @@ where
   +
   \mathcal{L}_\alpha(\theta,\alpha).
 \end{equation*}
-\subsection{Implementation}
-\href{https://github.com/nenuadrian/rl/tree/main/benchmarks}{github.com/nenuadrian/rl/tree/main/benchmarks}
-
 % ============================================================
-\subsection{Policy Evaluation (Critic Update)}
+\paragraph{Policy Evaluation (Critic Update).}
 
 The value function is fitted via n-step bootstrapped regression:
 \begin{equation*}
@@ -390,7 +274,7 @@ Advantages are defined as
 \]
 
 % ============================================================
-\subsection{Policy Improvement via EM}
+\paragraph{Policy Improvement via EM}
 
 We formulate policy improvement as MAP estimation:
 \begin{equation*}
@@ -423,7 +307,7 @@ Introduce a variational distribution $\psi(s,a)$:
 We now alternate between E-step and M-step.
 
 % ============================================================
-\subsection{E-Step: Non-Parametric Policy Construction}
+\paragraph{E-Step: Non-Parametric Policy Construction}
 
 The E-step solves
 \begin{equation*}
@@ -477,7 +361,26 @@ The Lagrangian is
   \end{aligned}
 \end{equation*}
 
-Stationarity gives
+Here, stationarity refers to the KKT first-order optimality condition with respect to the variational distribution $\psi$:
+\begin{equation*}
+  \frac{\partial J}{\partial \psi(s,a)}
+  =
+  A^{\pi_{\theta_{\mathrm{old}}}}(s,a)
+  -
+  \eta
+  \left(
+    \log
+    \frac{\psi(s,a)}{p_{\theta_{\mathrm{old}}}(s,a)}
+    + 1
+  \right)
+  -
+  \lambda
+  =
+  0,
+  \quad \forall (s,a).
+\end{equation*}
+
+Solving this stationarity condition for $\psi$ gives
 \begin{equation*}
   \psi(s,a)
   =
@@ -514,7 +417,7 @@ The temperature dual is
 \end{equation*}
 
 % ============================================================
-\subsection{M-Step: Parametric Projection with KL Constraint}
+\paragraph{M-Step: Parametric Projection with KL Constraint}
 
 The M-step minimises the negative lower bound:
 
@@ -597,6 +500,140 @@ In implementation, the loss becomes
   \end{aligned}
 \end{equation}
 
+\section{PPO: Proximal Policy Optimization}
+
+PPO is a PG method as it directly estimates and follows the gradient of expected return in parameter space with an on-policy actor-critic algorithm that constrains each policy update to stay close to the behaviour policy via a clipped surrogate objective, avoiding the instability of unconstrained policy gradient steps.
+
+A trajectory $\tau = (s_0,a_0,\dots,s_{T-1},a_{T-1})$ is collected under the current policy $\pi_{\theta_{\mathrm{old}}}$. Per-step log-probabilities and their sum are
+\[
+  \ell_{\theta,t} = \log \pi_\theta(a_t \mid s_t),
+  \qquad
+  \ell_\theta(\tau) = \sum_{t=0}^{T-1} \ell_{\theta,t}.
+\]
+
+The discounted reward-to-go from step $t$ is
+\[
+  R_t = \sum_{k=t}^{T-1} \gamma^{k-t} r_k.
+\]
+
+The policy gradient theorem gives the direction of steepest ascent for the expected return:
+\[
+  \nabla_\theta J(\theta)
+  =
+  \mathbb{E}_{\tau \sim \pi_\theta}
+  \left[
+    \sum_{t=0}^{T-1}
+    \nabla_\theta \log \pi_\theta(a_t \mid s_t)\, A_t
+  \right].
+\]
+
+To reuse data collected under $\pi_{\theta_{\mathrm{old}}}$, importance sampling introduces the per-step probability ratio
+\[
+  r_t(\theta)
+  =
+  \frac{\pi_\theta(a_t \mid s_t)}
+  {\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}
+  =
+  \exp\!\left(\ell_{\theta,t}-\ell_{\mathrm{old},t}\right).
+\]
+
+The unclipped surrogate objective is then $L^{\mathrm{PG}}(\theta) = \mathbb{E}_t\!\left[r_t(\theta)\, A_t\right]$, but without further constraint this can lead to destructively large updates.
+
+PPO resolves this by clipping the ratio to $[1-\epsilon,\, 1+\epsilon]$ and taking the pessimistic (minimum) of the clipped and unclipped terms:
+\[
+  L^{\mathrm{CLIP}}(\theta)
+  =
+  \mathbb{E}_t
+  \left[
+    \min\!\left(
+      r_t(\theta)\, A_t,\;
+      \operatorname{clip}\!\left(
+        r_t(\theta),\, 1-\epsilon,\, 1+\epsilon
+      \right) A_t
+    \right)
+  \right].
+\]
+When the advantage is positive the update is capped at a ratio of $1+\epsilon$; when negative it is capped at $1-\epsilon$. 
+
+
+The critic is fitted by minimising a squared regression loss to the empirical returns:
+\[
+  L^{\mathrm{VF}}(\phi)
+  =
+  \mathbb{E}_t
+  \left[
+    \left(V_\phi(s_t) - R_t\right)^2
+  \right].
+\]
+
+An entropy bonus encourages exploration by penalising premature policy collapse:
+\[
+  S(\pi_\theta(\cdot \mid s_t))
+  =
+  -\sum_a \pi_\theta(a \mid s_t) \log \pi_\theta(a \mid s_t).
+\]
+
+
+Rather than using raw Monte Carlo returns to estimate $A_t$, PPO typically uses GAE, which trades off bias and variance via a decay parameter $\lambda \in [0,1]$.
+
+The TD residual at each step is
+\[
+  \delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t).
+\]
+
+GAE accumulates these residuals with exponentially decaying weights:
+\[
+  A_t^{\mathrm{GAE}(\gamma,\lambda)}
+  =
+  \sum_{l=0}^{\infty} (\gamma\lambda)^l\, \delta_{t+l},
+\]
+which satisfies the efficient recurrence
+\[
+  A_t = \delta_t + \gamma\lambda\, A_{t+1}.
+\]
+
+Advantages are then batch-normalised before use:
+\[
+  \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \varepsilon}.
+\]
+
+
+\paragraph{Full Objective}
+
+The three terms are combined into a single objective (to minimise):
+\[
+  \mathcal{L}(\theta,\phi)
+  =
+  -L^{\mathrm{CLIP}}(\theta)
+  +
+  c_1\, L^{\mathrm{VF}}(\phi)
+  -
+  c_2\, \mathbb{E}_t\!\left[S(\pi_\theta(\cdot \mid s_t))\right],
+\]
+where $c_1$ and $c_2$ are scalar coefficients balancing the three losses.
+
+
+\paragraph{Sequence-Level PPO (LLM Case)}
+
+When the ``action'' is an entire generated sequence (as in LLM fine-tuning), the per-step ratios multiply into a sequence-level ratio:
+\[
+  r_{\mathrm{seq}}(\theta)
+  =
+  \exp\!\left(
+    \sum_{t=0}^{T-1}
+    \bigl(\ell_{\theta,t} - \ell_{\mathrm{old},t}\bigr)
+  \right).
+\]
+
+A KL penalty between the updated and old policy can be estimated cheaply as
+\[
+  \widehat{\mathrm{KL}}
+  =
+  \mathbb{E}_t\!\left[\ell_{\mathrm{old},t} - \ell_{\theta,t}\right],
+\]
+and is often added to the objective or used as an early-stopping criterion to keep the sequence-level ratio well-behaved.
+
+
 \section{The Case for Dropout}
 \label{sec:dropout_case}
 
@@ -622,7 +659,7 @@ Standard on-policy PPO collects a batch of trajectories under the current policy
 If dropout is active during the optimisation epochs, $\pi_\theta(a_t \mid s_t)$ becomes a random variable that changes on every forward pass even for fixed $\theta$. The ratio $r_t(\theta)$ therefore fluctuates stochastically, injecting noise directly into the surrogate objective and its gradients. Because PPO's clip window $[1-\epsilon,\,1+\epsilon]$ is deliberately narrow (typically $\epsilon=0.2$), even moderate stochastic perturbation can push the ratio outside the clip region or mask genuine policy changes, degrading the signal.
 
 \paragraph{Problem 2: inconsistent denominator.}
-The denominator $\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)$ is computed once at rollout time in eval mode (no dropout). If the training forward pass uses a different dropout mask, the numerator and denominator are computed under \emph{different} effective networks.  The ratio no longer measures how far the policy has moved; it conflates policy change with mask change:
+The denominator $\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)$ is computed once at rollout time in eval mode (no dropout). If the training forward pass uses a different dropout mask, the numerator and denominator are computed under different effective networks.  The ratio no longer measures how far the policy has moved; it conflates policy change with mask change:
 \[
   r_t(\theta) = \frac{\pi_\theta^{(\text{mask}_1)}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}^{(\text{no mask})}(a_t \mid s_t)}.
 \]
@@ -635,7 +672,7 @@ For these reasons, all mainstream PPO implementations (including those used for 
 
 \subsection{Why V-MPO / EM-Style Methods Are Dropout-Compatible}
 
-The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is \emph{pure weighted supervised learning}.  Neither step requires a probability ratio between two forward passes under different modes.
+The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is pure weighted supervised learning.  Neither step requires a probability ratio between two forward passes under different modes.
 
 \paragraph{E-step: weights from advantages, not ratios.}
 The non-parametric target uses the same sequence-level exponential weighting as
@@ -665,7 +702,7 @@ The key structural difference is summarised in the following table:
 \end{center}
 \medskip
 
-Because the E-step weights $w_i$ are \emph{detached} from the current parameters, the M-step gradient with dropout active is
+Because the E-step weights $w_i$ are detached from the current parameters, the M-step gradient with dropout active is
 \[
   \nabla_\theta \mathcal{L}_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
 \]
@@ -678,9 +715,10 @@ In the LLM fine-tuning regime where data is limited and overfitting is a practic
 \section{DPO: Direct Preference Optimization}
 \label{sec:dpo}
 
-Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a \emph{preference MLE} method: it bypasses reward modelling and policy-gradient estimation entirely, reducing alignment to a single binary cross-entropy objective over preference pairs. This section derives DPO from the same KL-regularised RLHF objective used throughout this document, characterises it as maximum-likelihood estimation, and relates it to the GEMPI framework.
+Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a preference MLE method: it bypasses reward modelling and policy-gradient estimation entirely, reducing alignment to a single binary cross-entropy objective over preference pairs. This section derives DPO from the same KL-regularised RLHF objective used throughout this document, characterises it as maximum-likelihood estimation, and relates it to the GEMPI framework.
 
-\subsection{Derivation from the KL-Regularised Objective}
+Unlike policy-gradient methods, DPO needs no reward model (the reward is implicit), no value function, no advantage estimation, no importance-sampling ratios, and no online rollouts. The entire training signal comes from offline preference pairs.
+
 
 The standard RLHF objective is
 \begin{equation}\label{eq:dpo_rlhf}
@@ -742,7 +780,7 @@ Replacing the unknown $\pi^\star$ with a parametric policy $\pi_\theta$ and maxi
   \right].
 \end{equation}
 
-\subsection{DPO as Preference MLE}
+\paragraph{DPO as Preference MLE}
 
 The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs---structurally, it is maximum likelihood estimation on a classification task. The gradient has the form
 \[
@@ -757,27 +795,24 @@ The DPO loss \eqref{eq:dpo_loss} is binary cross-entropy over preference pairs--
     \big)
   \Big],
 \]
-where $\hat{r}_\theta(y) \coloneqq \beta\log(\pi_\theta(y\mid x)/\pi_{\mathrm{ref}}(y\mid x))$ is the \emph{implicit reward}. The sigmoid weight measures how wrong the current model is on this pair: it is large when the model incorrectly prefers $y_l$, and vanishes as the model learns the correct ranking. This is a weighted MLE update that increases the log-probability of the preferred response and decreases that of the dispreferred one.
+where $\hat{r}_\theta(y) \coloneqq \beta\log(\pi_\theta(y\mid x)/\pi_{\mathrm{ref}}(y\mid x))$ is the implicit reward. The sigmoid weight measures how wrong the current model is on this pair: it is large when the model incorrectly prefers $y_l$, and vanishes as the model learns the correct ranking. This is a weighted MLE update that increases the log-probability of the preferred response and decreases that of the dispreferred one.
 
-\paragraph{What DPO does not require.}
-Unlike policy-gradient methods, DPO needs no reward model (the reward is implicit), no value function, no advantage estimation, no importance-sampling ratios, and no online rollouts. The entire training signal comes from offline preference pairs.
 
-\subsection{DPO and the EM Framework}
+\paragraph{DPO and the EM Framework}
 
-\paragraph{Shared E-step form.}
 The closed-form optimal policy \eqref{eq:dpo_optpolicy} is identical to GEMPI with $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$, $\Lambda=\beta$:
 \[
   q^\star(y\mid x) \propto \pi_{\mathrm{ref}}(y\mid x)\,\exp\!\Big(\frac{r(x,y)}{\beta}\Big).
 \]
-In a standard EM method (V-MPO, DAR, AWR), one would now \emph{construct} this target distribution and then project to $\pi_\theta$ via weighted MLE in the M-step.
+In a standard EM method (V-MPO, DAR, AWR), one would now construct this target distribution and then project to $\pi_\theta$ via weighted MLE in the M-step.
 
 \paragraph{The ``collapsed EM'' interpretation.}
-DPO eliminates the explicit E-step entirely. Instead of constructing $q^\star$ and then fitting $\pi_\theta$ to it, DPO substitutes the \emph{functional form} of the optimal policy directly into the Bradley--Terry preference likelihood. The intractable partition function $Z(x)$ cancels in the reward difference $r(x,y_w) - r(x,y_l)$, yielding a closed-form objective that implicitly solves both the E-step and M-step in a single stage.
+DPO eliminates the explicit E-step entirely. Instead of constructing $q^\star$ and then fitting $\pi_\theta$ to it, DPO substitutes the functional form of the optimal policy directly into the Bradley--Terry preference likelihood. The intractable partition function $Z(x)$ cancels in the reward difference $r(x,y_w) - r(x,y_l)$, yielding a closed-form objective that implicitly solves both the E-step and M-step in a single stage.
 
 \paragraph{What is lost.}
 By collapsing the two stages, DPO gives up several degrees of freedom available to explicit EM methods:
 \begin{itemize}
-  \item \textbf{Reward flexibility.} DPO's reward is \emph{defined} as $\beta\log(\pi_\theta/\pi_{\mathrm{ref}})$; it cannot incorporate richer reward signals (e.g.\ multi-aspect scores, process rewards) without redefining the objective.
+  \item \textbf{Reward flexibility.} DPO's reward is defined as $\beta\log(\pi_\theta/\pi_{\mathrm{ref}})$; it cannot incorporate richer reward signals (e.g.\ multi-aspect scores, process rewards) without redefining the objective.
   \item \textbf{Temperature adaptation.} The coefficient $\beta$ is fixed; there is no dual mechanism to adapt it online as in V-MPO.
   \item \textbf{Multi-anchor regularisation.} DPO anchors to $\pi_{\mathrm{ref}}$ only. DAR's dual-anchor structure ($\pi_{\mathrm{ref}}$ and $\pi_t$) is not available within the DPO framework.
   \item \textbf{Online data.} DPO operates on a fixed offline preference dataset; the policy does not generate new rollouts during training.
@@ -786,11 +821,115 @@ By collapsing the two stages, DPO gives up several degrees of freedom available 
 \paragraph{Dropout compatibility.}
 DPO's gradient involves only single forward passes through $\pi_\theta$ (computing $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$), with no ratio between two forward passes under different modes. Dropout is therefore fully compatible with DPO, for the same structural reason it is compatible with SFT and EM-style M-steps.
 
-\section{Direct Advantage Regression: Aligning LLMs with Online AI Reward}
 
-Direct Advantage Regression (DAR) \parencite{he2025directadvantageregressionaligning} studies online alignment with AI-generated reward signals. The method preserves the regularised online RLHF objective while replacing iterative policy-gradient updates with a closed-form advantage-weighted target followed by supervised projection. This section summarises that objective and its relation to V-MPO.
+\section{AWR: Advantage-Weighted Regression}
 
-\subsection{RL Fine-tuning}
+Consider an MDP with states \(s\in\mathcal{S}\), actions \(a\in\mathcal{A}\), reward \(r(s,a)\) and discount
+\( \gamma\in[0,1)\). For a policy \(\pi\) define the return of a state--action pair under a sampling policy
+\(\mu\) as
+\[
+R^\mu_{s,a} \;=\; \sum_{t=0}^{\infty} \gamma^{t} r_t \qquad\text{(trajectory return when action \(a\) is taken in \(s\) then follow \(\mu\)).}
+\]
+The value and advantage under \(\mu\) are
+\[
+V^\mu(s) \;=\; \mathbb{E}_{a\sim\mu(\cdot|s)}\big[ R^\mu_{s,a} \big],
+\qquad
+A^\mu(s,a) \;=\; R^\mu_{s,a} - V^\mu(s).
+\]
+
+\paragraph{Expected improvement objective.}
+Define the expected improvement of a candidate policy \(\pi\) over \(\mu\) as
+\[
+\eta(\pi) \;=\; J(\pi) - J(\mu)
+\;=\;
+\mathbb{E}_{s\sim d_\pi}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big],
+\]
+where \(d_\pi(s)=\sum_{t=0}^\infty \gamma^{t} p(s_t=s\mid\pi)\) is the unnormalised discounted state distribution.
+To avoid sampling from \(\pi\) during the optimisation we use the common first-order surrogate that uses the
+sampling state distribution \(d_\mu\):
+\[
+\widehat{\eta}(\pi)
+\;=\;
+\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ A^\mu(s,a)\big].
+\]
+
+\paragraph{Constrained policy search (primal).}
+We formulate a constrained optimisation that maximises the surrogate expected improvement while
+keeping \(\pi\) close to \(\mu\) in KL averaged under \(d_\mu\):
+\[
+\begin{aligned}
+&\max_{\pi} \quad 
+\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a} - V^\mu(s) \big],\\[4pt]
+&\text{s.t.}\quad 
+\mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\!\big(\pi(\cdot|s)\,\|\,\mu(\cdot|s)\big)\big] \le \varepsilon,
+\qquad \forall s:\ \int_a \pi(a|s)\,da = 1.
+\end{aligned}
+\]
+
+\paragraph{Lagrangian and stationarity.}
+Introduce Lagrange multiplier \(\beta>0\) for the KL constraint and pointwise normaliser \(\alpha_s\).
+The (softened) Lagrangian is
+\[
+\mathcal{L}(\pi,\beta,\alpha)
+=
+\mathbb{E}_{s\sim d_\mu}\!\Big[ 
+\mathbb{E}_{a\sim\pi(\cdot|s)}\big[ R^\mu_{s,a}-V^\mu(s) \big]
+\Big]
++ \beta\Big(\varepsilon - \mathbb{E}_{s\sim d_\mu}\!\big[ D_{\mathrm{KL}}(\pi(\cdot|s)\|\mu(\cdot|s))\big]\Big)
++ \mathbb{E}_{s\sim d_\mu}\!\big[ \alpha_s(1-\!\!\int_a\pi(a|s)\,da)\big].
+\]
+Differentiate \(\mathcal{L}\) w.r.t. \(\pi(a|s)\), set derivative to zero and solve for \(\pi\). Rearranging yields the
+Boltzmann-tilted closed form for the optimal (per-state) conditional distribution:
+\[
+\pi^\star(a|s)
+\;=\;
+\frac{1}{Z(s)}\;
+\mu(a|s)\;
+\exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big),
+\qquad
+Z(s)\;=\;\int \mu(a'|s)\exp\!\Big(\tfrac{1}{\beta}\big(R^\mu_{s,a'}-V^\mu(s)\big)\Big)\,da'.
+\tag{1}
+\]
+
+This formula is obtained by solving the stationarity condition
+\(\partial\mathcal{L}/\partial\pi(a|s)=0\) and enforcing normalisation; it is the soft, advantage-weighted
+reweighting of the behaviour distribution \(\mu(a|s)\).
+
+\paragraph{Projection to parameterised policy (regression step).}
+If \(\pi\) is parameterised (e.g. neural network) we cannot set it equal to \(\pi^\star\) pointwise. Instead
+project \(\pi^\star\) onto the parameterised family by minimising expected KL:
+\[
+\pi_{k+1} \;=\; \arg\min_{\pi\in\Pi}\;
+\mathbb{E}_{s\sim d_\mu}\big[ D_{\mathrm{KL}}\big(\pi^\star(\cdot|s)\,\|\,\pi(\cdot|s)\big)\big].
+\]
+Expanding the KL and substituting \(\pi^\star\) (Equation (1)) yields an equivalent supervised regression objective:
+\[
+\pi_{k+1}
+\;=\;
+\arg\max_{\pi\in\Pi}\;
+\mathbb{E}_{s\sim d_\mu}\mathbb{E}_{a\sim\mu(\cdot|s)}
+\Big[
+\log\pi(a|s)\;
+\exp\!\Big(\frac{1}{\beta}\big(R^\mu_{s,a}-V^\mu(s)\big)\Big)
+\Big].
+\tag{2}
+\]
+This is the central AWR policy update: fit \(\pi\) by maximum likelihood on behaviour data weighted by exponentiated advantages.
+
+\paragraph{Value update.}
+AWR alternates the policy update with a value regression that fits \(V\) to returns in \(\mathcal{D}\),
+typically by minimising a squared TD($\lambda$) or Monte-Carlo return loss:
+\[
+V^{\mathcal{D}} \;=\; \arg\min_{V}\;
+\mathbb{E}_{(s,a)\sim\mathcal{D}}\big[\,\big(R^{\mathcal{D}}_{s,a} - V(s)\big)^2\big].
+\tag{4}
+\]
+
+\section{DAR: Direct Advantage Regression}
+
+DAR \parencite{he2025directadvantageregressionaligning} studies online alignment with AI-generated reward signals. The method preserves the regularised online RLHF objective while replacing iterative policy-gradient updates with a closed-form advantage-weighted target followed by supervised projection. This section summarises that objective and its relation to V-MPO.
+
+\paragraph{RL Fine-tuning}
 
 Given a language model $\pi_\theta$ to be aligned, a prompt dataset $\mathcal{D}(x)$ and a reward model $r$, online RL fine-tuning aims to optimise:
 
@@ -816,7 +955,7 @@ Here $\alpha > 0$ controls KL regularization toward a fixed reference policy $\p
 
 %-------------------------------------------------------------
 
-\subsection{Advantage Weighted Regression}
+\paragraph{Advantage Weighted Regression}
 
 Advantage Weighted Regression (AWR) maximizes:
 
@@ -857,9 +996,7 @@ To remove dependence on $d_{\pi_\theta}$, we approximate using $d_{\pi_t}$ and i
 
 %-------------------------------------------------------------
 
-\subsection{Direct Advantage Regression}
-
-\subsubsection{Dual-Constrained Objective}
+\paragraph{Dual-Constrained Objective}
 
 DAR incorporates reference regularization:
 
@@ -995,7 +1132,7 @@ Using $\pi_t$ as the sampling policy gives the final practical objective:
   \log\pi_\theta(y\mid x)\right].
 \]
 
-\subsection{Mapping \textsc{DAR} to V-MPO}
+\paragraph{Mapping \textsc{DAR} to V-MPO}
 
 The closed-form optimal policy derived in
 Direct Advantage Regression (DAR) reduces to the V-MPO target under simple limits and
@@ -1137,6 +1274,50 @@ The per-sequence weights differ only by the base factor:
   w_i^{\mathrm{V\!-\!MPO}} \propto \exp\!\Big(\log\pi_t^{(i)} + \tfrac{1}{\eta}A^{(i)}\Big).
 \]
 
+\section{(G)TrXL - Transformers for RL}
+
+The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
+
+\subsection{Implementation}
+\begin{itemize}
+  \item \href{https://github.com/kimiyoung/transformer-xl}{github.com/kimiyoung/transformer-xl}
+  \item  \href{https://github.com/nenuadrian/DI-engine/tree/main/benchmarks}{github.com/nenuadrian/DI-engine/tree/main/benchmarks}
+\end{itemize}
+
+\subsection{GTrXL with V-MPO}
+
+The V-MPO paper \parencite{song2019vmpoonpolicymaximumposteriori} replaces the LSTM core with a Transformer-XL (TrXL) for single-task Atari, motivated by the argument that in a fully observable environment recurrent architectures enable the agent to utilise more useful representations than are available in the immediate observation. However, standard TrXL fails in RL, performing at random-policy level on benchmarks such as DMLab-30. The Gated Transformer-XL (GTrXL) \parencite{parisotto2019stabilizingtransformersreinforcementlearning} addresses this with two targeted modifications.
+
+\subsubsection{Identity Map Reordering (TrXL-I)}
+
+Layer normalisation is moved to the input of each sub-layer rather than the output, creating a direct identity path from the first layer's input to the last layer's output. At initialisation this biases the network towards a Markovian (reactive) policy and provides a clear gradient path, making the training landscape far more amenable to policy-gradient methods.
+
+\subsubsection{Gating Layers}
+
+Residual connections are replaced with learnable gating layers. The best-performing variant uses GRU-type gates:
+\begin{align*}
+  r &= \sigma(W_r y + U_r x), \\
+  z &= \sigma(W_z y + U_z x - b_g), \\
+  \hat{h} &= \tanh(W_g y + U_g (r \odot x)), \\
+  g(x,y) &= (1-z) \odot x + z \odot \hat{h},
+\end{align*}
+where $x$ is the residual input and $y$ is the sub-layer output. Initialising the bias $b_g = 2$ places each gate near the identity at the start of training, preserving the reactive-policy initialisation provided by the layer-norm reordering.
+
+\subsubsection{Why GTrXL Suits V-MPO}
+
+V-MPO is an on-policy algorithm that performs policy improvement via an EM procedure (E-step top-$k$ advantage weighting; M-step weighted maximum-likelihood with a KL trust-region). Because it collects fresh trajectories each update, the memory architecture is critical: the agent must integrate information over long horizons to form useful state representations. GTrXL provides:
+
+\begin{itemize}
+  \item \textbf{Long-range memory.} Relative position encodings inherited from TrXL let the network attend over a memory tensor spanning up to thousands of past time-steps, far beyond what an LSTM can retain.
+  \item \textbf{Stable optimisation.} The GRU gating achieves a 0\% divergence rate across hyperparameter sweeps, compared with 16\% for the plain TrXL-I variant, making it compatible with V-MPO's fixed Adam learning rate and without requiring population-based hyperparameter search.
+  \item \textbf{Robust performance on memory tasks.} On DMLab-30, GTrXL (GRU) reaches a human-normalised score of $117.6 \pm 0.3$ versus $99.3 \pm 1.0$ for LSTM, with the largest gains on memory-dependent levels and no regression on reactive ones.
+\end{itemize}
+
+\subsubsection{Architecture and Training Configuration}
+
+For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
+
+
 \section{Generalized EM Policy Improvement (GEMPI)}
 
 \paragraph{The GEMPI tuple.}
@@ -1182,7 +1363,7 @@ When all divergences are KL, i.e.\ $D_j = \mathrm{KL}$ for $j=1,\dots,m$, the so
   \pi_j(y\mid x)^{\lambda_j/\Lambda}
   \;\exp\!\Big(\frac{A(x,y)}{\Lambda}\Big),
 \end{equation}
-where $\Lambda \coloneqq \sum_{j=1}^{m}\lambda_j$ is the \emph{effective temperature} and $Z(x)$ is the partition function ensuring normalization.
+where $\Lambda \coloneqq \sum_{j=1}^{m}\lambda_j$ is the effective temperature and $Z(x)$ is the partition function ensuring normalization.
 
 \paragraph{Proof.}
 Write the Lagrangian with multiplier $\mu$ for the normalization constraint:
@@ -1245,7 +1426,7 @@ The unnormalized log-weight for sample $(x,y)$ is
   +
   \frac{1}{\Lambda}A(x,y).
 \end{equation}
-The coefficients $\lambda_j/\Lambda$ sum to one, so the first term is a convex combination of the anchor log-policies---a \emph{geometric mixture}---shifted by the scaled advantage. This reveals the E-step target as a geometry-aware interpolation between the anchors, tilted toward high-advantage sequences.
+The coefficients $\lambda_j/\Lambda$ sum to one, so the first term is a convex combination of the anchor log-policies---a geometric mixture---shifted by the scaled advantage. This reveals the E-step target as a geometry-aware interpolation between the anchors, tilted toward high-advantage sequences.
 
 \paragraph{Multi-temperature dual.}
 When the E-step is posed as a constrained problem---maximize expected advantage subject to $\mathrm{KL}(q\|\pi_j) < \varepsilon_j$ for each anchor---the Lagrangian yields the same functional form with each $\lambda_j$ replaced by an optimal dual variable $\lambda_j^\star$. The dual objective generalizes V-MPO's scalar temperature dual:
@@ -1313,7 +1494,7 @@ a self-normalised importance-weighted estimate. Three distinct approximation err
 
 \paragraph{1. Partition function bias.}
 
-$\hat Z(x)$ is a ratio estimator and is therefore \emph{biased}. By the delta method,
+$\hat Z(x)$ is a ratio estimator and is therefore biased. By the delta method,
 \[
   \mathbb{E}[\hat Z(x)] = Z(x)
   \Big(1 + O\!\big(N^{-1}\big)\big),
@@ -1506,7 +1687,7 @@ The reduction derived in the DAR-to-V-MPO mapping above is now a direct conseque
 % ============================================================
 \subsection{The Role of Divergence Choice}
 
-The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with other members of the $f$-divergence family changes the form of the advantage tilting: for KL the tilting is \emph{exponential} in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields \emph{linear} tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
+The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with other members of the $f$-divergence family changes the form of the advantage tilting: for KL the tilting is exponential in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields linear tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
 
 \medskip
 \begin{center}
@@ -1568,16 +1749,107 @@ Adding a KL trust-region constraint to DAR's currently unconstrained M-step crea
 \paragraph{Top-$k$ DAR.}
 Applying V-MPO's top-$k$ filtering to the DAR E-step. Currently DAR uses all samples; restricting to the top-$k$ by advantage before computing the geometric mixture weights could improve sample efficiency by focusing the M-step on demonstrably high-quality sequences.
 
+% ============================================================
+\subsection{Worked Instantiation: LLM V-MPO}
+\label{sec:vmpo_llm_gempi}
+
+This subsection instantiates GEMPI for online RL alignment of autoregressive transformers. For prompts $x \sim \mathcal{D}_x$, the policy $\pi_\theta(y\mid x)$ generates full responses $y=(y_1,\dots,y_T)$ and receives sequence-level rewards from a preference/reward model. We use sequence-level advantages
+\[
+  A^{(i)} = r^{(i)} - V_\phi(x^{(i)}),
+\]
+and perform EM-style policy improvement with V-MPO structure.
+
+\paragraph{GEMPI tuple.}
+The LLM variant corresponds to
+\[
+  \mathcal{G}_{\mathrm{LLM\text{-}V\!-\!MPO}}
+  =
+  \big(
+    \{\mathrm{KL}\},
+    \{\pi_t\},
+    \{\eta\},
+    \text{dual-adaptive},
+    \text{top-}k,
+    \mathrm{KL},
+    \varepsilon_\alpha
+  \big),
+\]
+that is, a single KL anchor $\pi_t$ in the E-step, dual adaptation of $\eta$, top-$k$ support filtering, and an optional KL trust region in the M-step.
+
+\paragraph{Sequence-level E-step for transformer rollouts.}
+Given a rollout batch
+\[
+  \mathcal{B}=\{(x^{(i)},y^{(i)},A^{(i)})\}_{i=1}^{N},
+\]
+and selected subset $S\subset\{1,\dots,N\}$, the non-parametric E-step target is
+\begin{equation}
+  \label{eq:seq_estep_weights}
+  \psi(i) \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big).
+\end{equation}
+After normalisation, these become per-sequence weights $w_i$ used by the M-step.
+
+The temperature is adapted through the dual objective
+\[
+  \mathcal{L}_\eta(\eta)
+  =
+  \eta\,\varepsilon_\eta
+  +
+  \eta\log\!\Big(\frac{1}{k}\sum_{i\in S}\exp\!\Big(\frac{A^{(i)}}{\eta}\Big)\Big),
+\]
+with $k=|S|$. A numerically stable log-sum-exp form is
+\begin{equation}
+  \label{eq:seq_logsumexp}
+  g(\eta)
+  =
+  m + \log\!\Big(\frac{1}{k}\sum_{i\in S}\exp(u_i-m)\Big),
+  \qquad
+  u_i=\frac{A^{(i)}}{\eta},\quad m=\max_{i\in S}u_i.
+\end{equation}
+
+In practice, $S$ is chosen as top-$k$ by detached scaled advantage:
+\[
+  u_i^{\mathrm{det}} = \frac{A^{(i)}}{\eta_{\mathrm{det}}}, \qquad
+  k = \max\!\big(1,\lfloor \rho N\rfloor\big), \qquad
+  S = \operatorname{Top-}k\!\left(u_i^{\mathrm{det}}\right).
+\]
+
+\paragraph{M-step as weighted teacher-forced transformer training.}
+The parametric projection is weighted teacher-forced cross-entropy:
+\begin{equation}
+  \label{eq:seq_weighted_mstep}
+  \mathcal{L}_\pi(\theta)
+  =
+  -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
+  \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
+\end{equation}
+
+This keeps the update in standard transformer training form (teacher forcing over tokens) while importing RL information through detached sequence weights $w_i$. When desired, a KL trust-region term to $\pi_t$ is added exactly as in the V-MPO M-step.
+
+\paragraph{Transformer-specific practicalities.}
+\textit{Sequence-level credit assignment.} Rewards are naturally sequence-level in LLM alignment; the EM weighting avoids unstable token-wise importance ratios.
+\textit{Long-context batching.} Variable-length prompts and completions require masking and packed batches; the weighted M-step remains unchanged under standard attention masks.
+\textit{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
+\textit{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
+
+\paragraph{Dropout in the LLM V-MPO M-step.}
+Because E-step weights are detached from current parameters, the M-step with dropout mask sampling remains
+\[
+  \nabla_\theta \mathcal{L}_\pi
+  =
+  -\sum_{i\in S} w_i \sum_t
+  \nabla_\theta \log \pi_\theta^{(\mathrm{mask})}\!\big(y_t^{(i)}\mid y_{<t}^{(i)},x^{(i)}\big),
+\]
+which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
+
 \section{Three Paradigms for LLM Alignment}
 \label{sec:three_paradigms}
 
-The methods derived in this paper, together with PPO, fall into three structurally distinct paradigms for aligning language models. Making these paradigms explicit clarifies the design space and motivates the paper's focus on EM-based methods.
 
-\subsection{Paradigm 1: Policy Gradient (PPO)}
+\paragraph{Paradigm 1: Policy Gradient (PPO)}
 
 The gradient signal is $\nabla_\theta r_t(\theta)\,A_t$---direct parameter-space ascent on the expected return. The importance-sampling ratio $r_t(\theta) = \pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$ couples the gradient to the current parameters. Trust regions are enforced via clipping (a heuristic approximation to a KL constraint). In the Policy Mirror Descent (PMD) framework \parencite{lan2023policymirrordescentrl, tomar2022mdpo}, PPO corresponds to the negative-entropy mirror map. The method is online and on-policy: fresh rollouts are required for each update.
 
-\subsection{Paradigm 2: Preference MLE (DPO)}
+\paragraph{Paradigm 2: Preference MLE (DPO)}
 
 The gradient signal is a weighted cross-entropy on preference pairs:
 \[
@@ -1588,11 +1860,10 @@ The gradient signal is a weighted cross-entropy on preference pairs:
 \]
 There is no explicit reward model, no E-step, and no importance ratios. The method operates offline on a fixed preference dataset. The implicit reward $\hat{r}_\theta = \beta\log(\pi_\theta/\pi_{\mathrm{ref}})$ substitutes for explicit reward modelling. As derived in Section~\ref{sec:dpo}, DPO can be viewed as ``collapsed EM'': the Boltzmann optimal policy is substituted analytically into Bradley--Terry, bypassing the E-step entirely.
 
-\subsection{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}
+\paragraph{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}
 
 The update is two-phase: an E-step constructs a non-parametric target $q^\star$, and an M-step projects to $\pi_\theta$ via weighted MLE. The gradient signal is $w_i\nabla_\theta\log\pi_\theta(y)$, where the weights $w_i$ are detached from the current parameters $\theta$. Explicit reward or advantage signals are required, and rollouts are typically generated online. Trust regions operate in the E-step (via adaptive temperature or KL constraints on $q^\star$) and/or the M-step (via KL penalties on $\pi_\theta$). The GEMPI tuple parameterises the full space of choices: divergences, anchors, temperature mechanism, filtering, and M-step constraint.
 
-\subsection{Comparison}
 
 \medskip
 \begin{center}
@@ -1640,7 +1911,6 @@ The update is two-phase: an E-step constructs a non-parametric target $q^\star$,
 \end{center}
 \medskip
 
-\subsection{Key Structural Differences}
 
 \paragraph{Parameter space vs.\ distribution space.}
 PPO optimises in parameter space via noisy gradient steps; GEMPI optimises in distribution space first (E-step), then projects to the parametric family (M-step). This two-phase structure is what yields detached weights and, consequently, dropout compatibility.
@@ -1653,148 +1923,6 @@ Like DPO, it derives a closed-form optimal policy from a KL-regularised objectiv
 
 \paragraph{EM-based methods.}
 Offer the most flexible design space: any reward signal can be used, temperature can be adapted online via dual optimisation, multiple anchors can regularise the target distribution, and the M-step inherits dropout compatibility from its weighted-MLE structure. The GEMPI framework makes these axes of variation explicit and enables principled construction of new methods by selecting from the tuple $\mathcal{G}$. Policy-gradient and preference-MLE methods are important baselines and limiting cases, but neither offers the same combinatorial flexibility.
-
-\section{V-MPO for LLM RL within GEMPI}
-\label{sec:vmpo_llm_gempi}
-
-This section instantiates GEMPI for online RL alignment of autoregressive transformers. For prompts $x \sim \mathcal{D}_x$, the policy $\pi_\theta(y\mid x)$ generates full responses $y=(y_1,\dots,y_T)$ and receives sequence-level rewards from a preference/reward model. We use sequence-level advantages
-\[
-  A^{(i)} = r^{(i)} - V_\phi(x^{(i)}),
-\]
-and perform EM-style policy improvement with V-MPO structure.
-
-\subsection{GEMPI Instantiation for LLM V-MPO}
-
-The LLM variant corresponds to the GEMPI tuple
-\[
-  \mathcal{G}_{\mathrm{LLM\text{-}V\!-\!MPO}}
-  =
-  \big(
-    \{\mathrm{KL}\},
-    \{\pi_t\},
-    \{\eta\},
-    \text{dual-adaptive},
-    \text{top-}k,
-    \mathrm{KL},
-    \varepsilon_\alpha
-  \big),
-\]
-that is, a single KL anchor $\pi_t$ in the E-step, dual adaptation of $\eta$, top-$k$ support filtering, and an optional KL trust region in the M-step.
-
-\subsection{Sequence-Level E-Step for Transformer Rollouts}
-
-Given a rollout batch
-\[
-  \mathcal{B}=\{(x^{(i)},y^{(i)},A^{(i)})\}_{i=1}^{N},
-\]
-and selected subset $S\subset\{1,\dots,N\}$, the non-parametric E-step target is
-\begin{equation}
-  \label{eq:seq_estep_weights}
-  \psi(i) \propto \exp\!\Big(\frac{A^{(i)}}{\eta}\Big).
-\end{equation}
-After normalisation, these become per-sequence weights $w_i$ used by the M-step.
-
-The temperature is adapted through the dual objective
-\[
-  \mathcal{L}_\eta(\eta)
-  =
-  \eta\,\varepsilon_\eta
-  +
-  \eta\log\!\Big(\frac{1}{k}\sum_{i\in S}\exp\!\Big(\frac{A^{(i)}}{\eta}\Big)\Big),
-\]
-with $k=|S|$. A numerically stable log-sum-exp form is
-\begin{equation}
-  \label{eq:seq_logsumexp}
-  g(\eta)
-  =
-  m + \log\!\Big(\frac{1}{k}\sum_{i\in S}\exp(u_i-m)\Big),
-  \qquad
-  u_i=\frac{A^{(i)}}{\eta},\quad m=\max_{i\in S}u_i.
-\end{equation}
-
-In practice, $S$ is chosen as top-$k$ by detached scaled advantage:
-\[
-  u_i^{\mathrm{det}} = \frac{A^{(i)}}{\eta_{\mathrm{det}}}, \qquad
-  k = \max\!\big(1,\lfloor \rho N\rfloor\big), \qquad
-  S = \operatorname{Top-}k\!\left(u_i^{\mathrm{det}}\right).
-\]
-
-\subsection{M-Step as Weighted Teacher-Forced Transformer Training}
-
-The parametric projection is weighted teacher-forced cross-entropy:
-\begin{equation}
-  \label{eq:seq_weighted_mstep}
-  \mathcal{L}_\pi(\theta)
-  =
-  -\sum_{i\in S} w_i \sum_{t=1}^{T_i}
-  \log \pi_\theta\!\big(y_t^{(i)} \mid y_{<t}^{(i)}, x^{(i)}\big).
-\end{equation}
-
-This keeps the update in standard transformer training form (teacher forcing over tokens) while importing RL information through detached sequence weights $w_i$. When desired, a KL trust-region term to $\pi_t$ is added exactly as in the V-MPO M-step.
-
-\subsection{Transformer-Specific Practicalities}
-
-\paragraph{Sequence-level credit assignment.} Rewards are naturally sequence-level in LLM alignment; the EM weighting avoids unstable token-wise importance ratios.
-
-\paragraph{Long-context batching.} Variable-length prompts and completions require masking and packed batches; the weighted M-step remains unchanged under standard attention masks.
-
-\paragraph{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
-
-\paragraph{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
-
-\subsection{Dropout in the LLM V-MPO M-Step}
-
-Because E-step weights are detached from current parameters, the M-step with dropout mask sampling remains
-\[
-  \nabla_\theta \mathcal{L}_\pi
-  =
-  -\sum_{i\in S} w_i \sum_t
-  \nabla_\theta \log \pi_\theta^{(\mathrm{mask})}\!\big(y_t^{(i)}\mid y_{<t}^{(i)},x^{(i)}\big),
-\]
-which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
-
-\section{Transformers - TrXL}
-
-The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
-
-\subsection{Implementation}
-\begin{itemize}
-  \item \href{https://github.com/kimiyoung/transformer-xl}{github.com/kimiyoung/transformer-xl}
-  \item  \href{https://github.com/nenuadrian/DI-engine/tree/main/benchmarks}{github.com/nenuadrian/DI-engine/tree/main/benchmarks}
-\end{itemize}
-
-\subsection{GTrXL with V-MPO}
-
-The V-MPO paper \parencite{song2019vmpoonpolicymaximumposteriori} replaces the LSTM core with a Transformer-XL (TrXL) for single-task Atari, motivated by the argument that in a fully observable environment recurrent architectures enable the agent to utilise more useful representations than are available in the immediate observation. However, standard TrXL fails in RL, performing at random-policy level on benchmarks such as DMLab-30. The Gated Transformer-XL (GTrXL) \parencite{parisotto2019stabilizingtransformersreinforcementlearning} addresses this with two targeted modifications.
-
-\subsubsection{Identity Map Reordering (TrXL-I)}
-
-Layer normalisation is moved to the \emph{input} of each sub-layer rather than the output, creating a direct identity path from the first layer's input to the last layer's output. At initialisation this biases the network towards a Markovian (reactive) policy and provides a clear gradient path, making the training landscape far more amenable to policy-gradient methods.
-
-\subsubsection{Gating Layers}
-
-Residual connections are replaced with learnable gating layers. The best-performing variant uses GRU-type gates:
-\begin{align*}
-  r &= \sigma(W_r y + U_r x), \\
-  z &= \sigma(W_z y + U_z x - b_g), \\
-  \hat{h} &= \tanh(W_g y + U_g (r \odot x)), \\
-  g(x,y) &= (1-z) \odot x + z \odot \hat{h},
-\end{align*}
-where $x$ is the residual input and $y$ is the sub-layer output. Initialising the bias $b_g = 2$ places each gate near the identity at the start of training, preserving the reactive-policy initialisation provided by the layer-norm reordering.
-
-\subsubsection{Why GTrXL Suits V-MPO}
-
-V-MPO is an on-policy algorithm that performs policy improvement via an EM procedure (E-step top-$k$ advantage weighting; M-step weighted maximum-likelihood with a KL trust-region). Because it collects fresh trajectories each update, the memory architecture is critical: the agent must integrate information over long horizons to form useful state representations. GTrXL provides:
-
-\begin{itemize}
-  \item \textbf{Long-range memory.} Relative position encodings inherited from TrXL let the network attend over a memory tensor spanning up to thousands of past time-steps, far beyond what an LSTM can retain.
-  \item \textbf{Stable optimisation.} The GRU gating achieves a 0\% divergence rate across hyperparameter sweeps, compared with 16\% for the plain TrXL-I variant, making it compatible with V-MPO's fixed Adam learning rate and without requiring population-based hyperparameter search.
-  \item \textbf{Robust performance on memory tasks.} On DMLab-30, GTrXL (GRU) reaches a human-normalised score of $117.6 \pm 0.3$ versus $99.3 \pm 1.0$ for LSTM, with the largest gains on memory-dependent levels and no regression on reactive ones.
-\end{itemize}
-
-\subsubsection{Architecture and Training Configuration}
-
-For single-task Atari with TrXL, the shared policy-value network consists of a convolutional ResNet backbone feeding into the transformer core, with previous reward and action as additional inputs. Representative TrXL hyperparameters used in V-MPO experiments: embedding size 256, 8 layers, 4 attention heads, key/value size 32, MLP size 512, unroll length 63, batch size 128. The value and policy heads branch from the transformer output; parameters are updated jointly under the combined V-MPO objective $\mathcal{L}(\phi,\theta,\eta,\alpha)$ using Adam at a fixed learning rate of $10^{-4}$.
 
 \section{References}
 

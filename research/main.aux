@@ -6,152 +6,78 @@
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{3}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {2}Research Questions}{3}{section.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {3}Preliminaries}{3}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Maximum Likelihood and Maximum a Posteriori}{3}{section*.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{EM Lower Bound}{3}{section*.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{EM Iterations}{4}{section*.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{EM-Style Policy Iteration vs Policy Gradients}{4}{section*.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{EM-style policy iteration (distribution-space then projection).}{4}{section*.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}PPO}{4}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Policy Gradient Foundation}{5}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Clipped Surrogate Objective}{5}{section*.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Value Function and Entropy}{5}{section*.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Full Objective}{5}{section*.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Generalised Advantage Estimation (GAE)}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Maximum Likelihood Estimation and Maximum a Posteriori}{3}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{EM Lower Bound -- ELBO}{3}{section*.3}\protected@file@percent }
 \abx@aux@cite{0}{song2019vmpoonpolicymaximumposteriori}
 \abx@aux@segm{0}{0}{song2019vmpoonpolicymaximumposteriori}
-\@writefile{toc}{\contentsline {subsection}{Sequence-Level PPO (LLM Case)}{6}{section*.12}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}V-MPO}{6}{section.5}\protected@file@percent }
-\abx@aux@page{1}{6}
-\@writefile{toc}{\contentsline {subsection}{Implementation}{6}{section*.13}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Policy Evaluation (Critic Update)}{6}{section*.14}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Policy Improvement via EM}{6}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{EM Iterations}{4}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{EM Policy Iteration vs Policy Gradients}{4}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}V-MPO: Maximum a Posteriori Policy Optimization}{4}{section.4}\protected@file@percent }
+\abx@aux@page{1}{4}
+\@writefile{toc}{\contentsline {paragraph}{Policy Evaluation (Critic Update).}{5}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Policy Improvement via EM}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{E-Step: Non-Parametric Policy Construction}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{M-Step: Parametric Projection with KL Constraint}{6}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}PPO: Proximal Policy Optimization}{6}{section.5}\protected@file@percent }
 \abx@aux@cite{0}{srivastava2014dropout}
 \abx@aux@segm{0}{0}{srivastava2014dropout}
-\@writefile{toc}{\contentsline {subsection}{E-Step: Non-Parametric Policy Construction}{7}{section*.16}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{M-Step: Parametric Projection with KL Constraint}{7}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Full Objective}{7}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Sequence-Level PPO (LLM Case)}{7}{section*.12}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {6}The Case for Dropout}{7}{section.6}\protected@file@percent }
 \newlabel{sec:dropout_case}{{6}{7}{The Case for Dropout}{section.6}{}}
 \abx@aux@page{2}{7}
-\@writefile{toc}{\contentsline {subsection}{Why PPO Disables Dropout}{8}{section*.19}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Problem 1: stochastic numerator.}{8}{section*.20}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Problem 2: inconsistent denominator.}{8}{section*.21}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Problem 3: KL penalty corruption.}{8}{section*.22}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{8}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Why PPO Disables Dropout}{8}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Problem 1: stochastic numerator.}{8}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Problem 2: inconsistent denominator.}{8}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Problem 3: KL penalty corruption.}{8}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Why V-MPO / EM-Style Methods Are Dropout-Compatible}{8}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{8}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{M-step: standard cross-entropy.}{8}{section*.19}\protected@file@percent }
 \abx@aux@cite{0}{rafailov2023dpo}
 \abx@aux@segm{0}{0}{rafailov2023dpo}
-\@writefile{toc}{\contentsline {paragraph}{E-step: weights from advantages, not ratios.}{9}{section*.24}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{M-step: standard cross-entropy.}{9}{section*.25}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{No ratio, no conflict.}{9}{section*.26}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Practical Implications}{9}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{No ratio, no conflict.}{9}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Practical Implications}{9}{section*.21}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {7}DPO: Direct Preference Optimization}{9}{section.7}\protected@file@percent }
 \newlabel{sec:dpo}{{7}{9}{DPO: Direct Preference Optimization}{section.7}{}}
 \abx@aux@page{3}{9}
-\@writefile{toc}{\contentsline {subsection}{Derivation from the KL-Regularised Objective}{9}{section*.28}\protected@file@percent }
-\newlabel{eq:dpo_rlhf}{{2}{9}{Derivation from the KL-Regularised Objective}{equation.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{Closed-form optimal policy.}{10}{section*.29}\protected@file@percent }
-\newlabel{eq:dpo_optpolicy}{{3}{10}{Closed-form optimal policy}{equation.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{Reward reparameterisation.}{10}{section*.30}\protected@file@percent }
-\newlabel{eq:dpo_reward_reparam}{{4}{10}{Reward reparameterisation}{equation.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{Bradley--Terry preference model.}{10}{section*.31}\protected@file@percent }
+\newlabel{eq:dpo_rlhf}{{2}{9}{DPO: Direct Preference Optimization}{equation.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Closed-form optimal policy.}{9}{section*.22}\protected@file@percent }
+\newlabel{eq:dpo_optpolicy}{{3}{9}{Closed-form optimal policy}{equation.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Reward reparameterisation.}{9}{section*.23}\protected@file@percent }
+\newlabel{eq:dpo_reward_reparam}{{4}{9}{Reward reparameterisation}{equation.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Bradley--Terry preference model.}{10}{section*.24}\protected@file@percent }
 \newlabel{eq:dpo_bt_sub}{{5}{10}{Bradley--Terry preference model}{equation.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{The DPO loss.}{10}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The DPO loss.}{10}{section*.25}\protected@file@percent }
 \newlabel{eq:dpo_loss}{{6}{10}{The DPO loss}{equation.6}{}}
-\@writefile{toc}{\contentsline {subsection}{DPO as Preference MLE}{10}{section*.33}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{What DPO does not require.}{10}{section*.34}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{DPO and the EM Framework}{10}{section*.35}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Shared E-step form.}{10}{section*.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DPO as Preference MLE}{10}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DPO and the EM Framework}{10}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The ``collapsed EM'' interpretation.}{10}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{What is lost.}{10}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dropout compatibility.}{11}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}AWR: Advantage-Weighted Regression}{11}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Expected improvement objective.}{11}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Constrained policy search (primal).}{11}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Lagrangian and stationarity.}{11}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Projection to parameterised policy (regression step).}{11}{section*.35}\protected@file@percent }
 \abx@aux@cite{0}{he2025directadvantageregressionaligning}
 \abx@aux@segm{0}{0}{he2025directadvantageregressionaligning}
-\@writefile{toc}{\contentsline {paragraph}{The ``collapsed EM'' interpretation.}{11}{section*.37}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{What is lost.}{11}{section*.38}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Dropout compatibility.}{11}{section*.39}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8}Direct Advantage Regression: Aligning LLMs with Online AI Reward}{11}{section.8}\protected@file@percent }
-\abx@aux@page{4}{11}
-\@writefile{toc}{\contentsline {subsection}{RL Fine-tuning}{11}{section*.40}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Advantage Weighted Regression}{11}{section*.41}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Direct Advantage Regression}{12}{section*.42}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{Dual-Constrained Objective}{12}{section*.43}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Theorem.}{12}{section*.44}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Proof.}{12}{section*.45}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Mapping \textsc  {DAR} to V-MPO}{13}{section*.46}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DAR closed-form target.}{13}{section*.47}\protected@file@percent }
-\newlabel{eq:dar_opt}{{8}{13}{DAR closed-form target}{equation.8}{}}
-\newlabel{eq:dar_log}{{9}{13}{DAR closed-form target}{equation.9}{}}
-\@writefile{toc}{\contentsline {paragraph}{V-MPO canonical target.}{13}{section*.48}\protected@file@percent }
-\newlabel{eq:vmpo_form}{{10}{13}{V-MPO canonical target}{equation.10}{}}
-\@writefile{toc}{\contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{13}{section*.49}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{14}{section*.50}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{14}{section*.51}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Practical consequences and distinctions.}{14}{section*.52}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Bridge to the EM.}{14}{section*.53}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Sequence-level weighted loss (common form).}{14}{section*.54}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Generalized EM Policy Improvement (GEMPI)}{15}{section.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{The GEMPI tuple.}{15}{section*.55}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{General Regularized E-Step}{15}{section*.56}\protected@file@percent }
-\newlabel{eq:gempi_estep}{{11}{15}{General Regularized E-Step}{equation.11}{}}
-\@writefile{toc}{\contentsline {paragraph}{Theorem (Multi-KL Closed Form).}{15}{section*.57}\protected@file@percent }
-\newlabel{eq:gempi_closedform}{{12}{15}{Theorem (Multi-KL Closed Form)}{equation.12}{}}
-\@writefile{toc}{\contentsline {paragraph}{Proof.}{15}{section*.58}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Log-space form.}{15}{section*.59}\protected@file@percent }
-\newlabel{eq:gempi_logweight}{{13}{15}{Log-space form}{equation.13}{}}
-\@writefile{toc}{\contentsline {paragraph}{Multi-temperature dual.}{16}{section*.60}\protected@file@percent }
-\newlabel{eq:gempi_dual}{{14}{16}{Multi-temperature dual}{equation.14}{}}
-\@writefile{toc}{\contentsline {subsection}{General M-Step}{16}{section*.61}\protected@file@percent }
-\newlabel{eq:gempi_mstep}{{15}{16}{General M-Step}{equation.15}{}}
-\@writefile{toc}{\contentsline {paragraph}{Importance-weighted practical form.}{16}{section*.62}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{1. Partition function bias.}{16}{section*.63}\protected@file@percent }
-\abx@aux@cite{0}{Hesterberg1995}
-\abx@aux@segm{0}{0}{Hesterberg1995}
-\abx@aux@cite{0}{mcbook}
-\abx@aux@segm{0}{0}{mcbook}
-\@writefile{toc}{\contentsline {paragraph}{2. Effective sample size and weight degeneracy.}{17}{section*.64}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{3. M-step gradient bias under finite ESS.}{17}{section*.65}\protected@file@percent }
-\abx@aux@page{5}{17}
-\abx@aux@page{6}{17}
-\@writefile{toc}{\contentsline {paragraph}{Connection to GEMPI stabilisers.}{17}{section*.66}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Remark on the population vs.\ sample limit.}{17}{section*.67}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Recovering Existing Methods}{17}{section*.68}\protected@file@percent }
-\abx@aux@cite{0}{peng2019advantageweightedregression}
-\abx@aux@segm{0}{0}{peng2019advantageweightedregression}
-\@writefile{toc}{\contentsline {paragraph}{V-MPO.}{18}{section*.69}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DAR.}{18}{section*.70}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{AWR.}{18}{section*.71}\protected@file@percent }
-\abx@aux@page{7}{18}
-\@writefile{toc}{\contentsline {paragraph}{SFT.}{18}{section*.72}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DPO (collapsed).}{18}{section*.73}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DAR$\rightarrow $V-MPO as corollary.}{18}{section*.74}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{The Role of Divergence Choice}{18}{section*.75}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Stability Properties as Structural Consequences}{19}{section*.76}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Adaptive temperature.}{19}{section*.77}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Trust regions in the M-step.}{19}{section*.78}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Top-$k$ filtering.}{19}{section*.79}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Dropout compatibility.}{19}{section*.80}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Novel Instantiations}{19}{section*.81}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Adaptive-Temperature DAR (AT-DAR).}{19}{section*.82}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DAR with M-step Trust Region (DAR-TR).}{19}{section*.83}\protected@file@percent }
-\abx@aux@cite{0}{lan2023policymirrordescentrl}
-\abx@aux@segm{0}{0}{lan2023policymirrordescentrl}
-\abx@aux@cite{0}{tomar2022mdpo}
-\abx@aux@segm{0}{0}{tomar2022mdpo}
-\@writefile{toc}{\contentsline {paragraph}{Top-$k$ DAR.}{20}{section*.84}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10}Three Paradigms for LLM Alignment}{20}{section.10}\protected@file@percent }
-\newlabel{sec:three_paradigms}{{10}{20}{Three Paradigms for LLM Alignment}{section.10}{}}
-\@writefile{toc}{\contentsline {subsection}{Paradigm 1: Policy Gradient (PPO)}{20}{section*.85}\protected@file@percent }
-\abx@aux@page{8}{20}
-\abx@aux@page{9}{20}
-\@writefile{toc}{\contentsline {subsection}{Paradigm 2: Preference MLE (DPO)}{20}{section*.86}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}{20}{section*.87}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Comparison}{20}{section*.88}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Key Structural Differences}{21}{section*.89}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Parameter space vs.\ distribution space.}{21}{section*.90}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DPO as collapsed EM.}{21}{section*.91}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{DAR as a bridge.}{21}{section*.92}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{EM-based methods.}{21}{section*.93}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {11}V-MPO for LLM RL within GEMPI}{21}{section.11}\protected@file@percent }
-\newlabel{sec:vmpo_llm_gempi}{{11}{21}{V-MPO for LLM RL within GEMPI}{section.11}{}}
-\@writefile{toc}{\contentsline {subsection}{GEMPI Instantiation for LLM V-MPO}{21}{section*.94}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Sequence-Level E-Step for Transformer Rollouts}{21}{section*.95}\protected@file@percent }
-\newlabel{eq:seq_estep_weights}{{16}{21}{Sequence-Level E-Step for Transformer Rollouts}{equation.16}{}}
+\@writefile{toc}{\contentsline {paragraph}{Value update.}{12}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}DAR: Direct Advantage Regression}{12}{section.9}\protected@file@percent }
+\abx@aux@page{4}{12}
+\@writefile{toc}{\contentsline {paragraph}{RL Fine-tuning}{12}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Advantage Weighted Regression}{12}{section*.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dual-Constrained Objective}{12}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Theorem.}{12}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Proof.}{13}{section*.43}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mapping \textsc  {DAR} to V-MPO}{13}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DAR closed-form target.}{14}{section*.45}\protected@file@percent }
+\newlabel{eq:dar_opt}{{8}{14}{DAR closed-form target}{equation.8}{}}
+\newlabel{eq:dar_log}{{9}{14}{DAR closed-form target}{equation.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{V-MPO canonical target.}{14}{section*.46}\protected@file@percent }
+\newlabel{eq:vmpo_form}{{10}{14}{V-MPO canonical target}{equation.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{14}{section*.47}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{14}{section*.48}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{14}{section*.49}\protected@file@percent }
 \abx@aux@cite{0}{song2019vmpoonpolicymaximumposteriori}
 \abx@aux@segm{0}{0}{song2019vmpoonpolicymaximumposteriori}
 \abx@aux@cite{0}{dai2019transformerxlattentivelanguagemodels}
@@ -162,27 +88,91 @@
 \abx@aux@segm{0}{0}{song2019vmpoonpolicymaximumposteriori}
 \abx@aux@cite{0}{parisotto2019stabilizingtransformersreinforcementlearning}
 \abx@aux@segm{0}{0}{parisotto2019stabilizingtransformersreinforcementlearning}
-\newlabel{eq:seq_logsumexp}{{17}{22}{Sequence-Level E-Step for Transformer Rollouts}{equation.17}{}}
-\@writefile{toc}{\contentsline {subsection}{M-Step as Weighted Teacher-Forced Transformer Training}{22}{section*.96}\protected@file@percent }
-\newlabel{eq:seq_weighted_mstep}{{18}{22}{M-Step as Weighted Teacher-Forced Transformer Training}{equation.18}{}}
-\@writefile{toc}{\contentsline {subsection}{Transformer-Specific Practicalities}{22}{section*.97}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Sequence-level credit assignment.}{22}{section*.98}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Long-context batching.}{22}{section*.99}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Large-vocabulary stability.}{22}{section*.100}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Distributed training compatibility.}{22}{section*.101}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{Dropout in the LLM V-MPO M-Step}{22}{section*.102}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {12}Transformers - TrXL}{22}{section.12}\protected@file@percent }
-\abx@aux@page{10}{22}
-\abx@aux@page{11}{22}
-\abx@aux@page{12}{22}
-\@writefile{toc}{\contentsline {subsection}{Implementation}{22}{section*.103}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{GTrXL with V-MPO}{23}{section*.104}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Practical consequences and distinctions.}{15}{section*.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Bridge to the EM.}{15}{section*.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Sequence-level weighted loss (common form).}{15}{section*.52}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}(G)TrXL - Transformers for RL}{15}{section.10}\protected@file@percent }
+\abx@aux@page{5}{15}
+\abx@aux@page{6}{15}
+\abx@aux@page{7}{15}
+\@writefile{toc}{\contentsline {subsection}{Implementation}{15}{section*.53}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{GTrXL with V-MPO}{15}{section*.54}\protected@file@percent }
+\abx@aux@page{8}{15}
+\abx@aux@page{9}{15}
+\@writefile{toc}{\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{15}{section*.55}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Gating Layers}{16}{section*.56}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{16}{section*.57}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{Architecture and Training Configuration}{16}{section*.58}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Generalized EM Policy Improvement (GEMPI)}{16}{section.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The GEMPI tuple.}{16}{section*.59}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{General Regularized E-Step}{17}{section*.60}\protected@file@percent }
+\newlabel{eq:gempi_estep}{{11}{17}{General Regularized E-Step}{equation.11}{}}
+\@writefile{toc}{\contentsline {paragraph}{Theorem (Multi-KL Closed Form).}{17}{section*.61}\protected@file@percent }
+\newlabel{eq:gempi_closedform}{{12}{17}{Theorem (Multi-KL Closed Form)}{equation.12}{}}
+\@writefile{toc}{\contentsline {paragraph}{Proof.}{17}{section*.62}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Log-space form.}{17}{section*.63}\protected@file@percent }
+\newlabel{eq:gempi_logweight}{{13}{17}{Log-space form}{equation.13}{}}
+\@writefile{toc}{\contentsline {paragraph}{Multi-temperature dual.}{17}{section*.64}\protected@file@percent }
+\newlabel{eq:gempi_dual}{{14}{17}{Multi-temperature dual}{equation.14}{}}
+\@writefile{toc}{\contentsline {subsection}{General M-Step}{18}{section*.65}\protected@file@percent }
+\newlabel{eq:gempi_mstep}{{15}{18}{General M-Step}{equation.15}{}}
+\@writefile{toc}{\contentsline {paragraph}{Importance-weighted practical form.}{18}{section*.66}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{1. Partition function bias.}{18}{section*.67}\protected@file@percent }
+\abx@aux@cite{0}{Hesterberg1995}
+\abx@aux@segm{0}{0}{Hesterberg1995}
+\abx@aux@cite{0}{mcbook}
+\abx@aux@segm{0}{0}{mcbook}
+\@writefile{toc}{\contentsline {paragraph}{2. Effective sample size and weight degeneracy.}{19}{section*.68}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. M-step gradient bias under finite ESS.}{19}{section*.69}\protected@file@percent }
+\abx@aux@page{10}{19}
+\abx@aux@page{11}{19}
+\@writefile{toc}{\contentsline {paragraph}{Connection to GEMPI stabilisers.}{19}{section*.70}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Remark on the population vs.\ sample limit.}{19}{section*.71}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Recovering Existing Methods}{19}{section*.72}\protected@file@percent }
+\abx@aux@cite{0}{peng2019advantageweightedregression}
+\abx@aux@segm{0}{0}{peng2019advantageweightedregression}
+\@writefile{toc}{\contentsline {paragraph}{V-MPO.}{20}{section*.73}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DAR.}{20}{section*.74}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{AWR.}{20}{section*.75}\protected@file@percent }
+\abx@aux@page{12}{20}
+\@writefile{toc}{\contentsline {paragraph}{SFT.}{20}{section*.76}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DPO (collapsed).}{20}{section*.77}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DAR$\rightarrow $V-MPO as corollary.}{20}{section*.78}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{The Role of Divergence Choice}{20}{section*.79}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Stability Properties as Structural Consequences}{21}{section*.80}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adaptive temperature.}{21}{section*.81}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trust regions in the M-step.}{21}{section*.82}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Top-$k$ filtering.}{21}{section*.83}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dropout compatibility.}{21}{section*.84}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Novel Instantiations}{21}{section*.85}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adaptive-Temperature DAR (AT-DAR).}{21}{section*.86}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DAR with M-step Trust Region (DAR-TR).}{21}{section*.87}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Top-$k$ DAR.}{22}{section*.88}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Worked Instantiation: LLM V-MPO}{22}{section*.89}\protected@file@percent }
+\newlabel{sec:vmpo_llm_gempi}{{11}{22}{Worked Instantiation: LLM V-MPO}{section*.89}{}}
+\@writefile{toc}{\contentsline {paragraph}{GEMPI tuple.}{22}{section*.90}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Sequence-level E-step for transformer rollouts.}{22}{section*.91}\protected@file@percent }
+\newlabel{eq:seq_estep_weights}{{16}{22}{Sequence-level E-step for transformer rollouts}{equation.16}{}}
+\newlabel{eq:seq_logsumexp}{{17}{22}{Sequence-level E-step for transformer rollouts}{equation.17}{}}
+\@writefile{toc}{\contentsline {paragraph}{M-step as weighted teacher-forced transformer training.}{22}{section*.92}\protected@file@percent }
+\newlabel{eq:seq_weighted_mstep}{{18}{22}{M-step as weighted teacher-forced transformer training}{equation.18}{}}
+\abx@aux@cite{0}{lan2023policymirrordescentrl}
+\abx@aux@segm{0}{0}{lan2023policymirrordescentrl}
+\abx@aux@cite{0}{tomar2022mdpo}
+\abx@aux@segm{0}{0}{tomar2022mdpo}
+\@writefile{toc}{\contentsline {paragraph}{Transformer-specific practicalities.}{23}{section*.93}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dropout in the LLM V-MPO M-step.}{23}{section*.94}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12}Three Paradigms for LLM Alignment}{23}{section.12}\protected@file@percent }
+\newlabel{sec:three_paradigms}{{12}{23}{Three Paradigms for LLM Alignment}{section.12}{}}
+\@writefile{toc}{\contentsline {paragraph}{Paradigm 1: Policy Gradient (PPO)}{23}{section*.95}\protected@file@percent }
 \abx@aux@page{13}{23}
 \abx@aux@page{14}{23}
-\@writefile{toc}{\contentsline {subsubsection}{Identity Map Reordering (TrXL-I)}{23}{section*.105}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{Gating Layers}{23}{section*.106}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{Why GTrXL Suits V-MPO}{23}{section*.107}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{Architecture and Training Configuration}{23}{section*.108}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Paradigm 2: Preference MLE (DPO)}{23}{section*.96}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}{23}{section*.97}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Parameter space vs.\ distribution space.}{24}{section*.98}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DPO as collapsed EM.}{24}{section*.99}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{DAR as a bridge.}{24}{section*.100}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{EM-based methods.}{24}{section*.101}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {13}References}{24}{section.13}\protected@file@percent }
 \abx@aux@page{15}{24}
 \abx@aux@page{16}{24}
