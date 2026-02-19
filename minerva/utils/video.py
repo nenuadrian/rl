@@ -108,7 +108,7 @@ def build_policy_for_algo(
     )
 
     if algo in {"ppo"}:
-        from trainers.ppo.trainer import Agent
+        from minerva.trainers.ppo.trainer import Agent
 
         policy = Agent(
             obs_dim,
@@ -117,7 +117,7 @@ def build_policy_for_algo(
             value_layer_sizes=value_sizes,
         )
     elif algo == "mpo":
-        from trainers.mpo.agent import DiagonalGaussianPolicy
+        from minerva.trainers.mpo.agent import DiagonalGaussianPolicy
 
         policy = DiagonalGaussianPolicy(
             obs_dim,
@@ -127,7 +127,7 @@ def build_policy_for_algo(
             action_high=action_high,
         )
     elif algo == "vmpo":
-        from trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
+        from minerva.trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
 
         policy = SquashedGaussianPolicy(
             obs_dim,

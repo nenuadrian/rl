@@ -8,14 +8,14 @@ from hyperparameters._common import get_preset
 SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 2048,
-    "m_steps": 10,
+    "m_steps": 32,
     "policy_layer_sizes": (512, 256),
     "value_layer_sizes": (512, 256),
     "ppo_like_backbone": False,
-    "gamma": 0.99,
+    "gamma": 0.98,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
-    "topk_fraction": 0.5,
+    "topk_fraction": 0.7,
     "temperature_init": 1.0,
     "temperature_lr": 1e-4,
     "alpha_lr": 1e-4,
@@ -83,7 +83,7 @@ def get(env_id: str) -> dict[str, Any]:
         defaults={
             "optimizer_type": "adam",
             "sgd_momentum": 0.9,
-            "advantage_estimator": "returns",
-            "gae_lambda": 0.85,
+            "advantage_estimator": "gae",
+            "gae_lambda": 0.92,
         },
     )

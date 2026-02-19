@@ -76,9 +76,9 @@ class VMPOAgent:
         if not self.policy.shared_encoder:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
         # LaTeX: \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\sqrt{M}}
-        policy_lr_eff = self.policy_lr / math.sqrt(self.m_steps)
+        policy_lr_eff = self.policy_lr
         # LaTeX: \tilde{\lambda}_{V} = \frac{\lambda_{V}}{\sqrt{M}}
-        value_lr_eff = self.value_lr / math.sqrt(self.m_steps)
+        value_lr_eff = self.value_lr
 
         self.combined_opt = self._build_optimizer(
             [
