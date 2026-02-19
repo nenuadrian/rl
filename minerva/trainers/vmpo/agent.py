@@ -116,7 +116,7 @@ class VMPOAgent:
             torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
         )
         # LaTeX: \tilde{\lambda}_{\alpha} = \frac{\lambda_{\alpha}}{\sqrt{M}}
-        effective_alpha_lr = self.alpha_lr / math.sqrt(self.m_steps)
+        effective_alpha_lr = self.alpha_lr #/ math.sqrt(self.m_steps)
         self.alpha_opt = self._build_optimizer(
             [self.log_alpha_mu, self.log_alpha_sigma], lr=effective_alpha_lr
         )

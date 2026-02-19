@@ -7,8 +7,8 @@ from hyperparameters._common import get_preset
 
 SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
-    "rollout_steps": 2048,
-    "m_steps": 32,
+    "rollout_steps": 4096,
+    "m_steps": 64,
     "policy_layer_sizes": (512, 256),
     "value_layer_sizes": (512, 256),
     "ppo_like_backbone": False,
@@ -16,7 +16,7 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
     "topk_fraction": 0.7,
-    "temperature_init": 1.0,
+    "temperature_init": 5.0,
     "temperature_lr": 1e-4,
     "alpha_lr": 1e-4,
     "epsilon_eta": 0.15,

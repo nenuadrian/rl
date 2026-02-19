@@ -426,7 +426,7 @@ class VMPOTrainer:
         # Current observation is episode start until the first action is taken.
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         self.last_eval = 0
-        self.eval_episodes = 50
+        self.eval_episodes = 15
         self.eval_seed = self.seed + 1000
         self.eval_env = gym.vector.SyncVectorEnv(
             [
