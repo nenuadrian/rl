@@ -271,13 +271,9 @@ class Agent(nn.Module):
         action_logstd = self.actor_logstd.expand_as(action_mean)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
 $$
-
-</div>
 
 ```python
         action_std = torch.exp(action_logstd)
@@ -288,25 +284,17 @@ $$
             action,
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
 $$
-
-</div>
 
 ```python
             probs.log_prob(action).sum(1),
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
 $$
-
-</div>
 
 ```python
             probs.entropy().sum(1),
@@ -450,25 +438,17 @@ class PPOTrainer:
         total_steps = int(total_steps)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
 $$
-
-</div>
 
 ```python
         eval_interval = max(1, total_steps // 150)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
 $$
-
-</div>
 
 ```python
 
@@ -510,25 +490,17 @@ $$
             if self.anneal_lr:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 f_u = 1 - \frac{u-1}{U}
 $$
-
-</div>
 
 ```python
                 frac = 1.0 - (update - 1.0) / num_updates
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \lambda_u = f_u \lambda_0
 $$
-
-</div>
 
 ```python
                 lrnow = frac * self.learning_rate
@@ -537,13 +509,9 @@ $$
             for step in range(0, self.num_steps):
 ```
 
-<div class="math-annotation-formula">
-
 $$
 t \leftarrow t + N
 $$
-
-</div>
 
 ```python
                 global_step += self.num_envs
@@ -563,13 +531,9 @@ $$
                 )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 d_t = d_t^{term} \lor d_t^{trunc}
 $$
-
-</div>
 
 ```python
                 done = np.logical_or(terminated, truncated)
@@ -641,13 +605,9 @@ $$
                         if t == self.num_steps - 1:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
-
-</div>
 
 ```python
                             nextnonterminal = 1.0 - next_done
@@ -655,26 +615,18 @@ $$
                         else:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
-
-</div>
 
 ```python
                             nextnonterminal = 1.0 - dones[t + 1]
                             nextvalues = values[t + 1]
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
 $$
-
-</div>
 
 ```python
                         delta = (
@@ -684,13 +636,9 @@ $$
                         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
 $$
-
-</div>
 
 ```python
                         advantages[t] = lastgaelam = (
@@ -702,13 +650,9 @@ $$
                         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 R_t = A_t + V(s_t)
 $$
-
-</div>
 
 ```python
                     returns = advantages + values
@@ -718,13 +662,9 @@ $$
                         if t == self.num_steps - 1:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
-
-</div>
 
 ```python
                             nextnonterminal = 1.0 - next_done
@@ -732,26 +672,18 @@ $$
                         else:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_{t+1} = 1 - d_{t+1}
 $$
-
-</div>
 
 ```python
                             nextnonterminal = 1.0 - dones[t + 1]
                             next_return = returns[t + 1]
 ```
 
-<div class="math-annotation-formula">
-
 $$
 R_t = r_t + \gamma m_{t+1} R_{t+1}
 $$
-
-</div>
 
 ```python
                         returns[t] = (
@@ -759,13 +691,9 @@ $$
                         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 A_t = R_t - V(s_t)
 $$
-
-</div>
 
 ```python
                     advantages = returns - values
@@ -798,25 +726,17 @@ $$
                     )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
 $$
-
-</div>
 
 ```python
                     logratio = newlogprob - b_logprobs[mb_inds]
 ```
 
-<div class="math-annotation-formula">
-
 $$
 r_t = \exp(\log r_t)
 $$
-
-</div>
 
 ```python
                     ratio = logratio.exp()
@@ -825,25 +745,17 @@ $$
                         # calculate approx_kl http://joschu.net/blog/kl-approx.html
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
 $$
-
-</div>
 
 ```python
                         old_approx_kl = (-logratio).mean()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
 $$
-
-</div>
 
 ```python
                         approx_kl = ((ratio - 1) - logratio).mean()
@@ -855,13 +767,9 @@ $$
                     if self.norm_adv:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
 $$
-
-</div>
 
 ```python
                         mb_advantages = (mb_advantages - mb_advantages.mean()) / (
@@ -869,26 +777,18 @@ $$
                         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
 $$
-
-</div>
 
 ```python
 
                     pg_loss1 = -mb_advantages * ratio
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
 $$
-
-</div>
 
 ```python
                     pg_loss2 = -mb_advantages * torch.clamp(
@@ -896,13 +796,9 @@ $$
                     )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
 $$
-
-</div>
 
 ```python
                     pg_loss = torch.max(pg_loss1, pg_loss2).mean()
@@ -911,25 +807,17 @@ $$
                     if self.clip_vloss:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
 $$
-
-</div>
 
 ```python
                         v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
 ```
 
-<div class="math-annotation-formula">
-
 $$
 V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
 $$
-
-</div>
 
 ```python
                         v_clipped = b_values[mb_inds] + torch.clamp(
@@ -939,39 +827,27 @@ $$
                         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
 $$
-
-</div>
 
 ```python
                         v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
                         v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
 $$
-
-</div>
 
 ```python
                         v_loss = 0.5 * v_loss_max.mean()
                     else:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
 $$
-
-</div>
 
 ```python
                         v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
@@ -979,13 +855,9 @@ $$
                     entropy_loss = entropy.mean()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
 $$
-
-</div>
 
 ```python
                     loss = (
@@ -1007,13 +879,9 @@ $$
             var_y = np.var(y_true)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
 $$
-
-</div>
 
 ```python
             explained_var = (

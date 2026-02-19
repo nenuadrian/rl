@@ -86,25 +86,17 @@ class VMPOAgent:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\sqrt{M}}
 $$
-
-</div>
 
 ```python
         policy_lr_eff = self.policy_lr / math.sqrt(self.m_steps)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tilde{\lambda}_{V} = \frac{\lambda_{V}}{\sqrt{M}}
 $$
-
-</div>
 
 ```python
         value_lr_eff = self.value_lr / math.sqrt(self.m_steps)
@@ -146,13 +138,9 @@ $$
         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tilde{\lambda}_{\alpha} = \frac{\lambda_{\alpha}}{\sqrt{M}}
 $$
-
-</div>
 
 ```python
         effective_alpha_lr = self.alpha_lr / math.sqrt(self.m_steps)
@@ -244,13 +232,9 @@ $$
         if self.normalize_advantages:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
 $$
-
-</div>
 
 ```python
             advantages = (advantages - advantages.mean()) / (
@@ -268,25 +252,17 @@ $$
         # ================================================================
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
 $$
-
-</div>
 
 ```python
         eta = F.softplus(self.log_temperature) + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 s_t = \frac{w_t^{restart}\hat{A}_t}{\eta}
 $$
-
-</div>
 
 ```python
         scaled_advantages = (restarting_weights * advantages) / eta
@@ -306,13 +282,9 @@ $$
                 valid_scaled_advantages[restarting_weights <= 0.0] = -torch.inf
 ```
 
-<div class="math-annotation-formula">
-
 $$
 k = \lfloor \rho N \rfloor
 $$
-
-</div>
 
 ```python
                 k = int(self.topk_fraction * valid_scaled_advantages.numel())
@@ -323,25 +295,17 @@ $$
                 topk_vals, _ = torch.topk(valid_scaled_advantages, k)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tau = \min(\operatorname{TopK}(s, k))
 $$
-
-</div>
 
 ```python
                 threshold = topk_vals.min()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_t = \mathbf{1}[s_t \ge \tau]
 $$
-
-</div>
 
 ```python
                 topk_weights = (valid_scaled_advantages >= threshold).to(
@@ -349,38 +313,26 @@ $$
                 )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \bar{w}_t = w_t^{restart} \cdot m_t
 $$
-
-</div>
 
 ```python
                 topk_restarting_weights = restarting_weights * topk_weights
             else:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tau = \min_t s_t
 $$
-
-</div>
 
 ```python
                 threshold = scaled_advantages.detach().min()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \bar{w}_t = w_t^{restart}
 $$
-
-</div>
 
 ```python
                 topk_restarting_weights = restarting_weights
@@ -396,13 +348,9 @@ $$
         importance_weights_sg = importance_weights.detach()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tilde{\psi}_t = \bar{w}_t \, w_t^{imp} \exp(s_t - s_{\max})
 $$
-
-</div>
 
 ```python
         unnormalized_weights = (
@@ -412,50 +360,34 @@ $$
         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 Z = \sum_t \tilde{\psi}_t
 $$
-
-</div>
 
 ```python
         sum_weights = unnormalized_weights.sum() + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 N_{sel} = \sum_t \bar{w}_t
 $$
-
-</div>
 
 ```python
         num_samples = topk_restarting_weights.sum() + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \psi_t = \frac{\tilde{\psi}_t}{Z}
 $$
-
-</div>
 
 ```python
         weights = unnormalized_weights / sum_weights
         weights_detached = weights.detach()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \log \bar{\psi} = \log Z + s_{\max} - \log N_{sel}
 $$
-
-</div>
 
 ```python
 
@@ -464,13 +396,9 @@ $$
         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\eta} = \eta \left(\epsilon_{\eta} + \log \bar{\psi}\right)
 $$
-
-</div>
 
 ```python
         dual_loss = eta * (self.epsilon_eta + log_mean_weights)
@@ -483,13 +411,9 @@ $$
         with torch.no_grad():
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \eta' = \operatorname{softplus}(\tilde{\eta}) + \epsilon
 $$
-
-</div>
 
 ```python
             eta_final = F.softplus(self.log_temperature) + 1e-8
@@ -515,13 +439,9 @@ $$
             ).squeeze(-1)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi}^{NLL} = -\sum_t \psi_t \log \pi_{\theta}(a_t|s_t)
 $$
-
-</div>
 
 ```python
             weighted_nll = -(weights_detached * log_prob).sum()
@@ -533,13 +453,9 @@ $$
                 new_std = current_log_std.exp()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 D_{\mu}^{all} = \mathbb{E}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
 $$
-
-</div>
 
 ```python
                 kl_mean_all = (
@@ -549,13 +465,9 @@ $$
                 )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 D_{\sigma}^{all} = \mathbb{E}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
 $$
-
-</div>
 
 ```python
                 kl_std_all = (
@@ -581,13 +493,9 @@ $$
             # Decoupled KL
 ```
 
-<div class="math-annotation-formula">
-
 $$
 D_{\mu} = \mathbb{E}_{t \in \mathcal{S}}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
 $$
-
-</div>
 
 ```python
             kl_mu_sel = (
@@ -597,13 +505,9 @@ $$
             )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 D_{\sigma} = \mathbb{E}_{t \in \mathcal{S}}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
 $$
-
-</div>
 
 ```python
             kl_sigma_sel = (
@@ -622,25 +526,17 @@ $$
             # -- Alpha Optimization --
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\mu} = \operatorname{softplus}(\tilde{\alpha}_{\mu}) + \epsilon
 $$
-
-</div>
 
 ```python
             alpha_mu = F.softplus(self.log_alpha_mu) + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\sigma} = \operatorname{softplus}(\tilde{\alpha}_{\sigma}) + \epsilon
 $$
-
-</div>
 
 ```python
             alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
@@ -648,13 +544,9 @@ $$
             # We minimize: alpha * (epsilon - KL)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\alpha} = \alpha_{\mu}(\epsilon_{\mu} - D_{\mu}) + \alpha_{\sigma}(\epsilon_{\sigma} - D_{\sigma})
 $$
-
-</div>
 
 ```python
             alpha_loss = alpha_mu * (
@@ -671,13 +563,9 @@ $$
                 alpha_sigma_det = F.softplus(self.log_alpha_sigma).detach() + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi} = \mathcal{L}_{\pi}^{NLL} + \alpha_{\mu}D_{\mu} + \alpha_{\sigma}D_{\sigma}
 $$
-
-</div>
 
 ```python
 
@@ -690,25 +578,17 @@ $$
             # -- Critic Loss --
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\phi}(s_t) - R_t)^2\right]
 $$
-
-</div>
 
 ```python
             value_loss = 0.5 * F.mse_loss(v_pred, returns_raw.detach())
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L} = \mathcal{L}_{\pi} + \mathcal{L}_{V}
 $$
-
-</div>
 
 ```python
 
@@ -745,13 +625,9 @@ $$
             var_y = y.var(unbiased=False)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R] + \epsilon}
 $$
-
-</div>
 
 ```python
             explained_var = 1.0 - (y - v_pred).var(unbiased=False) / (var_y + 1e-8)
@@ -764,13 +640,9 @@ $$
             mean_abs_action = float(action_eval.abs().mean().item())
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{H} = \mathbb{E}\left[\sum_j \frac{1}{2}\left(1 + \log(2\pi\sigma_j^2)\right)\right]
 $$
-
-</div>
 
 ```python
 

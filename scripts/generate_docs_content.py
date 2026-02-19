@@ -341,13 +341,9 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
                 continue
             lines.extend(
                 [
-                    '<div class="math-annotation-formula">',
-                    "",
                     "$$",
                     value,
                     "$$",
-                    "",
-                    "</div>",
                     "",
                 ]
             )

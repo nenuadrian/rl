@@ -289,13 +289,9 @@ class MPOAgent:
         # Train policy encoder + head together; critics share a separate encoder.
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
 $$
-
-</div>
 
 ```python
         policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))
@@ -375,50 +371,34 @@ $$
         """
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
 $$
-
-</div>
 
 ```python
         q_detached = q_values.detach() / temperature
 ```
 
-<div class="math-annotation-formula">
-
 $$
 q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
 $$
-
-</div>
 
 ```python
         weights = torch.softmax(q_detached, dim=1).detach()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
 $$
-
-</div>
 
 ```python
         q_logsumexp = torch.logsumexp(q_detached, dim=1)
         log_num_actions = math.log(q_values.shape[1])
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
 $$
-
-</div>
 
 ```python
         loss_temperature = temperature * (
@@ -436,25 +416,17 @@ $$
         n = float(weights.shape[1])
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \ell_{b,i} = \log\!\left(N q_{b,i}\right)
 $$
-
-</div>
 
 ```python
         integrand = torch.log(n * weights + 1e-8)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
 $$
-
-</div>
 
 ```python
         return (weights * integrand).sum(dim=1)
@@ -551,13 +523,9 @@ $$
             )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
 $$
-
-</div>
 
 ```python
 
@@ -571,37 +539,25 @@ $$
             log_b = behaviour_logp_seq
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
 $$
-
-</div>
 
 ```python
             log_ratio = log_pi - log_b
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \rho_t = \exp(\log \rho_t)
 $$
-
-</div>
 
 ```python
             rho = torch.exp(log_ratio).squeeze(-1)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 c_t = \lambda \min(1, \rho_t)
 $$
-
-</div>
 
 ```python
             c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
@@ -610,13 +566,9 @@ $$
             # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t
 ```
 
-<div class="math-annotation-formula">
-
 $$
 Q^{ret} \leftarrow Q(s_0, a_0)
 $$
-
-</div>
 
 ```python
             q_ret = q_t[:, 0, :].clone()
@@ -630,49 +582,33 @@ $$
                 if t > 0:
 ```
 
-<div class="math-annotation-formula">
-
 $$
 m_t \leftarrow m_{t-1}(1-d_{t-1})
 $$
-
-</div>
 
 ```python
                     cont = cont * (1.0 - dones_flat[:, t - 1 : t])
 ```
 
-<div class="math-annotation-formula">
-
 $$
 C_t \leftarrow C_{t-1} c_t
 $$
-
-</div>
 
 ```python
                     c_prod = c_prod * c[:, t : t + 1]
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \Gamma_t \leftarrow \Gamma_{t-1}\gamma
 $$
-
-</div>
 
 ```python
                     discount = discount * self.gamma
 ```
 
-<div class="math-annotation-formula">
-
 $$
 Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
 $$
-
-</div>
 
 ```python
 
@@ -763,13 +699,9 @@ $$
                 )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
 $$
-
-</div>
 
 ```python
                 target = rewards + (1.0 - dones) * self.gamma * q_target
@@ -782,13 +714,9 @@ $$
         q = self.q(obs, actions)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
 $$
-
-</div>
 
 ```python
         q_loss = F.mse_loss(q, target)
@@ -835,13 +763,9 @@ $$
         log_temp = torch.maximum(self.log_temperature, min_log)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
 $$
-
-</div>
 
 ```python
         temperature = F.softplus(log_temp) + 1e-8
@@ -853,13 +777,9 @@ $$
         kl_nonparametric = self._compute_nonparametric_kl_from_weights(weights)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
 $$
-
-</div>
 
 ```python
         kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)
@@ -887,37 +807,25 @@ $$
         # Cross entropy / weighted log-prob.
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma'}(a_{b,i}|s_b)
 $$
-
-</div>
 
 ```python
         loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
 $$
-
-</div>
 
 ```python
         loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
 $$
-
-</div>
 
 ```python
         loss_policy = loss_policy_mean + loss_policy_std
@@ -936,26 +844,18 @@ $$
         )  # (B,D)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
 $$
-
-</div>
 
 ```python
 
         mean_kl_mean = kl_mean.mean(dim=0)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
 $$
-
-</div>
 
 ```python
         mean_kl_std = kl_std.mean(dim=0)
@@ -964,63 +864,43 @@ $$
         log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 $$
-
-</div>
 
 ```python
 
         alpha_mean = F.softplus(log_alpha_mean) + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 $$
-
-</div>
 
 ```python
         alpha_std = F.softplus(log_alpha_stddev) + 1e-8
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
 $$
-
-</div>
 
 ```python
 
         loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
 $$
-
-</div>
 
 ```python
         loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
 $$
-
-</div>
 
 ```python
         loss_kl_penalty = loss_kl_mean + loss_kl_std
@@ -1029,13 +909,9 @@ $$
             alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
 $$
-
-</div>
 
 ```python
         ).sum()
@@ -1043,13 +919,9 @@ $$
             alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
 $$
-
-</div>
 
 ```python
         ).sum()
@@ -1057,13 +929,9 @@ $$
         # Update dual variables (temperature + alphas).
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
 $$
-
-</div>
 
 ```python
         dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
@@ -1095,25 +963,17 @@ $$
         # Recompute dual multipliers AFTER dual_opt.step()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\mu,j}' = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 $$
-
-</div>
 
 ```python
         alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 $$
-
-</div>
 
 ```python
         alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()
@@ -1166,13 +1026,9 @@ $$
             loss_kl_penalty = loss_kl_mean + loss_kl_std
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
 $$
-
-</div>
 
 ```python
 
@@ -1199,13 +1055,9 @@ $$
         )
 ```
 
-<div class="math-annotation-formula">
-
 $$
 \mathcal{H}(q) = -\mathbb{E}_b\sum_i q_{b,i}\log q_{b,i}
 $$
-
-</div>
 
 ```python
 
