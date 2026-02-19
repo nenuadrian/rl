@@ -2,6 +2,28 @@
 
 {% block extrahead %}
   {{ super() }}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="{{ 'stylesheets/sleek-dark.css' | url }}" rel="stylesheet">
+  <script>
+    (function () {
+      document.documentElement.setAttribute("data-bs-theme", "dark");
+      var useDarkHighlightTheme = function () {
+        var light = document.getElementById("hljs-light");
+        var dark = document.getElementById("hljs-dark");
+        if (light && dark) {
+          light.disabled = true;
+          dark.disabled = false;
+        }
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", useDarkHighlightTheme);
+      } else {
+        useDarkHighlightTheme();
+      }
+    })();
+  </script>
   <script src="{{ 'javascripts/mathjax.js' | url }}"></script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 {% endblock %}
