@@ -12,19 +12,20 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 2048,
     "m_steps": 10,
-    "policy_layer_sizes": (512, 256, 256),
-    "value_layer_sizes": (1024, 512, 256),
-    "gamma": 0.98,
+    "policy_layer_sizes": (512, 256),
+    "value_layer_sizes": (512, 256),
+    "ppo_like_backbone": False,
+    "gamma": 0.99,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
     "topk_fraction": 0.5,
     "temperature_init": 1.0,
     "temperature_lr": 1e-4,
     "alpha_lr": 1e-4,
-    "epsilon_eta": 0.01,
-    "epsilon_mu": 0.02,
-    "epsilon_sigma": 0.01,
-    "max_grad_norm": 20.0,
+    "epsilon_eta": 0.15,
+    "epsilon_mu": 0.05,
+    "epsilon_sigma": 0.001,
+    "max_grad_norm": 0.5,
     "normalize_advantages": True,
     "optimizer_type": "adam",
     "shared_encoder": False,
@@ -59,6 +60,8 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Humanoid-v5": {
         "total_steps": 5_000_000,
         **SHARED_VMPO_PARAMS,
+        # Keep VMPO objective while matching PPO-style backbone for fairer comparison.
+        "ppo_like_backbone": True,
     },
     "Ant-v5": {
         "total_steps": 5_000_000,
@@ -83,8 +86,8 @@ def get(env_id: str) -> dict[str, Any]:
         defaults={
             "optimizer_type": "adam",
             "sgd_momentum": 0.9,
-            "advantage_estimator": "gae",
-            "gae_lambda": 0.95,
+            "advantage_estimator": "returns",
+            "gae_lambda": 0.85,
         },
     )
 ```

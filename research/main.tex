@@ -24,10 +24,9 @@
 \tableofcontents
 \clearpage
 
-\section{Introduction}
-Transformer language models are commonly adapted to downstream tasks via supervised fine-tuning (SFT), and further improved via RL fine-tuning against a learned or human preference reward. While these procedures are usually presented as distinct (cross-entropy training versus policy optimization), both can be interpreted as alternating between constructing a training target distribution and then fitting the model to that target.
 
 \section{Research Questions}
+Transformer language models are commonly adapted to downstream tasks via supervised fine-tuning (SFT), and further improved via RL fine-tuning against a learned or human preference reward. While these procedures are usually presented as distinct (cross-entropy training versus policy optimization), both can be interpreted as alternating between constructing a training target distribution and then fitting the model to that target.
 
 \begin{enumerate}
   \item Can supervised fine-tuning and KL-regularized RL fine-tuning be expressed under a common EM/MAP formulation with a shared E-step/M-step interpretation?
@@ -1278,11 +1277,7 @@ The per-sequence weights differ only by the base factor:
 
 The V-MPO authors \parencite{song2019vmpoonpolicymaximumposteriori} reported strong empirical results on Transformers in Atari using TrXL \parencite{dai2019transformerxlattentivelanguagemodels}, an architecture later refined for RL through GTrXL \parencite{parisotto2019stabilizingtransformersreinforcementlearning}.
 
-\subsection{Implementation}
-\begin{itemize}
-  \item \href{https://github.com/kimiyoung/transformer-xl}{github.com/kimiyoung/transformer-xl}
-  \item  \href{https://github.com/nenuadrian/DI-engine/tree/main/benchmarks}{github.com/nenuadrian/DI-engine/tree/main/benchmarks}
-\end{itemize}
+
 
 \subsection{GTrXL with V-MPO}
 
@@ -1841,91 +1836,230 @@ Because E-step weights are detached from current parameters, the M-step with dro
 \]
 which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
 
-\section{Three Paradigms for LLM Alignment}
-\label{sec:three_paradigms}
 
 
-\paragraph{Paradigm 1: Policy Gradient (PPO)}
-
-The gradient signal is $\nabla_\theta r_t(\theta)\,A_t$---direct parameter-space ascent on the expected return. The importance-sampling ratio $r_t(\theta) = \pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$ couples the gradient to the current parameters. Trust regions are enforced via clipping (a heuristic approximation to a KL constraint). In the Policy Mirror Descent (PMD) framework \parencite{lan2023policymirrordescentrl, tomar2022mdpo}, PPO corresponds to the negative-entropy mirror map. The method is online and on-policy: fresh rollouts are required for each update.
-
-\paragraph{Paradigm 2: Preference MLE (DPO)}
-
-The gradient signal is a weighted cross-entropy on preference pairs:
-\[
-  \nabla_\theta \mathcal{L}_{\mathrm{DPO}}
-  \propto
-  \sigma(\hat{r}_\theta(y_l) - \hat{r}_\theta(y_w))
-  \big(\nabla_\theta\log\pi_\theta(y_w) - \nabla_\theta\log\pi_\theta(y_l)\big).
-\]
-There is no explicit reward model, no E-step, and no importance ratios. The method operates offline on a fixed preference dataset. The implicit reward $\hat{r}_\theta = \beta\log(\pi_\theta/\pi_{\mathrm{ref}})$ substitutes for explicit reward modelling. As derived in Section~\ref{sec:dpo}, DPO can be viewed as ``collapsed EM'': the Boltzmann optimal policy is substituted analytically into Bradley--Terry, bypassing the E-step entirely.
-
-\paragraph{Paradigm 3: EM-Based (V-MPO, DAR, AWR---unified by GEMPI)}
-
-The update is two-phase: an E-step constructs a non-parametric target $q^\star$, and an M-step projects to $\pi_\theta$ via weighted MLE. The gradient signal is $w_i\nabla_\theta\log\pi_\theta(y)$, where the weights $w_i$ are detached from the current parameters $\theta$. Explicit reward or advantage signals are required, and rollouts are typically generated online. Trust regions operate in the E-step (via adaptive temperature or KL constraints on $q^\star$) and/or the M-step (via KL penalties on $\pi_\theta$). The GEMPI tuple parameterises the full space of choices: divergences, anchors, temperature mechanism, filtering, and M-step constraint.
-
-
-\medskip
-\begin{center}
-  \small
-  \begin{tabular}{lccc}
-    \toprule
-    & \textbf{Policy Gradient (PPO)}
-    & \textbf{Preference MLE (DPO)}
-    & \textbf{EM-Based (GEMPI)} \\
-    \midrule
-    Gradient form
-    & $\nabla_\theta\, r_t(\theta)\, A_t$
-    & $\sigma(\cdot)\,\nabla_\theta\log\pi_\theta$
-    & $w_i\,\nabla_\theta\log\pi_\theta$ \\
-    Reward model?
-    & Yes (explicit)
-    & No (implicit)
-    & Yes (explicit) \\
-    Value function?
-    & Yes
-    & No
-    & Yes \\
-    Online rollouts?
-    & Yes
-    & No
-    & Yes \\
-    Importance ratio?
-    & Yes
-    & No
-    & No \\
-    Dropout compatible?
-    & No
-    & Yes
-    & Yes \\
-    Trust region mechanism
-    & Clipping (param.\ space)
-    & $\beta$ (implicit KL)
-    & E-step + M-step (distr.\ space) \\
-    GEMPI instantiation
-    & N/A
-    & Collapsed ($m\!=\!1$)
-    & Direct \\
-    \bottomrule
-  \end{tabular}
-\end{center}
-\medskip
-
-
-\paragraph{Parameter space vs.\ distribution space.}
-PPO optimises in parameter space via noisy gradient steps; GEMPI optimises in distribution space first (E-step), then projects to the parametric family (M-step). This two-phase structure is what yields detached weights and, consequently, dropout compatibility.
-
-\paragraph{DPO as collapsed EM.}
-DPO avoids the E-step by exploiting the Bradley--Terry cancellation of $Z(x)$. This elegantly removes the need for reward modelling and online rollouts, but ties the method to pairwise preference data and prevents it from incorporating richer reward signals (e.g.\ multi-aspect scores, process supervision) or adapting temperature online.
-
-\paragraph{DAR as a bridge.}
-Like DPO, it derives a closed-form optimal policy from a KL-regularised objective; like V-MPO, it uses that target in an explicit M-step with advantage weighting. DAR's dual-anchor structure ($\pi_{\mathrm{ref}}$ and $\pi_t$) generalises both the DPO anchor ($\pi_{\mathrm{ref}}$ only) and the V-MPO anchor ($\pi_t$ only). Within GEMPI, DAR is the natural meeting point of the preference-MLE and EM paradigms.
-
-\paragraph{EM-based methods.}
-Offer the most flexible design space: any reward signal can be used, temperature can be adapted online via dual optimisation, multiple anchors can regularise the target distribution, and the M-step inherits dropout compatibility from its weighted-MLE structure. The GEMPI framework makes these axes of variation explicit and enables principled construction of new methods by selecting from the tuple $\mathcal{G}$. Policy-gradient and preference-MLE methods are important baselines and limiting cases, but neither offers the same combinatorial flexibility.
-
-\section{References}
+\section*{References}
 
 \printbibliography[title={~}]
+
+
+\appendix
+
+\section*{Appendix}
+
+\section{Comprehensive Method Comparison}
+\label{sec:appendix_comparison}
+
+The table below compares every method discussed in this paper across all dimensions
+relevant to the EM-vs-policy-gradient analysis.
+Columns are ordered from pure policy-gradient (PPO) through collapsed EM (DPO) to
+explicit two-phase EM methods (AWR, V-MPO, DAR), with GEMPI as the unifying framework.
+
+\medskip
+\noindent
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.4}
+\begin{center}
+\scriptsize
+\begin{tabular}{p{2.8cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.2cm} p{2.3cm}}
+\toprule
+\textbf{Criterion}
+  & \textbf{PPO}
+  & \textbf{MPO / V-MPO}
+  & \textbf{AWR}
+  & \textbf{DAR}
+  & \textbf{DPO}
+  & \textbf{GEMPI} \\
+\midrule
+
+\textbf{Optimisation paradigm}
+  & Policy gradient (PMD, neg.\ entropy mirror map)
+  & EM / regularised policy iteration
+  & EM / weighted regression
+  & EM / closed-form dual-KL target
+  & Preference MLE (collapsed EM)
+  & Generalised EM (subsumes all) \\
+
+\textbf{Core objective}
+  & Clipped IS surrogate $L^{\text{CLIP}}(\theta)$
+  & MAP improvement $\log p_\theta(I{=}1){+}\log p(\theta)$
+  & Advantage-weighted MLE (KL-constrained)
+  & Dual-KL advantage maximisation $J_{\text{DAR}}$
+  & Binary cross-entropy on pref.\ pairs $\mathcal{L}_{\text{DPO}}$
+  & $\max_q\,\mathbb{E}_q[A]-\textstyle\sum_j\lambda_j D_j(q\|\pi_j)$, then project \\
+
+\textbf{Update phases}
+  & Single-phase gradient step
+  & E-step (non-parametric target) $+$ M-step (parametric projection)
+  & E-step $+$ M-step
+  & E-step (closed form) $+$ M-step
+  & Single-phase; no explicit E-step
+  & E-step $+$ M-step (fully configurable) \\
+
+\textbf{E-step target $q^\star$}
+  & N/A
+  & $\pi_t\exp(A/\eta)$
+  & $\pi_t\exp(A/\beta)$
+  & $\pi_{\text{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda}\exp(A/\Lambda)$
+  & $\pi_{\text{ref}}\exp(r/\beta)$ (implicit; never materialised)
+  & $\prod_j\pi_j^{\lambda_j/\Lambda}\exp(A/\Lambda)$ \\
+
+\textbf{E-step anchors ($m$)}
+  & N/A
+  & 1 \;($\pi_t$)
+  & 1 \;($\pi_t$)
+  & 2 \;($\pi_{\text{ref}},\pi_t$)
+  & 1 \;($\pi_{\text{ref}}$, implicit)
+  & $m\!\geq\!0$ (free) \\
+
+\textbf{KL anchor(s)}
+  & Implicit via clipping; optional $\hat{\text{KL}}$ penalty to $\pi_{\text{old}}$
+  & $\pi_t$ (E-step); $\pi_t$ (M-step trust region)
+  & $\pi_t$ (E-step only)
+  & $\pi_{\text{ref}}$ and $\pi_t$ (dual anchor)
+  & $\pi_{\text{ref}}$ (single, fixed)
+  & Any set $\{\pi_j\}$ \\
+
+\textbf{Temperature mechanism}
+  & N/A; clip threshold $\epsilon$ fixed
+  & Adaptive dual: $\eta$ optimised via convex $\mathcal{L}_\eta$
+  & Fixed $\beta$
+  & Fixed $(\alpha,\beta)$; AT-DAR variant makes both adaptive
+  & Fixed $\beta$
+  & Fixed or dual-adaptive ($\lambda_j$ per anchor) \\
+
+\textbf{Gradient signal}
+  & $\nabla_\theta r_t(\theta)\,A_t$ \newline (ratio-coupled to $\theta$)
+  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached weights)
+  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
+  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached)
+  & $\sigma(\cdot)\bigl(\nabla_\theta\log\pi_\theta(y_w)-\nabla_\theta\log\pi_\theta(y_l)\bigr)$
+  & $w_i\nabla_\theta\log\pi_\theta$ \newline (detached) \\
+
+\textbf{IS ratio $\pi_\theta/\pi_{\text{old}}$ required?}
+  & \textbf{Yes} — clipped to $[1{\pm}\epsilon]$
+  & No
+  & No
+  & No (optional IS correction if off-policy)
+  & No
+  & No (IS weights optional for off-policy) \\
+
+\textbf{M-step loss}
+  & N/A (single-phase)
+  & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ $+$ KL trust region
+  & $-\!\sum_i w_i\log\pi_\theta(a_i|s_i)$ (unconstrained)
+  & $-\!\sum_i w_i\log\pi_\theta(y_i|x_i)$ (unconstrained)
+  & N/A (collapsed)
+  & $-\mathbb{E}_{q^\star}[\log\pi_\theta]+\gamma D_M(\pi_{\theta_k}\|\pi_\theta)$ \\
+
+\textbf{M-step trust region}
+  & N/A
+  & \textbf{Yes} — KL with Lagrange dual $\alpha$ (Eq.\,12)
+  & No
+  & No; DAR-TR variant adds KL constraint
+  & N/A
+  & Optional ($D_M$, budget $\varepsilon_M$) \\
+
+\textbf{Top-$k$ / sample filtering}
+  & No (full-batch IS)
+  & \textbf{Yes} — top-$k$ fraction $\rho$ by advantage
+  & No (all samples)
+  & No; Top-$k$ DAR variant available
+  & No
+  & Configurable ($\mathcal{F}$: identity or top-$k$) \\
+
+\textbf{Value function / baseline?}
+  & Yes — GAE with $V_\phi$
+  & Yes — $n$-step bootstrapped $V^\pi_\phi$
+  & Yes — $V^\mu(s)$ by TD/$\lambda$
+  & Yes — $V^{\pi_t}(x)$ for advantage
+  & No
+  & Yes (when $A$ uses a learned baseline) \\
+
+\textbf{Explicit reward model?}
+  & Yes
+  & Yes
+  & Yes
+  & Yes
+  & No — implicit $\hat r_\theta{=}\beta\log(\pi_\theta/\pi_{\text{ref}})$
+  & Yes (typical; not mandated by framework) \\
+
+\textbf{Online / offline?}
+  & Online (on-policy rollouts; mini-epochs with IS)
+  & Online (on-policy rollouts)
+  & Offline or near-off-policy
+  & Online (rollouts from $\pi_t$)
+  & Offline (fixed preference dataset)
+  & Configurable \\
+
+\textbf{Training data format}
+  & State–action trajectories $+$ scalar rewards
+  & State–action trajectories $+$ scalar rewards
+  & State–action trajectories $+$ returns
+  & Prompt–response pairs $+$ scalar rewards
+  & Pairwise preference triples $(x,y_w,y_l)$
+  & General (reward or preference signals) \\
+
+\textbf{Dropout compatible?}
+  & \textbf{No} — stochastic numerator corrupts IS ratio; inconsistent denominator
+  & \textbf{Yes} — detached M-step weights; no ratio in objective
+  & \textbf{Yes} — detached weights; standard cross-entropy
+  & \textbf{Yes} — detached weights
+  & \textbf{Yes} — single forward passes only; no ratio
+  & \textbf{Yes} — guaranteed when M-step weights detached \\
+
+\textbf{EM / MAP derivation?}
+  & No — direct PG theorem
+  & \textbf{Yes} — full MAP EM (Sections~3--4)
+  & \textbf{Yes} — constrained policy search $\to$ Boltzmann $\pi^\star$
+  & \textbf{Yes} — dual-KL optimisation $\to$ closed-form $\pi^\star$
+  & Partial — optimal policy derived, then EM collapsed via BT cancellation
+  & \textbf{Yes} — defines the general EM template \\
+
+\textbf{Adaptive temperature?}
+  & No
+  & \textbf{Yes} ($\eta$ via dual $\mathcal{L}_\eta$)
+  & No ($\beta$ fixed)
+  & No (fixed $\alpha,\beta$); AT-DAR variant adds it
+  & No ($\beta$ fixed)
+  & Yes (dual-adaptive mode) \\
+
+\textbf{GEMPI tuple}
+  & N/A (policy-gradient paradigm)
+  & $m{=}1$, $D_1{=}\mathrm{KL}$, $\pi_1{=}\pi_t$, dual $\eta$, top-$k$, $D_M{=}\mathrm{KL}$
+  & $m{=}1$, $\pi_1{=}\pi_t$, $\lambda_1{=}\beta$ fixed, no $D_M$, no filter
+  & $m{=}2$, $\pi_1{=}\pi_{\text{ref}}$, $\pi_2{=}\pi_t$, $(\alpha,\beta)$ fixed, no $D_M$
+  & $m{=}1$, $\pi_1{=}\pi_{\text{ref}}$, $\Lambda{=}\beta$, E-step collapsed (no M-step)
+  & Full tuple $\mathcal{G}$ — all axes free \\
+
+\textbf{Novel variants / extensions}
+  & Seq-level PPO (product IS ratio; KL early stop)
+  & LLM V-MPO (seq-level E/M-step, Section~\ref{sec:vmpo_llm_gempi})
+  & ---
+  & AT-DAR; DAR-TR (M-step KL); Top-$k$ DAR
+  & IPO, $\beta$-DPO, rDPO
+  & Any combo of $m$, $D_j$, $\mathcal{T}$, $\mathcal{F}$, $D_M$ \\
+
+\textbf{Primary LLM use-case}
+  & Online RLHF (InstructGPT, LLaMA-RLHF)
+  & Online RL fine-tuning with EM stability
+  & Near-offline advantage-weighted SFT
+  & Online alignment with dual regularisation
+  & Offline preference alignment (no RM needed)
+  & Unifying design framework \\
+
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\noindent\textbf{Notes.}
+\textit{Detached weights}: the per-sample weights $w_i$ entering the M-step are
+computed with \texttt{stop\_gradient}, so gradients flow only through
+$\log\pi_\theta$, not through the weights.
+$\Lambda\!\coloneqq\!\sum_j\lambda_j$ is the effective temperature in the GEMPI E-step.
+AT-DAR and DAR-TR are novel instantiations derived within GEMPI
+(Section~\ref{sec:vmpo_llm_gempi}).
+\textit{BT}: Bradley--Terry preference model used in the DPO derivation.
 
 \end{document}

@@ -2,7 +2,7 @@
 
 _Source: `minerva/trainers/mpo/trainer.py`_
 
-Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.
+The full file is rendered in order as code blocks, with each `# LaTeX:` marker replaced by a rendered formula block.
 
 No `# LaTeX:` annotations were found in this file.
 

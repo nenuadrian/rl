@@ -2385,8 +2385,6 @@
     <bcf:citekey order="10" intorder="1">Hesterberg1995</bcf:citekey>
     <bcf:citekey order="10" intorder="2">mcbook</bcf:citekey>
     <bcf:citekey order="11" intorder="1">peng2019advantageweightedregression</bcf:citekey>
-    <bcf:citekey order="12" intorder="1">lan2023policymirrordescentrl</bcf:citekey>
-    <bcf:citekey order="12" intorder="2">tomar2022mdpo</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="nyt">

@@ -2,6 +2,16 @@
 
 _Source: `minerva/trainers/vmpo/gaussian_mlp_policy.py`_
 
+## Functions
+
+### `_layer_init`
+
+```python
+def _layer_init(layer: nn.Linear, std: float = np.sqrt(2.0), bias_const: float = 0.0)
+```
+
+_No docstring provided._
+
 ## Classes
 
 ### `MPOEncoder`
@@ -17,7 +27,7 @@ Linear -> ELU (Subsequent Layers)
 ##### `__init__`
 
 ```python
-def __init__(self, in_dim: int, layer_sizes: Tuple[int, ...], activate_final: bool = True)
+def __init__(self, in_dim: int, layer_sizes: Tuple[int, ...], activate_final: bool = True, ppo_like: bool = False)
 ```
 
 _No docstring provided._
@@ -41,7 +51,23 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, obs_dim: int, act_dim: int, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), action_low: np.ndarray | None = None, action_high: np.ndarray | None = None, shared_encoder: bool = False)
+def __init__(self, obs_dim: int, act_dim: int, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), action_low: np.ndarray | None = None, action_high: np.ndarray | None = None, shared_encoder: bool = False, ppo_like_backbone: bool = False)
+```
+
+_No docstring provided._
+
+##### `policy_logstd_parameters`
+
+```python
+def policy_logstd_parameters(self) -> list[nn.Parameter]
+```
+
+_No docstring provided._
+
+##### `_mean_and_log_std`
+
+```python
+def _mean_and_log_std(self, encoded_obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
 _No docstring provided._

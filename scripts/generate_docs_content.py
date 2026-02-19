@@ -29,7 +29,6 @@ LATEX_INLINE_PATTERN = re.compile(
     r"^(?P<code>.*?)(?:\s+#\s*LaTeX:\s*(?P<formula>.+))\s*$"
 )
 LATEX_STANDALONE_PATTERN = re.compile(r"^\s*#\s*LaTeX:\s*(?P<formula>.+?)\s*$")
-MATH_CONTEXT_DOWN_LINES = 10
 
 
 def write_text(path: Path, content: str) -> None:
@@ -270,9 +269,45 @@ def extract_latex_annotations(source: str) -> list[tuple[int, str]]:
     return annotations
 
 
+def build_interleaved_annotated_blocks(source: str) -> list[tuple[str, str]]:
+    """Split source into ordered code/formula blocks at `# LaTeX:` markers."""
+    blocks: list[tuple[str, str]] = []
+    code_buffer: list[str] = []
+
+    def flush_code() -> None:
+        if not code_buffer:
+            return
+        code_text = "\n".join(code_buffer).rstrip()
+        if code_text:
+            blocks.append(("code", code_text))
+        code_buffer.clear()
+
+    for raw_line in source.splitlines():
+        standalone_match = LATEX_STANDALONE_PATTERN.match(raw_line)
+        if standalone_match is not None:
+            flush_code()
+            formula = standalone_match.group("formula").strip()
+            blocks.append(("formula", formula))
+            continue
+
+        inline_match = LATEX_INLINE_PATTERN.match(raw_line)
+        if inline_match is not None and inline_match.group("formula") is not None:
+            flush_code()
+            formula = inline_match.group("formula").strip()
+            blocks.append(("formula", formula))
+            code = inline_match.group("code").rstrip()
+            if code:
+                code_buffer.append(code)
+            continue
+
+        code_buffer.append(raw_line)
+
+    flush_code()
+    return blocks
+
+
 def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
     source = file_path.read_text(encoding="utf-8")
-    source_lines = source.splitlines()
     annotations = extract_latex_annotations(source)
     rel_path = file_path.relative_to(ROOT).as_posix()
 
@@ -281,34 +316,42 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
         "",
         f"_Source: `{rel_path}`_",
         "",
-        "Each `# LaTeX:` annotation is rendered with its source line and 10 following lines of context.",
+        "The full file is rendered in order as code blocks, with each `# LaTeX:` marker replaced by a rendered formula block.",
         "",
     ]
 
     if not annotations:
-        lines.extend(["No `# LaTeX:` annotations were found in this file.", ""])
+        lines.extend(
+            [
+                "No `# LaTeX:` annotations were found in this file.",
+                "",
+                "## Full Source",
+                "",
+                "```python",
+                source.rstrip(),
+                "```",
+                "",
+            ]
+        )
     else:
-        lines.extend(["## Rendered Math Annotations", ""])
-        for line_no, formula in annotations:
-            start_idx = max(0, line_no - 1)
-            end_idx = min(len(source_lines), line_no + MATH_CONTEXT_DOWN_LINES + 1)
-            snippet = "\n".join(source_lines[start_idx:end_idx]).rstrip()
+        lines.extend(["## Annotated Source", ""])
+        for kind, value in build_interleaved_annotated_blocks(source):
+            if kind == "code":
+                lines.extend(["```python", value, "```", ""])
+                continue
             lines.extend(
                 [
-                    f"### Line {line_no}",
-                    "",
-                    "```python",
-                    snippet,
-                    "```",
+                    '<div class="math-annotation-formula">',
                     "",
                     "$$",
-                    formula,
+                    value,
                     "$$",
+                    "",
+                    "</div>",
                     "",
                 ]
             )
 
-    lines.extend(["## Full Source", "", "```python", source.rstrip(), "```", ""])
     return "\n".join(lines)
 
 
