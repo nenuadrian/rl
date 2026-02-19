@@ -4,327 +4,7 @@ _Source: `minerva/trainers/vmpo/trainer.py`_
 
 Each `# LaTeX:` annotation is rendered below next to its source line.
 
-## Rendered Math Annotations
-
-### Line 208
-
-```python
-        total = count_acc + count_i
-```
-
-$$
-n = n_{acc} + n_i
-$$
-
-### Line 209
-
-```python
-        delta = mean_i - mean_acc
-```
-
-$$
-\delta = \mu_i - \mu_{acc}
-$$
-
-### Line 210
-
-```python
-        mean_new = mean_acc + delta * (count_i / total)
-```
-
-$$
-\mu' = \mu_{acc} + \delta\frac{n_i}{n}
-$$
-
-### Line 211
-
-```python
-        m2_acc = var_acc * count_acc
-```
-
-$$
-M_{2,acc} = \sigma_{acc}^2 n_{acc}
-$$
-
-### Line 212
-
-```python
-        m2_i = var_i * count_i
-```
-
-$$
-M_{2,i} = \sigma_i^2 n_i
-$$
-
-### Line 213
-
-```python
-        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
-```
-
-$$
-M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}
-$$
-
-### Line 216
-
-```python
-        var_acc = m2_total / total
-```
-
-$$
-\sigma^2 = \frac{M_2}{n}
-$$
-
-### Line 481
-
-```python
-        eval_interval = max(1, total_steps // 150)
-```
-
-$$
-\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
-$$
-
-### Line 510
-
-```python
-            global_step += self.num_envs
-```
-
-$$
-t \leftarrow t + N
-$$
-
-### Line 511
-
-```python
-            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
-```
-
-$$
-w_t^{restart} = 1 - \mathbf{1}_{episode\_start}
-$$
-
-### Line 519
-
-```python
-            done = terminated | truncated
-```
-
-$$
-d_t = d_t^{term} \lor d_t^{trunc}
-$$
-
-### Line 526
-
-```python
-            timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
-```
-
-$$
-m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}
-$$
-
-### Line 563
-
-```python
-            self.episode_return += reward
-```
-
-$$
-G_i \leftarrow G_i + r_{t,i}
-$$
-
-### Line 627
-
-```python
-                rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
-```
-
-$$
-r_t' = r_t + \gamma b_t^{timeout}
-$$
-
-### Line 630
-
-```python
-                last_value = last_value * (1.0 - dones_arr[-1])
-```
-
-$$
-V_T = V(s_T)(1 - d_T)
-$$
-
-### Line 634
-
-```python
-                obs_flat = obs_arr.reshape(T * N, -1)
-```
-
-$$
-\mathbf{S} \in \mathbb{R}^{(TN)\times d_s}
-$$
-
-### Line 635
-
-```python
-                actions_flat = actions_arr.reshape(T * N, -1)
-```
-
-$$
-\mathbf{A} \in \mathbb{R}^{(TN)\times d_a}
-$$
-
-### Line 641
-
-```python
-                means_flat = means_arr.reshape(T * N, -1)
-```
-
-$$
-\mu_{old} \in \mathbb{R}^{(TN)\times d_a}
-$$
-
-### Line 642
-
-```python
-                log_stds_flat = log_stds_arr.reshape(T * N, -1)
-```
-
-$$
-\log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}
-$$
-
-### Line 644
-
-```python
-                returns, advantages = compute_rollout_targets(
-```
-
-$$
-(R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)
-$$
-
-### Line 653
-
-```python
-                returns_flat = returns.reshape(T * N, 1)
-```
-
-$$
-\mathbf{R} \in \mathbb{R}^{(TN)\times 1}
-$$
-
-### Line 654
-
-```python
-                advantages_flat = advantages.reshape(T * N, 1)
-```
-
-$$
-\mathbf{A} \in \mathbb{R}^{(TN)\times 1}
-$$
-
-### Line 690
-
-```python
-                    interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
-```
-
-$$
-M_k \leftarrow M_k + m_k
-$$
-
-### Line 728
-
-```python
-                progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
-```
-
-$$
-p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}
-$$
-
-### Line 748
-
-```python
-                    mean_metrics = {
-```
-
-$$
-\bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}
-$$
-
-### Line 810
-
-```python
-        episode_returns[active_mask] += reward_arr[active_mask]
-```
-
-$$
-G_i \leftarrow G_i + r_{t,i}
-$$
-
-### Line 817
-
-```python
-                final_returns.append(episode_returns[i])
-```
-
-$$
-\mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}
-$$
-
-### Line 826
-
-```python
-        "eval/return_median": float(np.median(final_returns)),
-```
-
-$$
-\tilde{G} = \operatorname{median}(\mathcal{G})
-$$
-
-### Line 827
-
-```python
-        "eval/return_mean": float(np.mean(final_returns)),
-```
-
-$$
-\bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g
-$$
-
-### Line 829
-
-```python
-        "eval/return_std": float(np.std(final_returns)),
-```
-
-$$
-\sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}
-$$
-
-### Line 830
-
-```python
-        "eval/return_min": float(np.min(final_returns)),
-```
-
-$$
-G_{\min} = \min(\mathcal{G})
-$$
-
-### Line 831
-
-```python
-        "eval/return_max": float(np.max(final_returns)),
-```
-
-$$
-G_{\max} = \max(\mathcal{G})
-$$
+No `# LaTeX:` annotations were found in this file.
 
 ## Full Source
 
@@ -536,15 +216,15 @@ def _merge_obs_rms_stats(
             count_acc = count_i
             continue
 
-        total = count_acc + count_i  # LaTeX: n = n_{acc} + n_i
-        delta = mean_i - mean_acc  # LaTeX: \delta = \mu_i - \mu_{acc}
-        mean_new = mean_acc + delta * (count_i / total)  # LaTeX: \mu' = \mu_{acc} + \delta\frac{n_i}{n}
-        m2_acc = var_acc * count_acc  # LaTeX: M_{2,acc} = \sigma_{acc}^2 n_{acc}
-        m2_i = var_i * count_i  # LaTeX: M_{2,i} = \sigma_i^2 n_i
-        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)  # LaTeX: M_2 = M_{2,acc} + M_{2,i} + \delta^2\frac{n_{acc}n_i}{n}
+        total = count_acc + count_i
+        delta = mean_i - mean_acc
+        mean_new = mean_acc + delta * (count_i / total)
+        m2_acc = var_acc * count_acc
+        m2_i = var_i * count_i
+        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
 
         mean_acc = mean_new
-        var_acc = m2_total / total  # LaTeX: \sigma^2 = \frac{M_2}{n}
+        var_acc = m2_total / total
         count_acc = total
 
     return mean_acc, var_acc, count_acc
@@ -809,7 +489,7 @@ class VMPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 150)  # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
+        eval_interval = max(1, total_steps // 150)
         console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[VMPO] training started: "
@@ -838,8 +518,8 @@ class VMPOTrainer:
 
         while global_step < total_steps:
             env_steps += 1
-            global_step += self.num_envs  # LaTeX: t \leftarrow t + N
-            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)  # LaTeX: w_t^{restart} = 1 - \mathbf{1}_{episode\_start}
+            global_step += self.num_envs
+            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
             importance_weights = np.ones(self.num_envs, dtype=np.float32)
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
@@ -847,14 +527,14 @@ class VMPOTrainer:
             next_obs = np.asarray(next_obs, dtype=np.float32)
             terminated = np.asarray(terminated, dtype=bool)
             truncated = np.asarray(truncated, dtype=bool)
-            done = terminated | truncated  # LaTeX: d_t = d_t^{term} \lor d_t^{trunc}
+            done = terminated | truncated
             reward = np.asarray(reward, dtype=np.float32)
 
             # Time-limit fix:
             # Keep truncation as an episode boundary in target recursion, but for
             # truncated/non-terminated transitions bootstrap from V(final_obs).
             timeout_bootstrap = np.zeros(self.num_envs, dtype=np.float32)
-            timeout_mask = np.logical_and(truncated, np.logical_not(terminated))  # LaTeX: m_t^{timeout} = d_t^{trunc} \land \neg d_t^{term}
+            timeout_mask = np.logical_and(truncated, np.logical_not(terminated))
             if np.any(timeout_mask):
                 final_obs = _extract_final_observations(infos, self.num_envs)
                 timeout_indices = np.flatnonzero(timeout_mask)
@@ -891,7 +571,7 @@ class VMPOTrainer:
             obs = next_obs
             self.episode_start_flags = done.astype(bool)
 
-            self.episode_return += reward  # LaTeX: G_i \leftarrow G_i + r_{t,i}
+            self.episode_return += reward
 
             episode_stats = _extract_episode_returns(infos)
             logged_envs: set[int] = set()
@@ -955,24 +635,24 @@ class VMPOTrainer:
                 log_stds_arr = np.stack(self.log_stds_buf)
 
                 # Apply time-limit bootstrap correction per truncated transition.
-                rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)  # LaTeX: r_t' = r_t + \gamma b_t^{timeout}
+                rewards_arr = rewards_arr + (self.gamma * timeout_bootstrap_arr)
 
                 last_value = self.agent.value(obs)
-                last_value = last_value * (1.0 - dones_arr[-1])  # LaTeX: V_T = V(s_T)(1 - d_T)
+                last_value = last_value * (1.0 - dones_arr[-1])
 
                 # obs_arr shape (T, N, obs_dim) -> flatten to (T*N, obs_dim)
                 T, N, _ = obs_arr.shape
-                obs_flat = obs_arr.reshape(T * N, -1)  # LaTeX: \mathbf{S} \in \mathbb{R}^{(TN)\times d_s}
-                actions_flat = actions_arr.reshape(T * N, -1)  # LaTeX: \mathbf{A} \in \mathbb{R}^{(TN)\times d_a}
+                obs_flat = obs_arr.reshape(T * N, -1)
+                actions_flat = actions_arr.reshape(T * N, -1)
                 rewards_flat = rewards_arr.reshape(T, N)
                 dones_flat = dones_arr.reshape(T, N)
                 restarting_weights_flat = restarting_weights_arr.reshape(T * N, 1)
                 importance_weights_flat = importance_weights_arr.reshape(T * N, 1)
                 values_flat = values_arr.reshape(T, N)
-                means_flat = means_arr.reshape(T * N, -1)  # LaTeX: \mu_{old} \in \mathbb{R}^{(TN)\times d_a}
-                log_stds_flat = log_stds_arr.reshape(T * N, -1)  # LaTeX: \log \sigma_{old} \in \mathbb{R}^{(TN)\times d_a}
+                means_flat = means_arr.reshape(T * N, -1)
+                log_stds_flat = log_stds_arr.reshape(T * N, -1)
 
-                returns, advantages = compute_rollout_targets(  # LaTeX: (R_t, A_t) \leftarrow \text{Targets}(r_t, d_t, V_t, V_T, \gamma, \lambda)
+                returns, advantages = compute_rollout_targets(
                     rewards=rewards_flat,
                     dones=dones_flat,
                     values=values_flat,
@@ -981,8 +661,8 @@ class VMPOTrainer:
                     estimator=self.advantage_estimator,
                     gae_lambda=self.gae_lambda,
                 )
-                returns_flat = returns.reshape(T * N, 1)  # LaTeX: \mathbf{R} \in \mathbb{R}^{(TN)\times 1}
-                advantages_flat = advantages.reshape(T * N, 1)  # LaTeX: \mathbf{A} \in \mathbb{R}^{(TN)\times 1}
+                returns_flat = returns.reshape(T * N, 1)
+                advantages_flat = advantages.reshape(T * N, 1)
 
                 batch = {
                     "obs": torch.as_tensor(
@@ -1018,7 +698,7 @@ class VMPOTrainer:
                 metrics = self.agent.update(batch)
                 log_wandb(metrics, step=global_step, silent=True)
                 for key, value in metrics.items():
-                    interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)  # LaTeX: M_k \leftarrow M_k + m_k
+                    interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
                 interval_update_count += 1
                 total_update_count += 1
 
@@ -1055,7 +735,6 @@ class VMPOTrainer:
                 global_step >= total_steps or global_step % console_log_interval == 0
             )
             if should_print_progress:
-                # LaTeX: p = 100 \cdot \frac{\min(t, T_{total})}{T_{total}}
                 progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
                 print(
                     "[VMPO][progress] "
@@ -1075,7 +754,6 @@ class VMPOTrainer:
                     interval_episode_min = float("inf")
                     interval_episode_max = float("-inf")
                 if interval_update_count > 0:
-                    # LaTeX: \bar{m}_k = \frac{1}{U}\sum_{u=1}^{U} m_{k,u}
                     mean_metrics = {
                         key: value / float(interval_update_count)
                         for key, value in interval_metric_sums.items()
@@ -1138,14 +816,14 @@ def _evaluate_vectorized(
         active_mask = ~dones
 
         # Accumulate rewards for envs that haven't finished yet
-        episode_returns[active_mask] += reward_arr[active_mask]  # LaTeX: G_i \leftarrow G_i + r_{t,i}
+        episode_returns[active_mask] += reward_arr[active_mask]
         episode_lengths[active_mask] += 1
 
         # Check for completions
         # Gymnasium VectorEnv resets automatically; we catch the return in infos
         for i in range(n_episodes):
             if not dones[i] and (terminated[i] or truncated[i]):
-                final_returns.append(episode_returns[i])  # LaTeX: \mathcal{G} \leftarrow \mathcal{G} \cup \{G_i\}
+                final_returns.append(episode_returns[i])
                 final_lengths.append(int(episode_lengths[i]))
                 dones[i] = True
 
@@ -1154,11 +832,11 @@ def _evaluate_vectorized(
         agent.policy.train()
 
     return {
-        "eval/return_median": float(np.median(final_returns)),  # LaTeX: \tilde{G} = \operatorname{median}(\mathcal{G})
-        "eval/return_mean": float(np.mean(final_returns)),  # LaTeX: \bar{G} = \frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}} g
+        "eval/return_median": float(np.median(final_returns)),
+        "eval/return_mean": float(np.mean(final_returns)),
         "eval/length_mean": float(np.mean(final_lengths)),
-        "eval/return_std": float(np.std(final_returns)),  # LaTeX: \sigma_G = \sqrt{\frac{1}{|\mathcal{G}|}\sum_{g\in\mathcal{G}}(g-\bar{G})^2}
-        "eval/return_min": float(np.min(final_returns)),  # LaTeX: G_{\min} = \min(\mathcal{G})
-        "eval/return_max": float(np.max(final_returns)),  # LaTeX: G_{\max} = \max(\mathcal{G})
+        "eval/return_std": float(np.std(final_returns)),
+        "eval/return_min": float(np.min(final_returns)),
+        "eval/return_max": float(np.max(final_returns)),
     }
 ```

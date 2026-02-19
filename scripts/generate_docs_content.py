@@ -343,23 +343,31 @@ def generate_trainers_math_docs() -> None:
     section_dir = GENERATED_DIR / "trainers-math"
     section_dir.mkdir(parents=True, exist_ok=True)
 
-    math_files = []
+    trainer_files = sorted(
+        path
+        for path in ordered_python_files(TRAINERS_DIR)
+        if path.name == "trainer.py"
+    )
+    extra_annotated_files = []
     for path in ordered_python_files(TRAINERS_DIR):
+        if path.name == "trainer.py":
+            continue
         source = path.read_text(encoding="utf-8")
         if extract_latex_annotations(source):
-            math_files.append(path)
+            extra_annotated_files.append(path)
 
+    math_files = trainer_files + extra_annotated_files
     if not math_files:
         write_text(
             section_dir / "index.md",
-            "# Trainers Math\n\nNo `# LaTeX:` annotations were found in `trainers/**/*.py`.\n",
+            "# Trainers Math\n\nNo trainer files were found in `trainers/**/trainer.py`.\n",
         )
         return
 
     index_lines = [
         "# Trainers Math-Annotated Source",
         "",
-        "Trainer module pages that render inline `# LaTeX:` comments as formulas.",
+        "Trainer pages and annotated trainer modules that render inline `# LaTeX:` comments as formulas.",
         "",
     ]
 

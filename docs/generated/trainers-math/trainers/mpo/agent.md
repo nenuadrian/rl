@@ -1,3 +1,384 @@
+# `trainers.mpo.agent` Math-Annotated Source
+
+_Source: `minerva/trainers/mpo/agent.py`_
+
+Each `# LaTeX:` annotation is rendered below next to its source line.
+
+## Rendered Math Annotations
+
+### Line 281
+
+```python
+        policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))
+```
+
+$$
+\tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
+$$
+
+### Line 356
+
+```python
+        q_detached = q_values.detach() / temperature
+```
+
+$$
+\bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
+$$
+
+### Line 357
+
+```python
+        weights = torch.softmax(q_detached, dim=1).detach()
+```
+
+$$
+q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
+$$
+
+### Line 358
+
+```python
+        q_logsumexp = torch.logsumexp(q_detached, dim=1)
+```
+
+$$
+\log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
+$$
+
+### Line 360
+
+```python
+        loss_temperature = temperature * (
+```
+
+$$
+\mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
+$$
+
+### Line 373
+
+```python
+        integrand = torch.log(n * weights + 1e-8)
+```
+
+$$
+\ell_{b,i} = \log\!\left(N q_{b,i}\right)
+$$
+
+### Line 374
+
+```python
+        return (weights * integrand).sum(dim=1)
+```
+
+$$
+D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
+$$
+
+### Line 467
+
+```python
+            delta = rewards_seq + (1.0 - dones_seq) * self.gamma * v_next - q_t
+```
+
+$$
+\delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
+$$
+
+### Line 475
+
+```python
+            log_ratio = log_pi - log_b
+```
+
+$$
+\log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
+$$
+
+### Line 476
+
+```python
+            rho = torch.exp(log_ratio).squeeze(-1)
+```
+
+$$
+\rho_t = \exp(\log \rho_t)
+$$
+
+### Line 477
+
+```python
+            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()
+```
+
+$$
+c_t = \lambda \min(1, \rho_t)
+$$
+
+### Line 481
+
+```python
+            q_ret = q_t[:, 0, :].clone()
+```
+
+$$
+Q^{ret} \leftarrow Q(s_0, a_0)
+$$
+
+### Line 490
+
+```python
+                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])
+```
+
+$$
+m_t \leftarrow m_{t-1}(1-d_{t-1})
+$$
+
+### Line 491
+
+```python
+                    c_prod = c_prod * c[:, t : t + 1]
+```
+
+$$
+C_t \leftarrow C_{t-1} c_t
+$$
+
+### Line 492
+
+```python
+                    discount = discount * self.gamma
+```
+
+$$
+\Gamma_t \leftarrow \Gamma_{t-1}\gamma
+$$
+
+### Line 494
+
+```python
+                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]
+```
+
+$$
+Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
+$$
+
+### Line 579
+
+```python
+                target = rewards + (1.0 - dones) * self.gamma * q_target
+```
+
+$$
+y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
+$$
+
+### Line 587
+
+```python
+        q_loss = F.mse_loss(q, target)
+```
+
+$$
+\mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
+$$
+
+### Line 629
+
+```python
+        temperature = F.softplus(log_temp) + 1e-8
+```
+
+$$
+\eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
+$$
+
+### Line 636
+
+```python
+        kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)
+```
+
+$$
+\mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
+$$
+
+### Line 659
+
+```python
+        loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()
+```
+
+$$
+\mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma'}(a_{b,i}|s_b)
+$$
+
+### Line 660
+
+```python
+        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()
+```
+
+$$
+\mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu',\sigma}(a_{b,i}|s_b)
+$$
+
+### Line 661
+
+```python
+        loss_policy = loss_policy_mean + loss_policy_std
+```
+
+$$
+\mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
+$$
+
+### Line 676
+
+```python
+        mean_kl_mean = kl_mean.mean(dim=0)
+```
+
+$$
+\bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
+$$
+
+### Line 677
+
+```python
+        mean_kl_std = kl_std.mean(dim=0)
+```
+
+$$
+\bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
+$$
+
+### Line 682
+
+```python
+        alpha_mean = F.softplus(log_alpha_mean) + 1e-8
+```
+
+$$
+\alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
+$$
+
+### Line 683
+
+```python
+        alpha_std = F.softplus(log_alpha_stddev) + 1e-8
+```
+
+$$
+\alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+$$
+
+### Line 685
+
+```python
+        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()
+```
+
+$$
+\mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
+$$
+
+### Line 686
+
+```python
+        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()
+```
+
+$$
+\mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
+$$
+
+### Line 687
+
+```python
+        loss_kl_penalty = loss_kl_mean + loss_kl_std
+```
+
+$$
+\mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
+$$
+
+### Line 691
+
+```python
+        ).sum()
+```
+
+$$
+\mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
+$$
+
+### Line 694
+
+```python
+        ).sum()
+```
+
+$$
+\mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
+$$
+
+### Line 697
+
+```python
+        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
+```
+
+$$
+\mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
+$$
+
+### Line 724
+
+```python
+        alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()
+```
+
+$$
+\alpha_{\mu,j}' = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
+$$
+
+### Line 725
+
+```python
+        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()
+```
+
+$$
+\alpha_{\sigma,j}' = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
+$$
+
+### Line 774
+
+```python
+            policy_total_loss = loss_policy + loss_kl_penalty
+```
+
+$$
+\mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
+$$
+
+### Line 796
+
+```python
+        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
+```
+
+$$
+\mathcal{H}(q) = -\mathbb{E}_b\sum_i q_{b,i}\log q_{b,i}
+$$
+
+## Full Source
+
+```python
 from __future__ import annotations
 
 import copy
@@ -820,3 +1201,4 @@ class MPOAgent:
             "pi/std_max": float(std_online.max().detach().item()),
             "entropy": float(entropy.detach().item()),
         }
+```

@@ -1,3 +1,344 @@
+# `trainers.ppo.trainer` Math-Annotated Source
+
+_Source: `minerva/trainers/ppo/trainer.py`_
+
+Each `# LaTeX:` annotation is rendered below next to its source line.
+
+## Rendered Math Annotations
+
+### Line 263
+
+```python
+        action_std = torch.exp(action_logstd)
+```
+
+$$
+\sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
+$$
+
+### Line 269
+
+```python
+            probs.log_prob(action).sum(1),
+```
+
+$$
+\log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
+$$
+
+### Line 270
+
+```python
+            probs.entropy().sum(1),
+```
+
+$$
+\mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
+$$
+
+### Line 409
+
+```python
+        eval_interval = max(1, total_steps // 150)
+```
+
+$$
+\Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
+$$
+
+### Line 411
+
+```python
+        num_updates = total_steps // self.batch_size
+```
+
+$$
+U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
+$$
+
+### Line 447
+
+```python
+                frac = 1.0 - (update - 1.0) / num_updates
+```
+
+$$
+f_u = 1 - \frac{u-1}{U}
+$$
+
+### Line 448
+
+```python
+                lrnow = frac * self.learning_rate
+```
+
+$$
+\lambda_u = f_u \lambda_0
+$$
+
+### Line 452
+
+```python
+                global_step += self.num_envs
+```
+
+$$
+t \leftarrow t + N
+$$
+
+### Line 467
+
+```python
+                done = np.logical_or(terminated, truncated)
+```
+
+$$
+d_t = d_t^{term} \lor d_t^{trunc}
+$$
+
+### Line 534
+
+```python
+                            nextnonterminal = 1.0 - next_done
+```
+
+$$
+m_{t+1} = 1 - d_{t+1}
+$$
+
+### Line 537
+
+```python
+                            nextnonterminal = 1.0 - dones[t + 1]
+```
+
+$$
+m_{t+1} = 1 - d_{t+1}
+$$
+
+### Line 539
+
+```python
+                        delta = (
+```
+
+$$
+\delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
+$$
+
+### Line 544
+
+```python
+                        advantages[t] = lastgaelam = (
+```
+
+$$
+A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
+$$
+
+### Line 551
+
+```python
+                    returns = advantages + values
+```
+
+$$
+R_t = A_t + V(s_t)
+$$
+
+### Line 556
+
+```python
+                            nextnonterminal = 1.0 - next_done
+```
+
+$$
+m_{t+1} = 1 - d_{t+1}
+$$
+
+### Line 559
+
+```python
+                            nextnonterminal = 1.0 - dones[t + 1]
+```
+
+$$
+m_{t+1} = 1 - d_{t+1}
+$$
+
+### Line 561
+
+```python
+                        returns[t] = (
+```
+
+$$
+R_t = r_t + \gamma m_{t+1} R_{t+1}
+$$
+
+### Line 564
+
+```python
+                    advantages = returns - values
+```
+
+$$
+A_t = R_t - V(s_t)
+$$
+
+### Line 592
+
+```python
+                    logratio = newlogprob - b_logprobs[mb_inds]
+```
+
+$$
+\log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
+$$
+
+### Line 593
+
+```python
+                    ratio = logratio.exp()
+```
+
+$$
+r_t = \exp(\log r_t)
+$$
+
+### Line 597
+
+```python
+                        old_approx_kl = (-logratio).mean()
+```
+
+$$
+\widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
+$$
+
+### Line 598
+
+```python
+                        approx_kl = ((ratio - 1) - logratio).mean()
+```
+
+$$
+\widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+$$
+
+### Line 605
+
+```python
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+```
+
+$$
+\hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+$$
+
+### Line 609
+
+```python
+                    pg_loss1 = -mb_advantages * ratio
+```
+
+$$
+\mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
+$$
+
+### Line 610
+
+```python
+                    pg_loss2 = -mb_advantages * torch.clamp(
+```
+
+$$
+\mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+$$
+
+### Line 613
+
+```python
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+```
+
+$$
+\mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+$$
+
+### Line 617
+
+```python
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+```
+
+$$
+\mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+$$
+
+### Line 618
+
+```python
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+```
+
+$$
+V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+$$
+
+### Line 623
+
+```python
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+```
+
+$$
+\mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+$$
+
+### Line 625
+
+```python
+                        v_loss = 0.5 * v_loss_max.mean()
+```
+
+$$
+\mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+$$
+
+### Line 627
+
+```python
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+```
+
+$$
+\mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+$$
+
+### Line 630
+
+```python
+                    loss = (
+```
+
+$$
+\mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+$$
+
+### Line 647
+
+```python
+            explained_var = (
+```
+
+$$
+\operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
+$$
+
+## Full Source
+
+```python
 from __future__ import annotations
 
 import os
@@ -668,3 +1009,4 @@ class PPOTrainer:
 
         self.envs.close()
         self.eval_envs.close()
+```
