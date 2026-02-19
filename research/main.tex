@@ -701,7 +701,7 @@ In the LLM fine-tuning regime where data is limited and overfitting is a practic
 \section{DPO: Direct Preference Optimization}
 \label{sec:dpo}
 
-Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a preference MLE method: it bypasses reward modelling and policy-gradient estimation entirely, reducing alignment to a single binary cross-entropy objective over preference pairs. This section derives DPO from the same KL-regularised RLHF objective used throughout this document, characterises it as maximum-likelihood estimation, and relates it to the GEMPI framework.
+Direct Preference Optimization (DPO) \parencite{rafailov2023dpo} is a preference MLE method: it bypasses reward modelling and policy-gradient estimation entirely, reducing alignment to a single binary cross-entropy objective over preference pairs.
 
 Unlike policy-gradient methods, DPO needs no reward model (the reward is implicit), no value function, no advantage estimation, no importance-sampling ratios, and no online rollouts. The entire training signal comes from offline preference pairs.
 
@@ -803,7 +803,7 @@ By collapsing the two stages, DPO gives up several degrees of freedom available 
 \end{itemize}
 
 \paragraph{Dropout compatibility.}
-DPO's gradient involves only single forward passes through $\pi_\theta$ (computing $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$), with no ratio between two forward passes under different modes. Dropout is therefore fully compatible with DPO, for the same structural reason it is compatible with SFT and EM-style M-steps.
+DPO's gradient involves only single forward passes through $\pi_\theta$ (computing $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$), with no ratio between two forward passes under different modes. Dropout is therefore compatible, for the same structural reasons of SFT and EM-style M-steps.
 
 \section{AWR: Advantage-Weighted Regression}
 
@@ -811,10 +811,8 @@ Consider an MDP with states \(s\in\mathcal{S}\), actions \(a\in\mathcal{A}\), re
 \( \gamma\in[0,1)\). For a policy \(\pi\) define the return of a state--action pair under a sampling policy
 \(\mu\) as
 \[
-  R^\mu_{s,a} \;=\; \sum_{t=0}^{\infty} \gamma^{t} r_t \qquad\text{(trajectory return when action \(a\) is taken in \(s\) then follow \(\mu\)).}
-\]
-The value and advantage under \(\mu\) are
-\[
+  R^\mu_{s,a} \;=\; \sum_{t=0}^{\infty} \gamma^{t} r_t,
+   \qquad
   V^\mu(s) \;=\; \mathbb{E}_{a\sim\mu(\cdot|s)}\big[ R^\mu_{s,a} \big],
   \qquad
   A^\mu(s,a) \;=\; R^\mu_{s,a} - V^\mu(s).
@@ -897,7 +895,7 @@ Expanding the KL and substituting \(\pi^\star\) \eqref{eq:awr_opt_policy} yields
   \Big].
   \label{eq:awr_regression}
 \]
-This is the central AWR policy update: fit \(\pi\) by maximum likelihood on behaviour data weighted by exponentiated advantages.
+Fit \(\pi\) by maximum likelihood on behaviour data weighted by exponentiated advantages.
 
 \paragraph{Value update.}
 AWR alternates the policy update with a value regression that fits \(V\) to returns in \(\mathcal{D}\),
@@ -910,7 +908,7 @@ typically by minimising a squared TD($\lambda$) or Monte-Carlo return loss:
 
 \section{DAR: Direct Advantage Regression}
 
-DAR \parencite{he2025directadvantageregressionaligning} studies online alignment with AI-generated reward signals. The method preserves the regularised online RLHF objective while replacing iterative policy-gradient updates with a closed-form advantage-weighted target followed by supervised projection. This section summarises that objective and its relation to V-MPO.
+DAR \parencite{he2025directadvantageregressionaligning} studies online alignment with AI-generated reward signals. The method preserves the regularised online RLHF objective while replacing iterative policy-gradient updates with a closed-form advantage-weighted target followed by supervised projection.
 
 \paragraph{RL Fine-tuning}
 
@@ -949,13 +947,8 @@ Advantage Weighted Regression (AWR) maximizes:
   \mathbb{E}_{x \sim d_{\pi_\theta}(x), y \sim \pi_\theta(y|x)}
   \left[
     A(x,y)
-  \right],
+  \right], A(x,y) = r(x,y) - V^{\pi_t}(x).
 \end{equation*}
-
-where
-\[
-  A(x,y) = r(x,y) - V^{\pi_t}(x).
-\]
 
 To remove dependence on $d_{\pi_\theta}$, we approximate using $d_{\pi_t}$ and impose KL trust-region regularization:
 
@@ -1003,27 +996,21 @@ maximization objective above with strictly positive KL coefficients, the
 optimal policy is:
 
 \begin{equation*}
+  \phi(x,y)
+  \;\coloneqq\;
+  \pi_{\mathrm{ref}}(y \mid x)^{\frac{\alpha}{\alpha+\beta}}
+  \;
+  \pi_t(y \mid x)^{\frac{\beta}{\alpha+\beta}}
+  \;
+  \exp\!\left(
+    \frac{A(x,y)}{\alpha+\beta}
+  \right),
   \pi^\star(y\mid x)
   =
   \frac{1}{Z(x)}\,
-  \pi_{\mathrm{ref}}(y\mid x)^{\frac{\alpha}{\alpha+\beta}}
-  \;
-  \pi_t(y\mid x)^{\frac{\beta}{\alpha+\beta}}
-  \;
-  \exp\!\Big(\frac{A(x,y)}{\alpha+\beta}\Big),
+  \phi(x,y),
 \end{equation*}
-where
-\begin{equation*}
-  Z(x)
-  =
-  \sum_{y}
-  \pi_{\mathrm{ref}}(y\mid x)^{\frac{\alpha}{\alpha+\beta}}
-  \;
-  \pi_t(y\mid x)^{\frac{\beta}{\alpha+\beta}}
-  \;
-  \exp\!\Big(\frac{A(x,y)}{\alpha+\beta}\Big),
-\end{equation*}
-is the partition function.
+where $Z(x) = \sum_{y}\phi(x,y)$, the partition function.
 
 \paragraph{Proof.}
 
@@ -1173,10 +1160,8 @@ Substituting into \eqref{eq:dar_opt} gives
 \[
   \pi^\star(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big).
 \]
-Comparing with \eqref{eq:vmpo_form} we identify the V-MPO temperature as
-\[
-  \eta = t = \alpha+\beta.
-\]
+Comparing with \eqref{eq:vmpo_form} we identify the V-MPO temperature as $\eta = t = \alpha+\beta$.
+
 Thus DAR reduces to the V-MPO structural form when the reference policy equals the
 sampling policy; the DAR temperature is the sum of the two KL coefficients.
 
@@ -1190,7 +1175,6 @@ let $\beta\to t$). From \eqref{eq:dar_log},
   + \underbrace{\tfrac{\beta}{t}}_{\to 1}\log\pi_t
   + \tfrac{1}{t}A(x,y),
 \]
-so
 \[
   \pi^\star(y\!\mid\!x) \propto \pi_t(y\!\mid\!x)\,\exp\!\Big(\frac{A(x,y)}{t}\Big),
 \]
@@ -1219,7 +1203,6 @@ and exponentiation recovers the V-MPO unnormalised weight
 \)
 
 \paragraph{Practical consequences and distinctions.}
-Although DAR and V-MPO share the same advantage-exponential device, they differ in:
 \begin{enumerate}
   \item \textbf{Dual handling.} V-MPO treats $\eta$ (and an average-KL dual $\alpha$)
     as optimisation variables updated by convex-dual objectives; DAR typically treats
@@ -1231,17 +1214,14 @@ Although DAR and V-MPO share the same advantage-exponential device, they differ 
     weights on teacher-forced token log-probabilities (the DAR practical objective).
   \item \textbf{Engineered stabilisers.} DAR introduces practical stabilisers for
     large-vocabulary sequence training (weight clipping, advantage normalisation,
-    importance-weight corrections). V-MPO implementations use top-$k$ selection and
-    explicit dual updates which require careful numerical handling when lifted to LLMs.
+    importance-weight corrections). V-MPO implementations use top-$k$ and
+    explicit dual updates which require numerical handling when lifted to LLMs.
 \end{enumerate}
 
 \paragraph{Bridge to the EM.}
-The sequence-level EM procedure in
-Section~\ref{sec:vmpo_llm_gempi}, Eq.~\eqref{eq:seq_estep_weights} through Eq.~\eqref{eq:seq_weighted_mstep},
-and the DAR formulation are two views of the same update pattern: an E-step that
+Two views of the pattern: an E-step that
 constructs exponential advantage weights followed by a weighted teacher-forced M-step.
 In the LLM-scale V-MPO view, $\eta$ is adapted online via a dual objective and the
-E-step may be restricted to top-$k$ samples for stability; in the DAR view, the
 closed-form target introduces an additional reference/sampling mixture term and uses
 fixed coefficients $(\alpha,\beta)$, which recover the V-MPO-style form in the limits
 derived above.
@@ -1260,7 +1240,7 @@ The per-sequence weights differ only by the base factor:
 \section{MaxMin-RLHF}
 \label{sec:maxmin_method}
 
-MaxMin-RLHF \parencite{chakraborty2024maxminrlhfalignmentdiversehuman} can be interpreted as a nested Expectation–Maximisation procedure for alignment under heterogeneous preferences. In the first stage, an EM algorithm learns a mixture of subgroup-specific reward models from pairwise preference data by treating subgroup identity as a latent variable and alternating between estimating subgroup responsibilities (E-step) and maximising subgroup-specific reward likelihoods (M-step). In the second stage, policy optimisation proceeds via a KL-regularised EM update, but with the reward model selected adversarially: at each iteration the subgroup whose expected utility is currently minimal under the policy is identified, and the policy is updated through an exponential-tilted target distribution derived from that subgroup’s reward, followed by a projection back to the parametric policy family. Thus, MaxMin-RLHF is a robust EM framework in which reward learning and worst-case policy improvement are coupled through alternating latent inference and KL-regularised projection steps.
+MaxMin-RLHF \parencite{chakraborty2024maxminrlhfalignmentdiversehuman} can be interpreted as a nested Expectation--Maximisation procedure for alignment under heterogeneous preferences. An EM algorithm learns a mixture of subgroup-specific reward models from pairwise preference data by treating subgroup identity as a latent variable and alternating between estimating subgroup responsibilities (E-step) and maximising subgroup-specific reward likelihoods (M-step). Policy optimisation proceeds via a KL-regularised EM update, but with the reward model selected adversarially: at each iteration the subgroup whose expected utility is currently minimal under the policy is identified, and the policy is updated through an exponential-tilted target distribution derived from that subgroup's reward, followed by a projection back to the parametric policy family.
 
 \paragraph{Method.}
 
@@ -1300,7 +1280,7 @@ The KL-regularised reinforcement objective used for policy fine-tuning is
   \big[ D_{\mathrm{KL}}(\pi(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x))\big],
   \label{eq:kl_reg_obj}
 \end{equation}
-with regularisation weight $\beta>0$ and reference policy $\pi_{\mathrm{ref}}$ (SFT checkpoint). :contentReference[oaicite:3]{index=3}
+with regularisation weight $\beta>0$ and reference policy $\pi_{\mathrm{ref}}$ (SFT checkpoint). 
 
 \paragraph{Diversity and an impossibility bound. }
 Define a population composed of $|U|$ sub-populations $H=\bigcup_{u=1}^{|U|} H_u$.
@@ -1322,7 +1302,7 @@ constant relating policy and reward, $\beta$ the KL weight, $D$ a feature bound,
 weight of subgroup $u$, and $\epsilon$ a gap derived from pairwise total-variation distances. The
 consequence is that high subpopulation diversity or vanishing subgroup mass $\eta(u)$ make accurate
 alignment via a single reward improbable. See the original proof and the supporting lemma for the
-precise constants and derivation. :contentReference[oaicite:4]{index=4}
+precise constants and derivation.
 
 To address this failure mode, we learn a mixture of $|U|$ reward models
 $\{r_{\phi_u}\}_{u=1}^{|U|}$ and simultaneously clusters annotators (or annotator-derived signals)
@@ -1361,7 +1341,7 @@ the local responsibility used in the paper's hard-assignment E-step reduces to t
   \label{eq:em_weight}
 \end{equation}
 This expression follows directly from the BT model and is the quantity used to assign users to clusters
-(Algorithm~\ref{alg:em_reward}). :contentReference[oaicite:5]{index=5}
+(Algorithm~\ref{alg:em_reward}).
 
 \paragraph{M-step (reward update).}
 Given cluster assignments (hard or soft), update each reward parameter $\phi_u$ by minimising the
@@ -1373,7 +1353,7 @@ negative log-likelihood restricted to the data assigned to cluster $u$, i.e.
 \]
 where $\mathcal{D}_u$ are the pairs assigned to cluster $u$. In practice this is SGD on
 the binary cross-entropy loss. Convergence of the EM loop is monitored by cluster-stability or
-likelihood improvement. :contentReference[oaicite:6]{index=6}
+likelihood improvement. 
 
 \paragraph{Objective and policy iteration. }
 Once a set of reward models $\{r_{\phi_u}\}$ is obtained, the alignment objective pursued is an
@@ -1397,7 +1377,7 @@ sub-population under the current policy and (2) updates the policy using a stand
   \item Repeat until convergence.
 \end{enumerate}
 
-This iterated max--min policy iteration is summarised in Algorithm~\ref{alg:maxmin} below. :contentReference[oaicite:7]{index=7}
+This iterated max--min policy iteration is summarised in Algorithm~\ref{alg:maxmin} below. 
 
 \paragraph{Algorithm 1: MaxMin-RLHF (policy-level)}\label{alg:maxmin}
 \begin{enumerate}
@@ -1431,7 +1411,6 @@ This iterated max--min policy iteration is summarised in Algorithm~\ref{alg:maxm
     \end{enumerate}
   \item \textbf{Return:} $\{\phi_u\}$ and cluster assignments.
 \end{enumerate}
-
 
 \section{Generalized EM Policy Improvement (GEMPI)}
 This is an attempt to describe a generalised EM policy improvement method that encompasses a wide range of algorithms as special cases. The key idea is to allow multiple anchor policies and multiple divergence functionals in the E-step, as well as flexible temperature and filtering mechanisms.
@@ -1530,7 +1509,7 @@ Solving for $\log q(y\mid x)$:
   +
   \mathrm{const}.
 \]
-Exponentiating and normalizing yields \eqref{eq:gempi_closedform}. \hfill$\square$
+Exponentiating and normalizing yields \eqref{eq:gempi_closedform}.
 
 \paragraph{Log-space form.}
 The unnormalized log-weight for sample $(x,y)$ is
@@ -1574,7 +1553,7 @@ where $\gamma \ge 0$ controls the M-step trust region. The three main variants a
 
 \begin{itemize}
   \item \textbf{Unconstrained} ($\gamma=0$): pure weighted maximum likelihood. Used by DAR and AWR.
-  \item \textbf{Penalized} ($\gamma > 0$, $D_M = \mathrm{KL}$): soft KL penalty preventing the parametric policy from overshooting. The V-MPO M-step uses this with $\gamma$ treated as a Lagrangian dual variable $\alpha$ optimized against a budget $\varepsilon_\alpha$.
+  \item \textbf{Penalized} ($\gamma > 0$, $D_M = \mathrm{KL}$): soft KL penalty constraining the parametric policy.  V-MPO M-step uses this with $\gamma$ treated as a Lagrangian dual variable $\alpha$ optimized against a budget $\varepsilon_\alpha$.
   \item \textbf{Hard-constrained}: replace the penalty with a constraint $D_M(\pi_{\theta_k}\|\pi_\theta) < \varepsilon_M$ and solve via the Lagrangian, yielding the stop-gradient decomposition used in V-MPO's implementation.
 \end{itemize}
 
@@ -1775,7 +1754,7 @@ Set $m=1$, $D_1=\mathrm{KL}$, $\pi_1=\pi_t$. The closed form \eqref{eq:gempi_clo
 \[
   q^\star(y\mid x) \propto \pi_t(y\mid x)\,\exp\!\Big(\frac{A(x,y)}{\eta}\Big),
 \]
-with $\Lambda = \eta$. The temperature is treated as a dual variable optimised via the scalar dual \eqref{eq:gempi_dual} (which reduces to $\mathcal{L}_\eta = \eta\varepsilon_\eta + \eta\log(Z/k)$). Top-$k$ filtering restricts the support. The M-step adds a KL trust region with dual $\alpha$. This recovers the V-MPO formulation derived earlier in this document.
+with $\Lambda = \eta$. The temperature is treated as a dual variable optimised via the scalar dual \eqref{eq:gempi_dual} (which reduces to $\mathcal{L}_\eta = \eta\varepsilon_\eta + \eta\log(Z/k)$). Top-$k$ filtering restricts the support. The M-step adds a KL trust region with dual $\alpha$. This recovers the V-MPO formulation.
 
 \paragraph{DAR.}
 Set $m=2$, $D_1=D_2=\mathrm{KL}$, $\pi_1=\pi_{\mathrm{ref}}$ with coefficient $\alpha$, $\pi_2=\pi_t$ with coefficient $\beta$. The closed form \eqref{eq:gempi_closedform} becomes
@@ -1958,7 +1937,6 @@ Because E-step weights are detached from current parameters, the M-step with dro
 \]
 which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
 
-
 \section*{References}
 
 \printbibliography[title={~}]
@@ -2111,10 +2089,10 @@ explicit two-phase EM methods (AWR, V-MPO, DAR), with GEMPI as the unifying fram
     & Configurable \\
 
     \textbf{Training data format}
-    & State–action trajectories $+$ scalar rewards
-    & State–action trajectories $+$ scalar rewards
-    & State–action trajectories $+$ returns
-    & Prompt–response pairs $+$ scalar rewards
+    & State--action trajectories $+$ scalar rewards
+    & State--action trajectories $+$ scalar rewards
+    & State--action trajectories $+$ returns
+    & Prompt--response pairs $+$ scalar rewards
     & Pairwise preference triples $(x,y_w,y_l)$
     & General (reward or preference signals) \\
 

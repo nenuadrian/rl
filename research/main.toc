@@ -31,74 +31,74 @@
 \contentsline {paragraph}{DPO and the EM Framework}{9}{section*.26}%
 \contentsline {paragraph}{The ``collapsed EM'' interpretation.}{9}{section*.27}%
 \contentsline {paragraph}{What is lost.}{9}{section*.28}%
-\contentsline {paragraph}{Dropout compatibility.}{10}{section*.29}%
+\contentsline {paragraph}{Dropout compatibility.}{9}{section*.29}%
 \contentsline {section}{\numberline {7}AWR: Advantage-Weighted Regression}{10}{section.7}%
 \contentsline {paragraph}{Expected improvement objective.}{10}{section*.30}%
 \contentsline {paragraph}{Constrained policy search (primal).}{10}{section*.31}%
 \contentsline {paragraph}{Lagrangian and stationarity.}{10}{section*.32}%
 \contentsline {paragraph}{Projection to parameterised policy (regression step).}{10}{section*.33}%
-\contentsline {paragraph}{Value update.}{11}{section*.34}%
+\contentsline {paragraph}{Value update.}{10}{section*.34}%
 \contentsline {section}{\numberline {8}DAR: Direct Advantage Regression}{11}{section.8}%
 \contentsline {paragraph}{RL Fine-tuning}{11}{section*.35}%
 \contentsline {paragraph}{Advantage Weighted Regression}{11}{section*.36}%
 \contentsline {paragraph}{Dual-Constrained Objective}{11}{section*.37}%
 \contentsline {paragraph}{Theorem.}{11}{section*.38}%
-\contentsline {paragraph}{Proof.}{12}{section*.39}%
+\contentsline {paragraph}{Proof.}{11}{section*.39}%
 \contentsline {paragraph}{Mapping \textsc {DAR} to V-MPO}{12}{section*.40}%
-\contentsline {paragraph}{DAR closed-form target.}{13}{section*.41}%
-\contentsline {paragraph}{V-MPO canonical target.}{13}{section*.42}%
+\contentsline {paragraph}{DAR closed-form target.}{12}{section*.41}%
+\contentsline {paragraph}{V-MPO canonical target.}{12}{section*.42}%
 \contentsline {paragraph}{Special case 1: identical reference and sampling policies.}{13}{section*.43}%
 \contentsline {paragraph}{Special case 2: \(\alpha \rightarrow 0\) (reference KL vanishes).}{13}{section*.44}%
 \contentsline {paragraph}{Algebraic equivalence (log-space explanation).}{13}{section*.45}%
-\contentsline {paragraph}{Practical consequences and distinctions.}{14}{section*.46}%
-\contentsline {paragraph}{Bridge to the EM.}{14}{section*.47}%
+\contentsline {paragraph}{Practical consequences and distinctions.}{13}{section*.46}%
+\contentsline {paragraph}{Bridge to the EM.}{13}{section*.47}%
 \contentsline {paragraph}{Sequence-level weighted loss (common form).}{14}{section*.48}%
 \contentsline {section}{\numberline {9}MaxMin-RLHF}{14}{section.9}%
 \contentsline {paragraph}{Method.}{14}{section*.49}%
-\contentsline {paragraph}{Diversity and an impossibility bound. }{15}{section*.50}%
+\contentsline {paragraph}{Diversity and an impossibility bound. }{14}{section*.50}%
 \contentsline {paragraph}{Generative model for pairwise labels.}{15}{section*.51}%
 \contentsline {paragraph}{E-step (responsibilities).}{15}{section*.52}%
 \contentsline {paragraph}{M-step (reward update).}{15}{section*.53}%
-\contentsline {paragraph}{Objective and policy iteration. }{16}{section*.54}%
-\contentsline {paragraph}{Algorithm 1: MaxMin-RLHF (policy-level)}{16}{section*.55}%
+\contentsline {paragraph}{Objective and policy iteration. }{15}{section*.54}%
+\contentsline {paragraph}{Algorithm 1: MaxMin-RLHF (policy-level)}{15}{section*.55}%
 \contentsline {paragraph}{Algorithm 2: Learning rewards with EM (clustered reward models)}{16}{section*.56}%
 \contentsline {section}{\numberline {10}Generalized EM Policy Improvement (GEMPI)}{16}{section.10}%
-\contentsline {paragraph}{The GEMPI tuple.}{17}{section*.57}%
-\contentsline {subsection}{General Regularized E-Step}{17}{section*.58}%
-\contentsline {paragraph}{Theorem (Multi-KL Closed Form).}{17}{section*.59}%
+\contentsline {paragraph}{The GEMPI tuple.}{16}{section*.57}%
+\contentsline {subsection}{General Regularized E-Step}{16}{section*.58}%
+\contentsline {paragraph}{Theorem (Multi-KL Closed Form).}{16}{section*.59}%
 \contentsline {paragraph}{Proof.}{17}{section*.60}%
 \contentsline {paragraph}{Log-space form.}{17}{section*.61}%
-\contentsline {paragraph}{Multi-temperature dual.}{18}{section*.62}%
-\contentsline {subsection}{General M-Step}{18}{section*.63}%
+\contentsline {paragraph}{Multi-temperature dual.}{17}{section*.62}%
+\contentsline {subsection}{General M-Step}{17}{section*.63}%
 \contentsline {paragraph}{Importance-weighted practical form.}{18}{section*.64}%
 \contentsline {paragraph}{1. Partition function bias.}{18}{section*.65}%
-\contentsline {paragraph}{2. Effective sample size and weight degeneracy.}{19}{section*.66}%
-\contentsline {paragraph}{3. M-step gradient bias under finite ESS.}{19}{section*.67}%
+\contentsline {paragraph}{2. Effective sample size and weight degeneracy.}{18}{section*.66}%
+\contentsline {paragraph}{3. M-step gradient bias under finite ESS.}{18}{section*.67}%
 \contentsline {paragraph}{Connection to GEMPI stabilisers.}{19}{section*.68}%
 \contentsline {paragraph}{Remark on the population vs.\ sample limit.}{19}{section*.69}%
 \contentsline {subsection}{Recovering Existing Methods}{19}{section*.70}%
-\contentsline {paragraph}{V-MPO.}{20}{section*.71}%
-\contentsline {paragraph}{DAR.}{20}{section*.72}%
-\contentsline {paragraph}{AWR.}{20}{section*.73}%
+\contentsline {paragraph}{V-MPO.}{19}{section*.71}%
+\contentsline {paragraph}{DAR.}{19}{section*.72}%
+\contentsline {paragraph}{AWR.}{19}{section*.73}%
 \contentsline {paragraph}{SFT.}{20}{section*.74}%
 \contentsline {paragraph}{DPO (collapsed).}{20}{section*.75}%
 \contentsline {paragraph}{DAR$\rightarrow $V-MPO as corollary.}{20}{section*.76}%
 \contentsline {subsection}{The Role of Divergence Choice}{20}{section*.77}%
-\contentsline {subsection}{Stability Properties as Structural Consequences}{21}{section*.78}%
-\contentsline {paragraph}{Adaptive temperature.}{21}{section*.79}%
-\contentsline {paragraph}{Trust regions in the M-step.}{21}{section*.80}%
-\contentsline {paragraph}{Top-$k$ filtering.}{21}{section*.81}%
+\contentsline {subsection}{Stability Properties as Structural Consequences}{20}{section*.78}%
+\contentsline {paragraph}{Adaptive temperature.}{20}{section*.79}%
+\contentsline {paragraph}{Trust regions in the M-step.}{20}{section*.80}%
+\contentsline {paragraph}{Top-$k$ filtering.}{20}{section*.81}%
 \contentsline {paragraph}{Dropout compatibility.}{21}{section*.82}%
 \contentsline {subsection}{Novel Instantiations}{21}{section*.83}%
 \contentsline {paragraph}{Adaptive-Temperature DAR (AT-DAR).}{21}{section*.84}%
 \contentsline {paragraph}{DAR with M-step Trust Region (DAR-TR).}{21}{section*.85}%
-\contentsline {paragraph}{Top-$k$ DAR.}{22}{section*.86}%
-\contentsline {subsection}{Worked Instantiation: LLM V-MPO}{22}{section*.87}%
-\contentsline {paragraph}{GEMPI tuple.}{22}{section*.88}%
-\contentsline {paragraph}{Sequence-level E-step for transformer rollouts.}{22}{section*.89}%
+\contentsline {paragraph}{Top-$k$ DAR.}{21}{section*.86}%
+\contentsline {subsection}{Worked Instantiation: LLM V-MPO}{21}{section*.87}%
+\contentsline {paragraph}{GEMPI tuple.}{21}{section*.88}%
+\contentsline {paragraph}{Sequence-level E-step for transformer rollouts.}{21}{section*.89}%
 \contentsline {paragraph}{M-step as weighted teacher-forced transformer training.}{22}{section*.90}%
-\contentsline {paragraph}{Transformer-specific practicalities.}{23}{section*.91}%
-\contentsline {paragraph}{Dropout in the LLM V-MPO M-step.}{23}{section*.92}%
+\contentsline {paragraph}{Transformer-specific practicalities.}{22}{section*.91}%
+\contentsline {paragraph}{Dropout in the LLM V-MPO M-step.}{22}{section*.92}%
 \contentsline {section}{\numberline {A}Comprehensive Method Comparison}{23}{appendix.A}%
 \contentsline {section}{\numberline {B}GTrXL: Gated Transformer-XL for RL}{25}{appendix.B}%
 \contentsline {paragraph}{Identity Map Reordering (TrXL-I).}{25}{section*.95}%
