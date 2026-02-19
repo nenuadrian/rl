@@ -2,8 +2,8 @@ import numpy as np
 import torch
 
 
-from trainers.vmpo.agent import VMPOAgent
-from trainers.mpo.agent import MPOAgent
+from minerva.trainers.vmpo.agent import VMPOAgent
+from minerva.trainers.mpo.agent import MPOAgent
 
 
 def test_vmpo_agent_act_and_update():

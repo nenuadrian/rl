@@ -23,8 +23,8 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "alpha_lr": 1e-4,
     "epsilon_eta": 0.1,
     "epsilon_mu": 0.02,
-    "epsilon_sigma":  0.005,
-    "max_grad_norm": 10.0,
+    "epsilon_sigma": 0.005,
+    "max_grad_norm": 20.0,
     "normalize_advantages": True,
     "optimizer_type": "adam",
     "shared_encoder": False,
@@ -57,7 +57,11 @@ PRESETS: dict[str, dict[str, Any]] = {
         **SHARED_VMPO_PARAMS,
     },
     "Humanoid-v5": {
-        "total_steps": 10_000_000,
+        "total_steps": 5_000_000,
+        **SHARED_VMPO_PARAMS,
+    },
+    "Ant-v5": {
+        "total_steps": 5_000_000,
         **SHARED_VMPO_PARAMS,
     },
     "HalfCheetah-v5": {
@@ -80,7 +84,7 @@ def get(env_id: str) -> dict[str, Any]:
             "optimizer_type": "adam",
             "sgd_momentum": 0.9,
             "advantage_estimator": "returns",
-            "gae_lambda": 0.95,
+            "gae_lambda": 0.85,
         },
     )
 ```

@@ -7,10 +7,10 @@ import gymnasium as gym
 import numpy as np
 import torch
 
-from trainers.vmpo.agent import VMPOAgent
-from trainers.vmpo.targets import compute_rollout_targets
-from utils.env import infer_obs_dim
-from utils.wandb_utils import log_wandb
+from minerva.trainers.vmpo.agent import VMPOAgent
+from minerva.trainers.vmpo.targets import compute_rollout_targets
+from minerva.utils.env import infer_obs_dim
+from minerva.utils.wandb_utils import log_wandb
 
 
 def _format_metrics(metrics: Mapping[str, float]) -> str:

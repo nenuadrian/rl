@@ -11,9 +11,9 @@ from tensordict import TensorDict
 from torchrl.data import LazyTensorStorage
 from torchrl.data.replay_buffers import TensorDictReplayBuffer
 
-from trainers.mpo.agent import MPOAgent
-from utils.env import infer_obs_dim
-from utils.wandb_utils import log_wandb
+from minerva.trainers.mpo.agent import MPOAgent
+from minerva.utils.env import infer_obs_dim
+from minerva.utils.wandb_utils import log_wandb
 
 
 def _format_metrics(metrics: Mapping[str, float]) -> str:

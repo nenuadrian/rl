@@ -9,7 +9,7 @@ import imageio
 import numpy as np
 import torch
 
-from utils.env import infer_obs_dim, set_seed
+from minerva.utils.env import infer_obs_dim, set_seed
 
 
 @dataclass(frozen=True)

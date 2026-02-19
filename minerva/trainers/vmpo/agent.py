@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
+from minerva.trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
 
 
 class VMPOAgent:

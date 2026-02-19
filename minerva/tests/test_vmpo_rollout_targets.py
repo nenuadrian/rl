@@ -1,6 +1,6 @@
 import numpy as np
 
-from trainers.vmpo.targets import compute_rollout_targets
+from minerva.trainers.vmpo.targets import compute_rollout_targets
 
 
 def test_vmpo_returns_targets_match_expected_values():

@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.normal import Normal
 
-from utils.wandb_utils import log_wandb
+from minerva.utils.wandb_utils import log_wandb
 
 
 def _transform_observation(env: gym.Env, fn):

@@ -7,12 +7,12 @@ from pprint import pformat
 
 import torch
 
-from utils.env import set_seed
-from utils.wandb_utils import finish_wandb, init_wandb
+from minerva.utils.env import set_seed
+from minerva.utils.wandb_utils import finish_wandb, init_wandb
 
-from trainers.vmpo.trainer import VMPOTrainer
-from trainers.mpo.trainer import MPOTrainer
-from trainers.ppo.trainer import PPOTrainer
+from minerva.trainers.vmpo.trainer import VMPOTrainer
+from minerva.trainers.mpo.trainer import MPOTrainer
+from minerva.trainers.ppo.trainer import PPOTrainer
 
 
 def _print_banner() -> None:
