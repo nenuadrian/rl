@@ -620,83 +620,6 @@ A KL penalty between the updated and old policy can be estimated cheaply as
 \]
 and is often added to the objective or used as an early-stopping criterion to keep the sequence-level ratio well-behaved.
 
-\section{The Case for Dropout}
-\label{sec:dropout_case}
-
-Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training and scales the remaining activations by $1/(1-p)$:
-\[
-  \tilde{h}_j = \frac{m_j}{1-p}\, h_j, \qquad m_j \sim \mathrm{Bernoulli}(1-p).
-\]
-In a Transformer this is typically applied in two places: after the attention weights (attention dropout) and after each feed-forward sub-layer (residual dropout). If $\mathbf{h}^{(l)}$ is the hidden state at layer $l$, the residual-dropout forward pass through one sub-layer $f^{(l)}$ is
-\[
-  \mathbf{h}^{(l)} = \mathbf{h}^{(l-1)} + \mathrm{Dropout}\!\big(f^{(l)}(\mathbf{h}^{(l-1)})\big).
-\]
-
-During SFT, dropout serves its classical purpose: it regularises the model and reduces overfitting to the demonstration distribution.  Most large-scale LLM pre-training runs (GPT-3, LLaMA, etc.) disable dropout entirely, relying instead on the sheer volume of data for regularisation. However, during fine-tuning the dataset is typically orders of magnitude smaller, and overfitting is a real concern, making dropout relevant again.
-
-\subsection{Why PPO Disables Dropout}
-
-Standard on-policy PPO collects a batch of trajectories under the current policy $\pi_{\theta_{\mathrm{old}}}$ (in eval mode, no dropout), then performs several epochs of gradient updates on that batch. The clipped objective relies on the importance-sampling ratio
-\[
-  r_t(\theta) = \frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)}.
-\]
-
-\paragraph{Problem 1: stochastic numerator.}
-If dropout is active during the optimisation epochs, $\pi_\theta(a_t \mid s_t)$ becomes a random variable that changes on every forward pass even for fixed $\theta$. The ratio $r_t(\theta)$ therefore fluctuates stochastically, injecting noise directly into the surrogate objective and its gradients. Because PPO's clip window $[1-\epsilon,\,1+\epsilon]$ is deliberately narrow (typically $\epsilon=0.2$), even moderate stochastic perturbation can push the ratio outside the clip region or mask genuine policy changes, degrading the signal.
-
-\paragraph{Problem 2: inconsistent denominator.}
-The denominator $\pi_{\theta_{\mathrm{old}}}(a_t \mid s_t)$ is computed once at rollout time in eval mode (no dropout). If the training forward pass uses a different dropout mask, the numerator and denominator are computed under different effective networks.  The ratio no longer measures how far the policy has moved; it conflates policy change with mask change:
-\[
-  r_t(\theta) = \frac{\pi_\theta^{(\text{mask}_1)}(a_t \mid s_t)}{\pi_{\theta_{\mathrm{old}}}^{(\text{no mask})}(a_t \mid s_t)}.
-\]
-This breaks the theoretical guarantee that clipping $r_t$ constrains the KL divergence between consecutive policies.
-
-\paragraph{Problem 3: KL penalty corruption.}
-Many PPO implementations add an auxiliary KL penalty $\widehat{\mathrm{KL}} = \mathbb{E}_t[\ell_{\mathrm{old},t} - \ell_{\theta,t}]$ or use it for early stopping. With dropout active, the estimated KL is biased upward (the mask-induced variance appears as divergence), causing premature termination of updates or an overly conservative step.
-
-For these reasons, all mainstream PPO implementations (including those used for RLHF in InstructGPT, LLaMA, etc.) run the policy in eval mode during both rollout and optimisation, forgoing any regularisation benefit that dropout could provide.
-
-\subsection{Why V-MPO / EM-Style Methods Are Dropout-Compatible}
-
-The V-MPO update decomposes into an E-step that computes per-sample weights, followed by an M-step that is pure weighted supervised learning.  Neither step requires a probability ratio between two forward passes under different modes.
-
-\paragraph{E-step: weights from advantages, not ratios.}
-The non-parametric target uses the same sequence-level exponential weighting as
-Eq.~\eqref{eq:seq_estep_weights}.
-Here $A^{(i)} = G^{(i)} - V_\phi(s^{(i)})$ depends on the value function and the observed return, not on a ratio of policy probabilities. The value function $V_\phi$ is a regression target; dropout can be disabled for the single forward pass that computes advantages at rollout time (just as PPO evaluates its value head in eval mode), or it can remain active since the advantage computation is a one-shot evaluation, not an iterative ratio.
-
-\paragraph{M-step: standard cross-entropy.}
-The M-step objective is the weighted teacher-forced cross-entropy in
-Eq.~\eqref{eq:seq_weighted_mstep},
-which is structurally identical to SFT with per-sequence weights. Dropout is fully compatible here for the same reason it is compatible with any supervised cross-entropy objective: the loss is evaluated under a single stochastic forward pass, and the gradient is an unbiased estimator of the expected loss under the dropout distribution.
-
-\paragraph{No ratio, no conflict.}
-The key structural difference is summarised in the following table:
-
-\medskip
-\begin{center}
-  \begin{tabular}{lcc}
-    \toprule
-    & \textbf{PPO} & \textbf{V-MPO / EM} \\
-    \midrule
-    Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
-    Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
-    Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
-    Dropout in training pass & Corrupts ratio & Standard regularisation \\
-    \bottomrule
-  \end{tabular}
-\end{center}
-\medskip
-
-Because the E-step weights $w_i$ are detached from the current parameters, the M-step gradient with dropout active is
-\[
-  \nabla_\theta \mathcal{L}_\pi = -\sum_{i \in S} w_i \sum_t \nabla_\theta \log \pi_\theta^{(\text{mask})}(y_t^{(i)} \mid \cdot\,),
-\]
-which is an unbiased estimate of the true weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. No eval-mode forward pass needs to be compared against this quantity.
-
-\subsection{Practical Implications}
-
-In the LLM fine-tuning regime where data is limited and overfitting is a practical concern, V-MPO's EM structure therefore offers a regularisation advantage over PPO: dropout (and related stochastic regularisers such as DropPath or stochastic depth) can be enabled during the M-step without any algorithmic modification, providing the same generalisation benefits observed in supervised fine-tuning. PPO, by contrast, must rely on non-architectural regularisation (weight decay, gradient clipping, early stopping) because its core mechanism is incompatible with stochastic forward passes.
 
 \section{DPO: Direct Preference Optimization}
 \label{sec:dpo}
@@ -1780,7 +1703,7 @@ The KL-regularised RLHF objective \eqref{eq:dpo_rlhf} yields the same E-step clo
 The reduction derived in the DAR-to-V-MPO mapping above is now a direct consequence of the GEMPI parameterisation: collapsing two anchors to one ($\pi_{\mathrm{ref}}=\pi_t$) merges the geometric mixture powers $\pi_{\mathrm{ref}}^{\alpha/\Lambda}\pi_t^{\beta/\Lambda} = \pi_t^{1} = \pi_t$, recovering the single-anchor form with $\eta = \alpha+\beta$. Alternatively, sending $\alpha\to 0$ zeros out the $\pi_{\mathrm{ref}}$ contribution, yielding the same result.
 
 % ============================================================
-\subsection{The Role of Divergence Choice}
+\subsection{Role of Divergence Choice}
 
 The preceding derivations use KL divergence exclusively in the E-step. This is analogous to the most common PMD instantiation (negative entropy as mirror map). However, the GEMPI E-step \eqref{eq:gempi_estep} is defined for arbitrary divergences $D_j$. Replacing KL with another $f$-divergence changes the form of the advantage tilting: for KL the tilting is exponential in the advantage; for the $\chi^2$-divergence ($f(u)=(u-1)^2$) the optimality condition yields linear tilting $q^\star \propto \pi_j(1 + A/(2\lambda_j))$; for R\'enyi divergences the tilting follows a power law. The choice of E-step divergence thus plays the same role in GEMPI that the choice of Bregman generating function plays in Bregman divergence theory, or the choice of mirror map in PMD.
 
@@ -1813,14 +1736,43 @@ The M-step constraint $D_M(\pi_{\theta_k}\|\pi_\theta) < \varepsilon_M$ is an in
 \paragraph{Top-$k$ filtering.}
 Restricting the support of $q^\star$ to the top-$k$ samples by advantage before computing the geometric mixture weights is a form of hard thresholding on the filter set $\mathcal{F}$. This can be applied to any GEMPI instantiation, not only V-MPO.
 
-\paragraph{Dropout compatibility.}
-The GEMPI template guarantees dropout compatibility whenever the M-step uses detached (stop-gradient) weights from the E-step. In this case the M-step gradient
+% ============================================================
+\subsection{Dropout Compatibility}
+\label{sec:dropout_case}
+
+Dropout \parencite{srivastava2014dropout} randomly zeros each hidden activation with probability $p$ during training, scaling survivors by $1/(1{-}p)$. Most large-scale pre-training runs disable it, but during fine-tuning the dataset is orders of magnitude smaller and overfitting is a real concern, making dropout relevant again. Yet all mainstream PPO implementations forgo dropout entirely. The GEMPI decomposition explains why ratio-based methods cannot use dropout while EM-style methods can.
+
+\paragraph{Why ratio-based methods break.}
+PPO's clipped objective depends on the importance-sampling ratio $r_t(\theta) = \pi_\theta(a_t\mid s_t)/\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)$. If dropout is active during optimisation, three problems arise: (i)~the numerator $\pi_\theta$ becomes a random variable that fluctuates across forward passes even for fixed $\theta$, injecting noise into the narrow clip window $[1{-}\epsilon,\,1{+}\epsilon]$; (ii)~the denominator is computed once at rollout time in eval mode (no dropout), so the ratio conflates policy change with mask change, breaking the KL-constraining guarantee of clipping; (iii)~auxiliary KL penalties $\widehat{\mathrm{KL}} = \mathbb{E}_t[\ell_{\mathrm{old},t} - \ell_{\theta,t}]$ are biased upward by mask-induced variance, causing premature termination of updates.
+
+\paragraph{Why GEMPI methods are compatible.}
+The GEMPI template guarantees dropout compatibility whenever the M-step uses detached (stop-gradient) weights from the E-step. The E-step weights depend on advantages and anchor log-probabilities, not on a ratio of two forward passes under different modes. The M-step is weighted teacher-forced cross-entropy---structurally identical to SFT with per-sequence weights---so dropout is compatible for the same reason it is compatible with any supervised cross-entropy objective. The M-step gradient with dropout active is
 \[
   \nabla_\theta \mathcal{L}_\pi
   =
-  -\sum_{i\in S} w_i \sum_t \nabla_\theta\log\pi_\theta^{(\mathrm{mask})}(y_t^{(i)}\mid\cdot\,)
+  -\sum_{i\in S} w_i \sum_t \nabla_\theta\log\pi_\theta^{(\mathrm{mask})}(y_t^{(i)}\mid\cdot\,),
 \]
-is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. This structural property generalises the later dropout discussion to a consequence of the GEMPI decomposition: methods instantiated within GEMPI inherit M-step dropout compatibility.
+which is an unbiased estimator of the weighted-MLE gradient under the dropout distribution, exactly as in supervised learning. No eval-mode forward pass needs to be compared against this quantity.
+
+\paragraph{Summary.}
+The key structural difference is:
+
+\medskip
+\begin{center}
+  \begin{tabular}{lcc}
+    \toprule
+    & \textbf{PPO} & \textbf{GEMPI (EM)} \\
+    \midrule
+    Gradient signal & $\nabla_\theta\, r_t(\theta)\, A_t$ & $\nabla_\theta\, w_i \log \pi_\theta$ \\
+    Requires ratio $\pi_\theta / \pi_{\theta_{\mathrm{old}}}$? & Yes & No \\
+    Weights depend on current $\theta$? & Yes (through $r_t$) & No (fixed from E-step) \\
+    Dropout in training pass & Corrupts ratio & Standard regularisation \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+\medskip
+
+All methods instantiated within GEMPI inherit this M-step dropout compatibility.
 
 % ============================================================
 \subsection{Novel Instantiations}
@@ -1927,17 +1879,10 @@ This keeps the update in standard transformer training form (teacher forcing ove
 \textit{Large-vocabulary stability.} Top-$k$ filtering and log-sum-exp normalisation reduce weight degeneracy and floating-point overflow in mixed-precision training.
 \textit{Distributed training compatibility.} The objective is a weighted cross-entropy, so it integrates with gradient accumulation, FSDP/ZeRO, and standard transformer training pipelines.
 
-\paragraph{Dropout in the LLM V-MPO M-step.}
-Because E-step weights are detached from current parameters, the M-step with dropout mask sampling remains
-\[
-  \nabla_\theta \mathcal{L}_\pi
-  =
-  -\sum_{i\in S} w_i \sum_t
-  \nabla_\theta \log \pi_\theta^{(\mathrm{mask})}\!\big(y_t^{(i)}\mid y_{<t}^{(i)},x^{(i)}\big),
-\]
-which is the same unbiased estimator structure as weighted supervised learning. In contrast to PPO, no ratio $\pi_\theta/\pi_{\theta_{\mathrm{old}}}$ is required inside the objective, so stochastic forward passes do not corrupt the core optimisation signal. A detailed PPO-vs-EM comparison is given in Section~\ref{sec:dropout_case}.
+\paragraph{Dropout compatibility.}
+Because the M-step weights are detached from current parameters, dropout applies directly as standard regularisation (Section~\ref{sec:dropout_case}).
 
-\section*{References}
+\section{References}
 
 \printbibliography[title={~}]
 
