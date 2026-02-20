@@ -11,6 +11,7 @@ This script populates docs/generated with:
 from __future__ import annotations
 
 import ast
+import html
 import re
 import shutil
 from pathlib import Path
@@ -269,41 +270,54 @@ def extract_latex_annotations(source: str) -> list[tuple[int, str]]:
     return annotations
 
 
-def build_interleaved_annotated_blocks(source: str) -> list[tuple[str, str]]:
-    """Split source into ordered code/formula blocks at `# LaTeX:` markers."""
-    blocks: list[tuple[str, str]] = []
-    code_buffer: list[str] = []
-
-    def flush_code() -> None:
-        if not code_buffer:
-            return
-        code_text = "\n".join(code_buffer).rstrip()
-        if code_text:
-            blocks.append(("code", code_text))
-        code_buffer.clear()
+def build_math_annotated_rows(source: str) -> list[tuple[str, str]]:
+    """Convert source into code/formula rows with `# LaTeX:` comments replaced."""
+    rows: list[tuple[str, str]] = []
 
     for raw_line in source.splitlines():
         standalone_match = LATEX_STANDALONE_PATTERN.match(raw_line)
         if standalone_match is not None:
-            flush_code()
-            formula = standalone_match.group("formula").strip()
-            blocks.append(("formula", formula))
+            rows.append(("formula", standalone_match.group("formula").strip()))
             continue
 
         inline_match = LATEX_INLINE_PATTERN.match(raw_line)
         if inline_match is not None and inline_match.group("formula") is not None:
-            flush_code()
-            formula = inline_match.group("formula").strip()
-            blocks.append(("formula", formula))
             code = inline_match.group("code").rstrip()
             if code:
-                code_buffer.append(code)
+                rows.append(("code", code))
+            rows.append(("formula", inline_match.group("formula").strip()))
             continue
 
-        code_buffer.append(raw_line)
+        rows.append(("code", raw_line))
 
-    flush_code()
-    return blocks
+    return rows
+
+
+def render_math_annotated_source(source: str) -> str:
+    """Render source as one code-style block with inline rendered formulas."""
+    lines = ["<div class=\"math-annotated-codeblock\">"]
+
+    for kind, value in build_math_annotated_rows(source):
+        if kind == "code":
+            escaped = html.escape(value)
+            if not escaped:
+                escaped = " "
+            lines.append(f"  <div class=\"math-annotated-code-line\">{escaped}</div>")
+            continue
+
+        formula = html.escape(value)
+        lines.extend(
+            [
+                "  <div class=\"math-annotated-code-line math-annotated-code-formula\">",
+                "    <div class=\"arithmatex\">\\[",
+                formula,
+                "\\]</div>",
+                "  </div>",
+            ]
+        )
+
+    lines.append("</div>")
+    return "\n".join(lines)
 
 
 def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
@@ -316,7 +330,7 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
         "",
         f"_Source: `{rel_path}`_",
         "",
-        "The full file is rendered in order as code blocks, with each `# LaTeX:` marker replaced by a rendered formula block.",
+        "The full file is rendered in one continuous code-style block, with each `# LaTeX:` marker replaced inline by a rendered formula.",
         "",
     ]
 
@@ -334,19 +348,14 @@ def docs_for_trainer_math(file_path: Path, module_name: str) -> str:
             ]
         )
     else:
-        lines.extend(["## Annotated Source", ""])
-        for kind, value in build_interleaved_annotated_blocks(source):
-            if kind == "code":
-                lines.extend(["```python", value, "```", ""])
-                continue
-            lines.extend(
-                [
-                    "$$",
-                    value,
-                    "$$",
-                    "",
-                ]
-            )
+        lines.extend(
+            [
+                "## Annotated Source",
+                "",
+                render_math_annotated_source(source),
+                "",
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -411,7 +420,7 @@ def generate_trainers_math_docs() -> None:
     index_lines = [
         "# Trainers Math-Annotated Source",
         "",
-        "Trainer pages and annotated trainer modules that render `# LaTeX:` comments as formulas with local source context.",
+        "Trainer pages and annotated trainer modules that render `# LaTeX:` comments as formulas inline within one code-style source block.",
         "",
     ]
 

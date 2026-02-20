@@ -2,910 +2,846 @@
 
 _Source: `minerva/trainers/ppo/trainer.py`_
 
-The full file is rendered in order as code blocks, with each `# LaTeX:` marker replaced by a rendered formula block.
+The full file is rendered in one continuous code-style block, with each `# LaTeX:` marker replaced inline by a rendered formula.
 
 ## Annotated Source
 
-```python
-from __future__ import annotations
-
-import os
-import random
-import time
-from typing import Tuple
-
-import gymnasium as gym
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.distributions.normal import Normal
-
-from minerva.utils.wandb_utils import log_wandb
-
-
-def _transform_observation(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformObservation(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
-
-
-def _transform_reward(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformReward(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformReward(env, fn, env.reward_range)
-
-
-def _resolve_env_id(env_id: str) -> str:
-    if env_id.startswith("dm_control/"):
-        parts = env_id.split("/")
-        if len(parts) != 3:
-            raise ValueError(
-                "Expected dm_control env id format 'dm_control/<domain>/<task>', "
-                f"got '{env_id}'"
-            )
-        _, domain, task = parts
-        return f"dm_control/{domain}-{task}-v0"
-    return env_id
-
-
-def make_env(
-    gym_id: str,
-    seed: int,
-    normalize_observation: bool = True,
-):
-    def thunk():
-        resolved_env_id = _resolve_env_id(gym_id)
-        env = gym.make(resolved_env_id)
-
-        # Keep dm_control compatibility while preserving implementation-details PPO logic.
-        env = gym.wrappers.FlattenObservation(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
-        if normalize_observation:
-            env = gym.wrappers.NormalizeObservation(env)
-            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
-        env = gym.wrappers.NormalizeReward(env)
-        env = _transform_reward(env, lambda reward: np.clip(reward, -10, 10))
-
-        env.reset(seed=seed)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
-
-
-def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True):
-    def thunk():
-        resolved_env_id = _resolve_env_id(gym_id)
-        env = gym.make(resolved_env_id)
-        env = gym.wrappers.FlattenObservation(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
-        if normalize_observation:
-            env = gym.wrappers.NormalizeObservation(env)
-            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
-        env.reset(seed=seed)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
-
-    return thunk
-
-
-def find_wrapper(env, wrapper_type):
-    current = env
-    while current is not None:
-        if isinstance(current, wrapper_type):
-            return current
-        current = getattr(current, "env", None)
-    return None
-
-
-def _sync_obs_rms_to_eval_envs(
-    train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv
-):
-    """Copy obs RMS stats from the first training env to all eval envs."""
-    train_norm = find_wrapper(train_envs.envs[0], gym.wrappers.NormalizeObservation)
-    if train_norm is None:
-        return
-    for eval_env in eval_envs.envs:
-        eval_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
-        if eval_norm is not None:
-            eval_norm.obs_rms.mean = np.copy(train_norm.obs_rms.mean)
-            eval_norm.obs_rms.var = np.copy(train_norm.obs_rms.var)
-            eval_norm.obs_rms.count = train_norm.obs_rms.count
-
-
-@torch.no_grad()
-def _evaluate_vectorized(
-    agent: "Agent",
-    eval_envs: gym.vector.VectorEnv,
-    device: torch.device,
-    seed: int = 42,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Vectorized evaluation: runs all episodes in parallel across eval_envs."""
-    n_episodes = eval_envs.num_envs
-    was_training = agent.training
-    agent.eval()
-
-    # Freeze obs normalization updates during eval.
-    for env in eval_envs.envs:
-        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if norm is not None and hasattr(norm, "update_running_mean"):
-            norm.update_running_mean = False
-
-    obs, _ = eval_envs.reset(seed=seed)
-    episode_returns = np.zeros(n_episodes, dtype=np.float64)
-    episode_lengths = np.zeros(n_episodes, dtype=np.int64)
-    final_returns = []
-    final_lengths = []
-    done_mask = np.zeros(n_episodes, dtype=bool)
-
-    while len(final_returns) < n_episodes:
-        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
-        action = agent.actor_mean(obs_t).cpu().numpy()
-        obs, reward, terminated, truncated, _ = eval_envs.step(action)
-        episode_returns += np.asarray(reward, dtype=np.float64)
-        episode_lengths += 1
-        done = np.asarray(terminated) | np.asarray(truncated)
-        for i in range(n_episodes):
-            if not done_mask[i] and done[i]:
-                final_returns.append(float(episode_returns[i]))
-                final_lengths.append(int(episode_lengths[i]))
-                done_mask[i] = True
-
-    # Re-enable obs normalization updates.
-    for env in eval_envs.envs:
-        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if norm is not None and hasattr(norm, "update_running_mean"):
-            norm.update_running_mean = True
-
-    if was_training:
-        agent.train()
-
-    return np.array(final_returns), np.array(final_lengths)
-
-
-def log_episode_stats(infos, global_step: int):
-    if not isinstance(infos, dict):
-        return
-
-    # Vector envs commonly expose episode stats as infos["episode"] with infos["_episode"] mask.
-    if "episode" in infos:
-        episode = infos["episode"]
-        ep_returns = np.asarray(episode["r"]).reshape(-1)
-        ep_lengths = np.asarray(episode["l"]).reshape(-1)
-        ep_mask = np.asarray(
-            infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
-        ).reshape(-1)
-        for idx in np.where(ep_mask)[0]:
-            episode_return = float(ep_returns[idx])
-            episode_length = float(ep_lengths[idx])
-            print(f"global_step={global_step}, episode_return={episode_return}")
-            log_wandb(
-                {
-                    "train/episode_return": episode_return,
-                    "train/episode_length": episode_length,
-                },
-                step=global_step,
-                silent=True,
-            )
-
-    # Some wrappers/setups expose terminal episode stats via final_info.
-    elif "final_info" in infos:
-        for item in infos["final_info"]:
-            if item and "episode" in item:
-                episode_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
-                episode_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
-                print(f"global_step={global_step}, episode_return={episode_return}")
-                log_wandb(
-                    {
-                        "train/episode_return": episode_return,
-                        "train/episode_length": episode_length,
-                    },
-                    step=global_step,
-                    silent=True,
-                )
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
-
-
-class Agent(nn.Module):
-    def __init__(
-        self,
-        obs_dim: int,
-        act_dim: int,
-        policy_layer_sizes: Tuple[int, ...],
-        value_layer_sizes: Tuple[int, ...],
-    ):
-        super().__init__()
-        if len(policy_layer_sizes) == 0:
-            raise ValueError("policy_layer_sizes must contain at least one layer size")
-        if len(value_layer_sizes) == 0:
-            raise ValueError("critic_layer_sizes must contain at least one layer size")
-
-        self.critic = self._build_mlp(
-            input_dim=obs_dim,
-            hidden_layer_sizes=value_layer_sizes,
-            output_dim=1,
-            output_std=1.0,
-        )
-        self.actor_mean = self._build_mlp(
-            input_dim=obs_dim,
-            hidden_layer_sizes=policy_layer_sizes,
-            output_dim=act_dim,
-            output_std=0.01,
-        )
-        self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
-
-    @staticmethod
-    def _build_mlp(
-        input_dim: int,
-        hidden_layer_sizes: Tuple[int, ...],
-        output_dim: int,
-        output_std: float,
-    ) -> nn.Sequential:
-        layers = []
-        last_dim = input_dim
-        for hidden_dim in hidden_layer_sizes:
-            layers.extend([layer_init(nn.Linear(last_dim, hidden_dim)), nn.Tanh()])
-            last_dim = hidden_dim
-        layers.append(layer_init(nn.Linear(last_dim, output_dim), std=output_std))
-        return nn.Sequential(*layers)
-
-    def get_value(self, x):
-        return self.critic(x)
-
-    def get_action_and_value(self, x, action=None):
-        action_mean = self.actor_mean(x)
-        action_logstd = self.actor_logstd.expand_as(action_mean)
-```
-
-$$
+<div class="math-annotated-codeblock">
+  <div class="math-annotated-code-line">from __future__ import annotations</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">import os</div>
+  <div class="math-annotated-code-line">import random</div>
+  <div class="math-annotated-code-line">import time</div>
+  <div class="math-annotated-code-line">from typing import Tuple</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">import gymnasium as gym</div>
+  <div class="math-annotated-code-line">import numpy as np</div>
+  <div class="math-annotated-code-line">import torch</div>
+  <div class="math-annotated-code-line">import torch.nn as nn</div>
+  <div class="math-annotated-code-line">import torch.optim as optim</div>
+  <div class="math-annotated-code-line">from torch.distributions.normal import Normal</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">from minerva.utils.wandb_utils import log_wandb</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def _transform_observation(env: gym.Env, fn):</div>
+  <div class="math-annotated-code-line">    &quot;&quot;&quot;Gymnasium compatibility shim across wrapper signatures.&quot;&quot;&quot;</div>
+  <div class="math-annotated-code-line">    try:</div>
+  <div class="math-annotated-code-line">        return gym.wrappers.TransformObservation(env, fn)</div>
+  <div class="math-annotated-code-line">    except TypeError:</div>
+  <div class="math-annotated-code-line">        return gym.wrappers.TransformObservation(env, fn, env.observation_space)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def _transform_reward(env: gym.Env, fn):</div>
+  <div class="math-annotated-code-line">    &quot;&quot;&quot;Gymnasium compatibility shim across wrapper signatures.&quot;&quot;&quot;</div>
+  <div class="math-annotated-code-line">    try:</div>
+  <div class="math-annotated-code-line">        return gym.wrappers.TransformReward(env, fn)</div>
+  <div class="math-annotated-code-line">    except TypeError:</div>
+  <div class="math-annotated-code-line">        return gym.wrappers.TransformReward(env, fn, env.reward_range)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def _resolve_env_id(env_id: str) -&gt; str:</div>
+  <div class="math-annotated-code-line">    if env_id.startswith(&quot;dm_control/&quot;):</div>
+  <div class="math-annotated-code-line">        parts = env_id.split(&quot;/&quot;)</div>
+  <div class="math-annotated-code-line">        if len(parts) != 3:</div>
+  <div class="math-annotated-code-line">            raise ValueError(</div>
+  <div class="math-annotated-code-line">                &quot;Expected dm_control env id format &#x27;dm_control/&lt;domain&gt;/&lt;task&gt;&#x27;, &quot;</div>
+  <div class="math-annotated-code-line">                f&quot;got &#x27;{env_id}&#x27;&quot;</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">        _, domain, task = parts</div>
+  <div class="math-annotated-code-line">        return f&quot;dm_control/{domain}-{task}-v0&quot;</div>
+  <div class="math-annotated-code-line">    return env_id</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def make_env(</div>
+  <div class="math-annotated-code-line">    gym_id: str,</div>
+  <div class="math-annotated-code-line">    seed: int,</div>
+  <div class="math-annotated-code-line">    normalize_observation: bool = True,</div>
+  <div class="math-annotated-code-line">):</div>
+  <div class="math-annotated-code-line">    def thunk():</div>
+  <div class="math-annotated-code-line">        resolved_env_id = _resolve_env_id(gym_id)</div>
+  <div class="math-annotated-code-line">        env = gym.make(resolved_env_id)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        # Keep dm_control compatibility while preserving implementation-details PPO logic.</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.FlattenObservation(env)</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.RecordEpisodeStatistics(env)</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.ClipAction(env)</div>
+  <div class="math-annotated-code-line">        if normalize_observation:</div>
+  <div class="math-annotated-code-line">            env = gym.wrappers.NormalizeObservation(env)</div>
+  <div class="math-annotated-code-line">            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.NormalizeReward(env)</div>
+  <div class="math-annotated-code-line">        env = _transform_reward(env, lambda reward: np.clip(reward, -10, 10))</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        env.reset(seed=seed)</div>
+  <div class="math-annotated-code-line">        env.action_space.seed(seed)</div>
+  <div class="math-annotated-code-line">        env.observation_space.seed(seed)</div>
+  <div class="math-annotated-code-line">        return env</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    return thunk</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True):</div>
+  <div class="math-annotated-code-line">    def thunk():</div>
+  <div class="math-annotated-code-line">        resolved_env_id = _resolve_env_id(gym_id)</div>
+  <div class="math-annotated-code-line">        env = gym.make(resolved_env_id)</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.FlattenObservation(env)</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.RecordEpisodeStatistics(env)</div>
+  <div class="math-annotated-code-line">        env = gym.wrappers.ClipAction(env)</div>
+  <div class="math-annotated-code-line">        if normalize_observation:</div>
+  <div class="math-annotated-code-line">            env = gym.wrappers.NormalizeObservation(env)</div>
+  <div class="math-annotated-code-line">            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))</div>
+  <div class="math-annotated-code-line">        env.reset(seed=seed)</div>
+  <div class="math-annotated-code-line">        env.action_space.seed(seed)</div>
+  <div class="math-annotated-code-line">        env.observation_space.seed(seed)</div>
+  <div class="math-annotated-code-line">        return env</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    return thunk</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def find_wrapper(env, wrapper_type):</div>
+  <div class="math-annotated-code-line">    current = env</div>
+  <div class="math-annotated-code-line">    while current is not None:</div>
+  <div class="math-annotated-code-line">        if isinstance(current, wrapper_type):</div>
+  <div class="math-annotated-code-line">            return current</div>
+  <div class="math-annotated-code-line">        current = getattr(current, &quot;env&quot;, None)</div>
+  <div class="math-annotated-code-line">    return None</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def _sync_obs_rms_to_eval_envs(</div>
+  <div class="math-annotated-code-line">    train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv</div>
+  <div class="math-annotated-code-line">):</div>
+  <div class="math-annotated-code-line">    &quot;&quot;&quot;Copy obs RMS stats from the first training env to all eval envs.&quot;&quot;&quot;</div>
+  <div class="math-annotated-code-line">    train_norm = find_wrapper(train_envs.envs[0], gym.wrappers.NormalizeObservation)</div>
+  <div class="math-annotated-code-line">    if train_norm is None:</div>
+  <div class="math-annotated-code-line">        return</div>
+  <div class="math-annotated-code-line">    for eval_env in eval_envs.envs:</div>
+  <div class="math-annotated-code-line">        eval_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)</div>
+  <div class="math-annotated-code-line">        if eval_norm is not None:</div>
+  <div class="math-annotated-code-line">            eval_norm.obs_rms.mean = np.copy(train_norm.obs_rms.mean)</div>
+  <div class="math-annotated-code-line">            eval_norm.obs_rms.var = np.copy(train_norm.obs_rms.var)</div>
+  <div class="math-annotated-code-line">            eval_norm.obs_rms.count = train_norm.obs_rms.count</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">@torch.no_grad()</div>
+  <div class="math-annotated-code-line">def _evaluate_vectorized(</div>
+  <div class="math-annotated-code-line">    agent: &quot;Agent&quot;,</div>
+  <div class="math-annotated-code-line">    eval_envs: gym.vector.VectorEnv,</div>
+  <div class="math-annotated-code-line">    device: torch.device,</div>
+  <div class="math-annotated-code-line">    seed: int = 42,</div>
+  <div class="math-annotated-code-line">) -&gt; tuple[np.ndarray, np.ndarray]:</div>
+  <div class="math-annotated-code-line">    &quot;&quot;&quot;Vectorized evaluation: runs all episodes in parallel across eval_envs.&quot;&quot;&quot;</div>
+  <div class="math-annotated-code-line">    n_episodes = eval_envs.num_envs</div>
+  <div class="math-annotated-code-line">    was_training = agent.training</div>
+  <div class="math-annotated-code-line">    agent.eval()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    # Freeze obs normalization updates during eval.</div>
+  <div class="math-annotated-code-line">    for env in eval_envs.envs:</div>
+  <div class="math-annotated-code-line">        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)</div>
+  <div class="math-annotated-code-line">        if norm is not None and hasattr(norm, &quot;update_running_mean&quot;):</div>
+  <div class="math-annotated-code-line">            norm.update_running_mean = False</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    obs, _ = eval_envs.reset(seed=seed)</div>
+  <div class="math-annotated-code-line">    episode_returns = np.zeros(n_episodes, dtype=np.float64)</div>
+  <div class="math-annotated-code-line">    episode_lengths = np.zeros(n_episodes, dtype=np.int64)</div>
+  <div class="math-annotated-code-line">    final_returns = []</div>
+  <div class="math-annotated-code-line">    final_lengths = []</div>
+  <div class="math-annotated-code-line">    done_mask = np.zeros(n_episodes, dtype=bool)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    while len(final_returns) &lt; n_episodes:</div>
+  <div class="math-annotated-code-line">        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)</div>
+  <div class="math-annotated-code-line">        action = agent.actor_mean(obs_t).cpu().numpy()</div>
+  <div class="math-annotated-code-line">        obs, reward, terminated, truncated, _ = eval_envs.step(action)</div>
+  <div class="math-annotated-code-line">        episode_returns += np.asarray(reward, dtype=np.float64)</div>
+  <div class="math-annotated-code-line">        episode_lengths += 1</div>
+  <div class="math-annotated-code-line">        done = np.asarray(terminated) | np.asarray(truncated)</div>
+  <div class="math-annotated-code-line">        for i in range(n_episodes):</div>
+  <div class="math-annotated-code-line">            if not done_mask[i] and done[i]:</div>
+  <div class="math-annotated-code-line">                final_returns.append(float(episode_returns[i]))</div>
+  <div class="math-annotated-code-line">                final_lengths.append(int(episode_lengths[i]))</div>
+  <div class="math-annotated-code-line">                done_mask[i] = True</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    # Re-enable obs normalization updates.</div>
+  <div class="math-annotated-code-line">    for env in eval_envs.envs:</div>
+  <div class="math-annotated-code-line">        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)</div>
+  <div class="math-annotated-code-line">        if norm is not None and hasattr(norm, &quot;update_running_mean&quot;):</div>
+  <div class="math-annotated-code-line">            norm.update_running_mean = True</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    if was_training:</div>
+  <div class="math-annotated-code-line">        agent.train()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    return np.array(final_returns), np.array(final_lengths)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def log_episode_stats(infos, global_step: int):</div>
+  <div class="math-annotated-code-line">    if not isinstance(infos, dict):</div>
+  <div class="math-annotated-code-line">        return</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    # Vector envs commonly expose episode stats as infos[&quot;episode&quot;] with infos[&quot;_episode&quot;] mask.</div>
+  <div class="math-annotated-code-line">    if &quot;episode&quot; in infos:</div>
+  <div class="math-annotated-code-line">        episode = infos[&quot;episode&quot;]</div>
+  <div class="math-annotated-code-line">        ep_returns = np.asarray(episode[&quot;r&quot;]).reshape(-1)</div>
+  <div class="math-annotated-code-line">        ep_lengths = np.asarray(episode[&quot;l&quot;]).reshape(-1)</div>
+  <div class="math-annotated-code-line">        ep_mask = np.asarray(</div>
+  <div class="math-annotated-code-line">            infos.get(&quot;_episode&quot;, np.ones_like(ep_returns, dtype=bool))</div>
+  <div class="math-annotated-code-line">        ).reshape(-1)</div>
+  <div class="math-annotated-code-line">        for idx in np.where(ep_mask)[0]:</div>
+  <div class="math-annotated-code-line">            episode_return = float(ep_returns[idx])</div>
+  <div class="math-annotated-code-line">            episode_length = float(ep_lengths[idx])</div>
+  <div class="math-annotated-code-line">            print(f&quot;global_step={global_step}, episode_return={episode_return}&quot;)</div>
+  <div class="math-annotated-code-line">            log_wandb(</div>
+  <div class="math-annotated-code-line">                {</div>
+  <div class="math-annotated-code-line">                    &quot;train/episode_return&quot;: episode_return,</div>
+  <div class="math-annotated-code-line">                    &quot;train/episode_length&quot;: episode_length,</div>
+  <div class="math-annotated-code-line">                },</div>
+  <div class="math-annotated-code-line">                step=global_step,</div>
+  <div class="math-annotated-code-line">                silent=True,</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    # Some wrappers/setups expose terminal episode stats via final_info.</div>
+  <div class="math-annotated-code-line">    elif &quot;final_info&quot; in infos:</div>
+  <div class="math-annotated-code-line">        for item in infos[&quot;final_info&quot;]:</div>
+  <div class="math-annotated-code-line">            if item and &quot;episode&quot; in item:</div>
+  <div class="math-annotated-code-line">                episode_return = float(np.asarray(item[&quot;episode&quot;][&quot;r&quot;]).reshape(-1)[0])</div>
+  <div class="math-annotated-code-line">                episode_length = float(np.asarray(item[&quot;episode&quot;][&quot;l&quot;]).reshape(-1)[0])</div>
+  <div class="math-annotated-code-line">                print(f&quot;global_step={global_step}, episode_return={episode_return}&quot;)</div>
+  <div class="math-annotated-code-line">                log_wandb(</div>
+  <div class="math-annotated-code-line">                    {</div>
+  <div class="math-annotated-code-line">                        &quot;train/episode_return&quot;: episode_return,</div>
+  <div class="math-annotated-code-line">                        &quot;train/episode_length&quot;: episode_length,</div>
+  <div class="math-annotated-code-line">                    },</div>
+  <div class="math-annotated-code-line">                    step=global_step,</div>
+  <div class="math-annotated-code-line">                    silent=True,</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">def layer_init(layer, std=np.sqrt(2), bias_const=0.0):</div>
+  <div class="math-annotated-code-line">    torch.nn.init.orthogonal_(layer.weight, std)</div>
+  <div class="math-annotated-code-line">    torch.nn.init.constant_(layer.bias, bias_const)</div>
+  <div class="math-annotated-code-line">    return layer</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">class Agent(nn.Module):</div>
+  <div class="math-annotated-code-line">    def __init__(</div>
+  <div class="math-annotated-code-line">        self,</div>
+  <div class="math-annotated-code-line">        obs_dim: int,</div>
+  <div class="math-annotated-code-line">        act_dim: int,</div>
+  <div class="math-annotated-code-line">        policy_layer_sizes: Tuple[int, ...],</div>
+  <div class="math-annotated-code-line">        value_layer_sizes: Tuple[int, ...],</div>
+  <div class="math-annotated-code-line">    ):</div>
+  <div class="math-annotated-code-line">        super().__init__()</div>
+  <div class="math-annotated-code-line">        if len(policy_layer_sizes) == 0:</div>
+  <div class="math-annotated-code-line">            raise ValueError(&quot;policy_layer_sizes must contain at least one layer size&quot;)</div>
+  <div class="math-annotated-code-line">        if len(value_layer_sizes) == 0:</div>
+  <div class="math-annotated-code-line">            raise ValueError(&quot;critic_layer_sizes must contain at least one layer size&quot;)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.critic = self._build_mlp(</div>
+  <div class="math-annotated-code-line">            input_dim=obs_dim,</div>
+  <div class="math-annotated-code-line">            hidden_layer_sizes=value_layer_sizes,</div>
+  <div class="math-annotated-code-line">            output_dim=1,</div>
+  <div class="math-annotated-code-line">            output_std=1.0,</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        self.actor_mean = self._build_mlp(</div>
+  <div class="math-annotated-code-line">            input_dim=obs_dim,</div>
+  <div class="math-annotated-code-line">            hidden_layer_sizes=policy_layer_sizes,</div>
+  <div class="math-annotated-code-line">            output_dim=act_dim,</div>
+  <div class="math-annotated-code-line">            output_std=0.01,</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    @staticmethod</div>
+  <div class="math-annotated-code-line">    def _build_mlp(</div>
+  <div class="math-annotated-code-line">        input_dim: int,</div>
+  <div class="math-annotated-code-line">        hidden_layer_sizes: Tuple[int, ...],</div>
+  <div class="math-annotated-code-line">        output_dim: int,</div>
+  <div class="math-annotated-code-line">        output_std: float,</div>
+  <div class="math-annotated-code-line">    ) -&gt; nn.Sequential:</div>
+  <div class="math-annotated-code-line">        layers = []</div>
+  <div class="math-annotated-code-line">        last_dim = input_dim</div>
+  <div class="math-annotated-code-line">        for hidden_dim in hidden_layer_sizes:</div>
+  <div class="math-annotated-code-line">            layers.extend([layer_init(nn.Linear(last_dim, hidden_dim)), nn.Tanh()])</div>
+  <div class="math-annotated-code-line">            last_dim = hidden_dim</div>
+  <div class="math-annotated-code-line">        layers.append(layer_init(nn.Linear(last_dim, output_dim), std=output_std))</div>
+  <div class="math-annotated-code-line">        return nn.Sequential(*layers)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    def get_value(self, x):</div>
+  <div class="math-annotated-code-line">        return self.critic(x)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    def get_action_and_value(self, x, action=None):</div>
+  <div class="math-annotated-code-line">        action_mean = self.actor_mean(x)</div>
+  <div class="math-annotated-code-line">        action_logstd = self.actor_logstd.expand_as(action_mean)</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
-$$
-
-```python
-        action_std = torch.exp(action_logstd)
-        probs = Normal(action_mean, action_std)
-        if action is None:
-            action = probs.sample()
-        return (
-            action,
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">        action_std = torch.exp(action_logstd)</div>
+  <div class="math-annotated-code-line">        probs = Normal(action_mean, action_std)</div>
+  <div class="math-annotated-code-line">        if action is None:</div>
+  <div class="math-annotated-code-line">            action = probs.sample()</div>
+  <div class="math-annotated-code-line">        return (</div>
+  <div class="math-annotated-code-line">            action,</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \log \pi_{\theta}(a_t|s_t) = \sum_j \log \mathcal{N}(a_{t,j}; \mu_{t,j}, \sigma_{t,j})
-$$
-
-```python
-            probs.log_prob(action).sum(1),
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">            probs.log_prob(action).sum(1),</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{H}[\pi_{\theta}(\cdot|s_t)] = \sum_j \mathcal{H}[\mathcal{N}(\mu_{t,j}, \sigma_{t,j})]
-$$
-
-```python
-            probs.entropy().sum(1),
-            self.critic(x),
-        )
-
-
-class PPOTrainer:
-    def __init__(
-        self,
-        env_id: str,
-        seed: int,
-        device: torch.device,
-        policy_layer_sizes: Tuple[int, ...],
-        critic_layer_sizes: Tuple[int, ...],
-        rollout_steps: int,
-        gamma: float = 0.99,
-        gae_lambda: float = 0.95,
-        update_epochs: int = 10,
-        minibatch_size: int = 64,
-        policy_lr: float = 3e-4,
-        clip_ratio: float = 0.2,
-        ent_coef: float = 0.0,
-        vf_coef: float = 0.5,
-        max_grad_norm: float = 0.5,
-        target_kl: float = 0.02,
-        norm_adv: bool = True,
-        clip_vloss: bool = True,
-        anneal_lr: bool = True,
-        normalize_obs: bool = True,
-        num_envs: int = 1,
-        optimizer_type: str = "adam",
-        sgd_momentum: float = 0.9,
-    ):
-        self.env_id = str(env_id)
-        self.seed = int(seed)
-        self.device = device
-
-        self.num_envs = int(num_envs)
-        self.num_steps = int(rollout_steps)
-        self.batch_size = int(self.num_envs * self.num_steps)
-        self.minibatch_size = int(minibatch_size)
-
-        self.gamma = float(gamma)
-        self.gae_lambda = float(gae_lambda)
-        self.gae = True
-
-        self.update_epochs = int(update_epochs)
-        self.clip_coef = float(clip_ratio)
-        self.clip_vloss = bool(clip_vloss)
-        self.norm_adv = bool(norm_adv)
-        self.ent_coef = float(ent_coef)
-        self.vf_coef = float(vf_coef)
-        self.max_grad_norm = float(max_grad_norm)
-        self.target_kl = (
-            None if target_kl is None or float(target_kl) <= 0.0 else float(target_kl)
-        )
-        self.anneal_lr = bool(anneal_lr)
-
-        self.learning_rate = float(policy_lr)
-        self.optimizer_type = str(optimizer_type).strip().lower()
-        self.sgd_momentum = float(sgd_momentum)
-
-        self.normalize_obs = bool(normalize_obs)
-
-        self.eval_episodes = 50
-        self.eval_deterministic = True
-
-        # Keep ppo-implementation-details behavior deterministic.
-        random.seed(self.seed)
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
-        torch.backends.cudnn.deterministic = True
-
-        self.envs = gym.vector.SyncVectorEnv(
-            [
-                make_env(
-                    self.env_id,
-                    self.seed + i,
-                    normalize_observation=self.normalize_obs,
-                )
-                for i in range(self.num_envs)
-            ]
-        )
-        self.eval_envs = gym.vector.SyncVectorEnv(
-            [
-                make_eval_env(
-                    self.env_id,
-                    self.seed + 10_000 + i,
-                    normalize_observation=self.normalize_obs,
-                )
-                for i in range(self.eval_episodes)
-            ]
-        )
-        assert isinstance(
-            self.envs.single_action_space, gym.spaces.Box
-        ), "only continuous action space is supported"
-
-        obs_shape = self.envs.single_observation_space.shape
-        act_shape = self.envs.single_action_space.shape
-        if obs_shape is None:
-            raise ValueError("observation space has no shape")
-        if act_shape is None:
-            raise ValueError("action space has no shape")
-
-        obs_dim = int(np.array(obs_shape).prod())
-        act_dim = int(np.prod(act_shape))
-
-        self.agent = Agent(
-            obs_dim=obs_dim,
-            act_dim=act_dim,
-            policy_layer_sizes=tuple(policy_layer_sizes),
-            value_layer_sizes=tuple(critic_layer_sizes),
-        ).to(self.device)
-
-        self.optimizer = self._build_optimizer()
-
-    def _build_optimizer(self) -> torch.optim.Optimizer:
-        if self.optimizer_type == "adam":
-            return optim.Adam(
-                self.agent.parameters(),
-                lr=self.learning_rate,
-                eps=1e-5,
-            )
-        if self.optimizer_type == "sgd":
-            return optim.SGD(
-                self.agent.parameters(),
-                lr=self.learning_rate,
-                momentum=self.sgd_momentum,
-            )
-        raise ValueError(
-            f"Unsupported PPO optimizer_type '{self.optimizer_type}'. "
-            "Expected one of: adam, sgd."
-        )
-
-    def train(
-        self,
-        total_steps: int,
-        out_dir: str,
-    ):
-        total_steps = int(total_steps)
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">            probs.entropy().sum(1),</div>
+  <div class="math-annotated-code-line">            self.critic(x),</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">class PPOTrainer:</div>
+  <div class="math-annotated-code-line">    def __init__(</div>
+  <div class="math-annotated-code-line">        self,</div>
+  <div class="math-annotated-code-line">        env_id: str,</div>
+  <div class="math-annotated-code-line">        seed: int,</div>
+  <div class="math-annotated-code-line">        device: torch.device,</div>
+  <div class="math-annotated-code-line">        policy_layer_sizes: Tuple[int, ...],</div>
+  <div class="math-annotated-code-line">        critic_layer_sizes: Tuple[int, ...],</div>
+  <div class="math-annotated-code-line">        rollout_steps: int,</div>
+  <div class="math-annotated-code-line">        gamma: float = 0.99,</div>
+  <div class="math-annotated-code-line">        gae_lambda: float = 0.95,</div>
+  <div class="math-annotated-code-line">        update_epochs: int = 10,</div>
+  <div class="math-annotated-code-line">        minibatch_size: int = 64,</div>
+  <div class="math-annotated-code-line">        policy_lr: float = 3e-4,</div>
+  <div class="math-annotated-code-line">        clip_ratio: float = 0.2,</div>
+  <div class="math-annotated-code-line">        ent_coef: float = 0.0,</div>
+  <div class="math-annotated-code-line">        vf_coef: float = 0.5,</div>
+  <div class="math-annotated-code-line">        max_grad_norm: float = 0.5,</div>
+  <div class="math-annotated-code-line">        target_kl: float = 0.02,</div>
+  <div class="math-annotated-code-line">        norm_adv: bool = True,</div>
+  <div class="math-annotated-code-line">        clip_vloss: bool = True,</div>
+  <div class="math-annotated-code-line">        anneal_lr: bool = True,</div>
+  <div class="math-annotated-code-line">        normalize_obs: bool = True,</div>
+  <div class="math-annotated-code-line">        num_envs: int = 1,</div>
+  <div class="math-annotated-code-line">        optimizer_type: str = &quot;adam&quot;,</div>
+  <div class="math-annotated-code-line">        sgd_momentum: float = 0.9,</div>
+  <div class="math-annotated-code-line">    ):</div>
+  <div class="math-annotated-code-line">        self.env_id = str(env_id)</div>
+  <div class="math-annotated-code-line">        self.seed = int(seed)</div>
+  <div class="math-annotated-code-line">        self.device = device</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.num_envs = int(num_envs)</div>
+  <div class="math-annotated-code-line">        self.num_steps = int(rollout_steps)</div>
+  <div class="math-annotated-code-line">        self.batch_size = int(self.num_envs * self.num_steps)</div>
+  <div class="math-annotated-code-line">        self.minibatch_size = int(minibatch_size)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.gamma = float(gamma)</div>
+  <div class="math-annotated-code-line">        self.gae_lambda = float(gae_lambda)</div>
+  <div class="math-annotated-code-line">        self.gae = True</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.update_epochs = int(update_epochs)</div>
+  <div class="math-annotated-code-line">        self.clip_coef = float(clip_ratio)</div>
+  <div class="math-annotated-code-line">        self.clip_vloss = bool(clip_vloss)</div>
+  <div class="math-annotated-code-line">        self.norm_adv = bool(norm_adv)</div>
+  <div class="math-annotated-code-line">        self.ent_coef = float(ent_coef)</div>
+  <div class="math-annotated-code-line">        self.vf_coef = float(vf_coef)</div>
+  <div class="math-annotated-code-line">        self.max_grad_norm = float(max_grad_norm)</div>
+  <div class="math-annotated-code-line">        self.target_kl = (</div>
+  <div class="math-annotated-code-line">            None if target_kl is None or float(target_kl) &lt;= 0.0 else float(target_kl)</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        self.anneal_lr = bool(anneal_lr)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.learning_rate = float(policy_lr)</div>
+  <div class="math-annotated-code-line">        self.optimizer_type = str(optimizer_type).strip().lower()</div>
+  <div class="math-annotated-code-line">        self.sgd_momentum = float(sgd_momentum)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.normalize_obs = bool(normalize_obs)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.eval_episodes = 50</div>
+  <div class="math-annotated-code-line">        self.eval_deterministic = True</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        # Keep ppo-implementation-details behavior deterministic.</div>
+  <div class="math-annotated-code-line">        random.seed(self.seed)</div>
+  <div class="math-annotated-code-line">        np.random.seed(self.seed)</div>
+  <div class="math-annotated-code-line">        torch.manual_seed(self.seed)</div>
+  <div class="math-annotated-code-line">        torch.backends.cudnn.deterministic = True</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.envs = gym.vector.SyncVectorEnv(</div>
+  <div class="math-annotated-code-line">            [</div>
+  <div class="math-annotated-code-line">                make_env(</div>
+  <div class="math-annotated-code-line">                    self.env_id,</div>
+  <div class="math-annotated-code-line">                    self.seed + i,</div>
+  <div class="math-annotated-code-line">                    normalize_observation=self.normalize_obs,</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line">                for i in range(self.num_envs)</div>
+  <div class="math-annotated-code-line">            ]</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        self.eval_envs = gym.vector.SyncVectorEnv(</div>
+  <div class="math-annotated-code-line">            [</div>
+  <div class="math-annotated-code-line">                make_eval_env(</div>
+  <div class="math-annotated-code-line">                    self.env_id,</div>
+  <div class="math-annotated-code-line">                    self.seed + 10_000 + i,</div>
+  <div class="math-annotated-code-line">                    normalize_observation=self.normalize_obs,</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line">                for i in range(self.eval_episodes)</div>
+  <div class="math-annotated-code-line">            ]</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        assert isinstance(</div>
+  <div class="math-annotated-code-line">            self.envs.single_action_space, gym.spaces.Box</div>
+  <div class="math-annotated-code-line">        ), &quot;only continuous action space is supported&quot;</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        obs_shape = self.envs.single_observation_space.shape</div>
+  <div class="math-annotated-code-line">        act_shape = self.envs.single_action_space.shape</div>
+  <div class="math-annotated-code-line">        if obs_shape is None:</div>
+  <div class="math-annotated-code-line">            raise ValueError(&quot;observation space has no shape&quot;)</div>
+  <div class="math-annotated-code-line">        if act_shape is None:</div>
+  <div class="math-annotated-code-line">            raise ValueError(&quot;action space has no shape&quot;)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        obs_dim = int(np.array(obs_shape).prod())</div>
+  <div class="math-annotated-code-line">        act_dim = int(np.prod(act_shape))</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.agent = Agent(</div>
+  <div class="math-annotated-code-line">            obs_dim=obs_dim,</div>
+  <div class="math-annotated-code-line">            act_dim=act_dim,</div>
+  <div class="math-annotated-code-line">            policy_layer_sizes=tuple(policy_layer_sizes),</div>
+  <div class="math-annotated-code-line">            value_layer_sizes=tuple(critic_layer_sizes),</div>
+  <div class="math-annotated-code-line">        ).to(self.device)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.optimizer = self._build_optimizer()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    def _build_optimizer(self) -&gt; torch.optim.Optimizer:</div>
+  <div class="math-annotated-code-line">        if self.optimizer_type == &quot;adam&quot;:</div>
+  <div class="math-annotated-code-line">            return optim.Adam(</div>
+  <div class="math-annotated-code-line">                self.agent.parameters(),</div>
+  <div class="math-annotated-code-line">                lr=self.learning_rate,</div>
+  <div class="math-annotated-code-line">                eps=1e-5,</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">        if self.optimizer_type == &quot;sgd&quot;:</div>
+  <div class="math-annotated-code-line">            return optim.SGD(</div>
+  <div class="math-annotated-code-line">                self.agent.parameters(),</div>
+  <div class="math-annotated-code-line">                lr=self.learning_rate,</div>
+  <div class="math-annotated-code-line">                momentum=self.sgd_momentum,</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">        raise ValueError(</div>
+  <div class="math-annotated-code-line">            f&quot;Unsupported PPO optimizer_type &#x27;{self.optimizer_type}&#x27;. &quot;</div>
+  <div class="math-annotated-code-line">            &quot;Expected one of: adam, sgd.&quot;</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    def train(</div>
+  <div class="math-annotated-code-line">        self,</div>
+  <div class="math-annotated-code-line">        total_steps: int,</div>
+  <div class="math-annotated-code-line">        out_dir: str,</div>
+  <div class="math-annotated-code-line">    ):</div>
+  <div class="math-annotated-code-line">        total_steps = int(total_steps)</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
-$$
-
-```python
-        eval_interval = max(1, total_steps // 150)
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">        eval_interval = max(1, total_steps // 150)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
-$$
-
-```python
-
-        num_updates = total_steps // self.batch_size
-        if num_updates <= 0:
-            print(
-                "[PPO] no updates scheduled because requested_total_steps < batch_size "
-                f"({total_steps} < {self.batch_size})."
-            )
-            self.envs.close()
-            self.eval_env.close()
-            return
-
-        obs = torch.zeros(
-            (self.num_steps, self.num_envs) + self.envs.single_observation_space.shape,
-            device=self.device,
-        )
-        actions = torch.zeros(
-            (self.num_steps, self.num_envs) + self.envs.single_action_space.shape,
-            device=self.device,
-        )
-        logprobs = torch.zeros((self.num_steps, self.num_envs), device=self.device)
-        rewards = torch.zeros((self.num_steps, self.num_envs), device=self.device)
-        dones = torch.zeros((self.num_steps, self.num_envs), device=self.device)
-        values = torch.zeros((self.num_steps, self.num_envs), device=self.device)
-
-        global_step = 0
-        start_time = time.time()
-
-        next_obs, _ = self.envs.reset()
-        next_obs = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)
-        next_done = torch.zeros(self.num_envs, device=self.device)
-
-        last_eval = 0
-        best_eval_score = float("-inf")
-        os.makedirs(out_dir, exist_ok=True)
-
-        for update in range(1, num_updates + 1):
-            if self.anneal_lr:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        num_updates = total_steps // self.batch_size</div>
+  <div class="math-annotated-code-line">        if num_updates &lt;= 0:</div>
+  <div class="math-annotated-code-line">            print(</div>
+  <div class="math-annotated-code-line">                &quot;[PPO] no updates scheduled because requested_total_steps &lt; batch_size &quot;</div>
+  <div class="math-annotated-code-line">                f&quot;({total_steps} &lt; {self.batch_size}).&quot;</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            self.envs.close()</div>
+  <div class="math-annotated-code-line">            self.eval_env.close()</div>
+  <div class="math-annotated-code-line">            return</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        obs = torch.zeros(</div>
+  <div class="math-annotated-code-line">            (self.num_steps, self.num_envs) + self.envs.single_observation_space.shape,</div>
+  <div class="math-annotated-code-line">            device=self.device,</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        actions = torch.zeros(</div>
+  <div class="math-annotated-code-line">            (self.num_steps, self.num_envs) + self.envs.single_action_space.shape,</div>
+  <div class="math-annotated-code-line">            device=self.device,</div>
+  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        logprobs = torch.zeros((self.num_steps, self.num_envs), device=self.device)</div>
+  <div class="math-annotated-code-line">        rewards = torch.zeros((self.num_steps, self.num_envs), device=self.device)</div>
+  <div class="math-annotated-code-line">        dones = torch.zeros((self.num_steps, self.num_envs), device=self.device)</div>
+  <div class="math-annotated-code-line">        values = torch.zeros((self.num_steps, self.num_envs), device=self.device)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        global_step = 0</div>
+  <div class="math-annotated-code-line">        start_time = time.time()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        next_obs, _ = self.envs.reset()</div>
+  <div class="math-annotated-code-line">        next_obs = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)</div>
+  <div class="math-annotated-code-line">        next_done = torch.zeros(self.num_envs, device=self.device)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        last_eval = 0</div>
+  <div class="math-annotated-code-line">        best_eval_score = float(&quot;-inf&quot;)</div>
+  <div class="math-annotated-code-line">        os.makedirs(out_dir, exist_ok=True)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        for update in range(1, num_updates + 1):</div>
+  <div class="math-annotated-code-line">            if self.anneal_lr:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 f_u = 1 - \frac{u-1}{U}
-$$
-
-```python
-                frac = 1.0 - (update - 1.0) / num_updates
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                frac = 1.0 - (update - 1.0) / num_updates</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \lambda_u = f_u \lambda_0
-$$
-
-```python
-                lrnow = frac * self.learning_rate
-                self.optimizer.param_groups[0]["lr"] = lrnow
-
-            for step in range(0, self.num_steps):
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                lrnow = frac * self.learning_rate</div>
+  <div class="math-annotated-code-line">                self.optimizer.param_groups[0][&quot;lr&quot;] = lrnow</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            for step in range(0, self.num_steps):</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 t \leftarrow t + N
-$$
-
-```python
-                global_step += self.num_envs
-                obs[step] = next_obs
-                dones[step] = next_done
-
-                with torch.no_grad():
-                    action, logprob, _, value = self.agent.get_action_and_value(
-                        next_obs
-                    )
-                    values[step] = value.flatten()
-                actions[step] = action
-                logprobs[step] = logprob
-
-                next_obs_np, reward, terminated, truncated, infos = self.envs.step(
-                    action.cpu().numpy()
-                )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                global_step += self.num_envs</div>
+  <div class="math-annotated-code-line">                obs[step] = next_obs</div>
+  <div class="math-annotated-code-line">                dones[step] = next_done</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                with torch.no_grad():</div>
+  <div class="math-annotated-code-line">                    action, logprob, _, value = self.agent.get_action_and_value(</div>
+  <div class="math-annotated-code-line">                        next_obs</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line">                    values[step] = value.flatten()</div>
+  <div class="math-annotated-code-line">                actions[step] = action</div>
+  <div class="math-annotated-code-line">                logprobs[step] = logprob</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                next_obs_np, reward, terminated, truncated, infos = self.envs.step(</div>
+  <div class="math-annotated-code-line">                    action.cpu().numpy()</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 d_t = d_t^{term} \lor d_t^{trunc}
-$$
-
-```python
-                done = np.logical_or(terminated, truncated)
-
-                rewards[step] = torch.as_tensor(
-                    reward, dtype=torch.float32, device=self.device
-                ).view(-1)
-                next_obs = torch.as_tensor(
-                    next_obs_np, dtype=torch.float32, device=self.device
-                )
-                next_done = torch.as_tensor(
-                    done, dtype=torch.float32, device=self.device
-                )
-
-                log_episode_stats(infos, global_step)
-
-                if global_step // eval_interval > last_eval:
-                    last_eval = global_step // eval_interval
-                    _sync_obs_rms_to_eval_envs(self.envs, self.eval_envs)
-                    eval_returns, eval_lengths = _evaluate_vectorized(
-                        self.agent,
-                        self.eval_envs,
-                        self.device,
-                        seed=self.seed + 10_000,
-                    )
-                    metrics = {
-                        "eval/return_max": float(np.max(eval_returns)),
-                        "eval/return_std": float(np.std(eval_returns)),
-                        "eval/return_mean": float(np.mean(eval_returns)),
-                        "eval/length_mean": float(np.mean(eval_lengths)),
-                        "eval/return_min": float(np.min(eval_returns)),
-                    }
-                    print(f"eval global_step={global_step}, " f"{metrics}")
-                    log_wandb(
-                        metrics,
-                        step=global_step,
-                        silent=True,
-                    )
-
-                    ckpt_payload = {
-                        "actor_mean": self.agent.actor_mean.state_dict(),
-                        "actor_logstd": self.agent.actor_logstd.detach().cpu(),
-                        "critic": self.agent.critic.state_dict(),
-                        "optimizer": self.optimizer.state_dict(),
-                    }
-                    ckpt_last_path = os.path.join(out_dir, "ppo_last.pt")
-                    torch.save(ckpt_payload, ckpt_last_path)
-                    print(
-                        f"[PPO][checkpoint] step={global_step}/{total_steps}: "
-                        f"saved {ckpt_last_path}"
-                    )
-
-                    eval_score = float(metrics["eval/return_mean"])
-                    if eval_score > best_eval_score:
-                        best_eval_score = eval_score
-                        ckpt_best_path = os.path.join(out_dir, "ppo_best.pt")
-                        torch.save(ckpt_payload, ckpt_best_path)
-                        print(
-                            f"[PPO][checkpoint-best] step={global_step}/{total_steps}: "
-                            f"score={eval_score:.6f}, saved {ckpt_best_path}"
-                        )
-
-            with torch.no_grad():
-                next_value = self.agent.get_value(next_obs).reshape(1, -1)
-                if self.gae:
-                    advantages = torch.zeros_like(rewards, device=self.device)
-                    lastgaelam = 0
-                    for t in reversed(range(self.num_steps)):
-                        if t == self.num_steps - 1:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                done = np.logical_or(terminated, truncated)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                rewards[step] = torch.as_tensor(</div>
+  <div class="math-annotated-code-line">                    reward, dtype=torch.float32, device=self.device</div>
+  <div class="math-annotated-code-line">                ).view(-1)</div>
+  <div class="math-annotated-code-line">                next_obs = torch.as_tensor(</div>
+  <div class="math-annotated-code-line">                    next_obs_np, dtype=torch.float32, device=self.device</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line">                next_done = torch.as_tensor(</div>
+  <div class="math-annotated-code-line">                    done, dtype=torch.float32, device=self.device</div>
+  <div class="math-annotated-code-line">                )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                log_episode_stats(infos, global_step)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                if global_step // eval_interval &gt; last_eval:</div>
+  <div class="math-annotated-code-line">                    last_eval = global_step // eval_interval</div>
+  <div class="math-annotated-code-line">                    _sync_obs_rms_to_eval_envs(self.envs, self.eval_envs)</div>
+  <div class="math-annotated-code-line">                    eval_returns, eval_lengths = _evaluate_vectorized(</div>
+  <div class="math-annotated-code-line">                        self.agent,</div>
+  <div class="math-annotated-code-line">                        self.eval_envs,</div>
+  <div class="math-annotated-code-line">                        self.device,</div>
+  <div class="math-annotated-code-line">                        seed=self.seed + 10_000,</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line">                    metrics = {</div>
+  <div class="math-annotated-code-line">                        &quot;eval/return_max&quot;: float(np.max(eval_returns)),</div>
+  <div class="math-annotated-code-line">                        &quot;eval/return_std&quot;: float(np.std(eval_returns)),</div>
+  <div class="math-annotated-code-line">                        &quot;eval/return_mean&quot;: float(np.mean(eval_returns)),</div>
+  <div class="math-annotated-code-line">                        &quot;eval/length_mean&quot;: float(np.mean(eval_lengths)),</div>
+  <div class="math-annotated-code-line">                        &quot;eval/return_min&quot;: float(np.min(eval_returns)),</div>
+  <div class="math-annotated-code-line">                    }</div>
+  <div class="math-annotated-code-line">                    print(f&quot;eval global_step={global_step}, &quot; f&quot;{metrics}&quot;)</div>
+  <div class="math-annotated-code-line">                    log_wandb(</div>
+  <div class="math-annotated-code-line">                        metrics,</div>
+  <div class="math-annotated-code-line">                        step=global_step,</div>
+  <div class="math-annotated-code-line">                        silent=True,</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    ckpt_payload = {</div>
+  <div class="math-annotated-code-line">                        &quot;actor_mean&quot;: self.agent.actor_mean.state_dict(),</div>
+  <div class="math-annotated-code-line">                        &quot;actor_logstd&quot;: self.agent.actor_logstd.detach().cpu(),</div>
+  <div class="math-annotated-code-line">                        &quot;critic&quot;: self.agent.critic.state_dict(),</div>
+  <div class="math-annotated-code-line">                        &quot;optimizer&quot;: self.optimizer.state_dict(),</div>
+  <div class="math-annotated-code-line">                    }</div>
+  <div class="math-annotated-code-line">                    ckpt_last_path = os.path.join(out_dir, &quot;ppo_last.pt&quot;)</div>
+  <div class="math-annotated-code-line">                    torch.save(ckpt_payload, ckpt_last_path)</div>
+  <div class="math-annotated-code-line">                    print(</div>
+  <div class="math-annotated-code-line">                        f&quot;[PPO][checkpoint] step={global_step}/{total_steps}: &quot;</div>
+  <div class="math-annotated-code-line">                        f&quot;saved {ckpt_last_path}&quot;</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    eval_score = float(metrics[&quot;eval/return_mean&quot;])</div>
+  <div class="math-annotated-code-line">                    if eval_score &gt; best_eval_score:</div>
+  <div class="math-annotated-code-line">                        best_eval_score = eval_score</div>
+  <div class="math-annotated-code-line">                        ckpt_best_path = os.path.join(out_dir, &quot;ppo_best.pt&quot;)</div>
+  <div class="math-annotated-code-line">                        torch.save(ckpt_payload, ckpt_best_path)</div>
+  <div class="math-annotated-code-line">                        print(</div>
+  <div class="math-annotated-code-line">                            f&quot;[PPO][checkpoint-best] step={global_step}/{total_steps}: &quot;</div>
+  <div class="math-annotated-code-line">                            f&quot;score={eval_score:.6f}, saved {ckpt_best_path}&quot;</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            with torch.no_grad():</div>
+  <div class="math-annotated-code-line">                next_value = self.agent.get_value(next_obs).reshape(1, -1)</div>
+  <div class="math-annotated-code-line">                if self.gae:</div>
+  <div class="math-annotated-code-line">                    advantages = torch.zeros_like(rewards, device=self.device)</div>
+  <div class="math-annotated-code-line">                    lastgaelam = 0</div>
+  <div class="math-annotated-code-line">                    for t in reversed(range(self.num_steps)):</div>
+  <div class="math-annotated-code-line">                        if t == self.num_steps - 1:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 m_{t+1} = 1 - d_{t+1}
-$$
-
-```python
-                            nextnonterminal = 1.0 - next_done
-                            nextvalues = next_value
-                        else:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                            nextnonterminal = 1.0 - next_done</div>
+  <div class="math-annotated-code-line">                            nextvalues = next_value</div>
+  <div class="math-annotated-code-line">                        else:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 m_{t+1} = 1 - d_{t+1}
-$$
-
-```python
-                            nextnonterminal = 1.0 - dones[t + 1]
-                            nextvalues = values[t + 1]
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                            nextnonterminal = 1.0 - dones[t + 1]</div>
+  <div class="math-annotated-code-line">                            nextvalues = values[t + 1]</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \delta_t = r_t + \gamma V(s_{t+1}) m_{t+1} - V(s_t)
-$$
-
-```python
-                        delta = (
-                            rewards[t]
-                            + self.gamma * nextvalues * nextnonterminal
-                            - values[t]
-                        )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        delta = (</div>
+  <div class="math-annotated-code-line">                            rewards[t]</div>
+  <div class="math-annotated-code-line">                            + self.gamma * nextvalues * nextnonterminal</div>
+  <div class="math-annotated-code-line">                            - values[t]</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 A_t = \delta_t + \gamma \lambda m_{t+1} A_{t+1}
-$$
-
-```python
-                        advantages[t] = lastgaelam = (
-                            delta
-                            + self.gamma
-                            * self.gae_lambda
-                            * nextnonterminal
-                            * lastgaelam
-                        )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        advantages[t] = lastgaelam = (</div>
+  <div class="math-annotated-code-line">                            delta</div>
+  <div class="math-annotated-code-line">                            + self.gamma</div>
+  <div class="math-annotated-code-line">                            * self.gae_lambda</div>
+  <div class="math-annotated-code-line">                            * nextnonterminal</div>
+  <div class="math-annotated-code-line">                            * lastgaelam</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 R_t = A_t + V(s_t)
-$$
-
-```python
-                    returns = advantages + values
-                else:
-                    returns = torch.zeros_like(rewards, device=self.device)
-                    for t in reversed(range(self.num_steps)):
-                        if t == self.num_steps - 1:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    returns = advantages + values</div>
+  <div class="math-annotated-code-line">                else:</div>
+  <div class="math-annotated-code-line">                    returns = torch.zeros_like(rewards, device=self.device)</div>
+  <div class="math-annotated-code-line">                    for t in reversed(range(self.num_steps)):</div>
+  <div class="math-annotated-code-line">                        if t == self.num_steps - 1:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 m_{t+1} = 1 - d_{t+1}
-$$
-
-```python
-                            nextnonterminal = 1.0 - next_done
-                            next_return = next_value
-                        else:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                            nextnonterminal = 1.0 - next_done</div>
+  <div class="math-annotated-code-line">                            next_return = next_value</div>
+  <div class="math-annotated-code-line">                        else:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 m_{t+1} = 1 - d_{t+1}
-$$
-
-```python
-                            nextnonterminal = 1.0 - dones[t + 1]
-                            next_return = returns[t + 1]
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                            nextnonterminal = 1.0 - dones[t + 1]</div>
+  <div class="math-annotated-code-line">                            next_return = returns[t + 1]</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 R_t = r_t + \gamma m_{t+1} R_{t+1}
-$$
-
-```python
-                        returns[t] = (
-                            rewards[t] + self.gamma * nextnonterminal * next_return
-                        )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        returns[t] = (</div>
+  <div class="math-annotated-code-line">                            rewards[t] + self.gamma * nextnonterminal * next_return</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 A_t = R_t - V(s_t)
-$$
-
-```python
-                    advantages = returns - values
-
-            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)
-            b_logprobs = logprobs.reshape(-1)
-            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)
-            b_advantages = advantages.reshape(-1)
-            b_returns = returns.reshape(-1)
-            b_values = values.reshape(-1)
-
-            b_inds = np.arange(self.batch_size)
-            clipfracs = []
-
-            # Track last minibatch values for logging parity with reference implementation.
-            pg_loss = torch.tensor(0.0, device=self.device)
-            v_loss = torch.tensor(0.0, device=self.device)
-            entropy_loss = torch.tensor(0.0, device=self.device)
-            old_approx_kl = torch.tensor(0.0, device=self.device)
-            approx_kl = torch.tensor(0.0, device=self.device)
-
-            for epoch in range(self.update_epochs):
-                np.random.shuffle(b_inds)
-                for start in range(0, self.batch_size, self.minibatch_size):
-                    end = start + self.minibatch_size
-                    mb_inds = b_inds[start:end]
-
-                    _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                        b_obs[mb_inds], b_actions[mb_inds]
-                    )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    advantages = returns - values</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            b_obs = obs.reshape((-1,) + self.envs.single_observation_space.shape)</div>
+  <div class="math-annotated-code-line">            b_logprobs = logprobs.reshape(-1)</div>
+  <div class="math-annotated-code-line">            b_actions = actions.reshape((-1,) + self.envs.single_action_space.shape)</div>
+  <div class="math-annotated-code-line">            b_advantages = advantages.reshape(-1)</div>
+  <div class="math-annotated-code-line">            b_returns = returns.reshape(-1)</div>
+  <div class="math-annotated-code-line">            b_values = values.reshape(-1)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            b_inds = np.arange(self.batch_size)</div>
+  <div class="math-annotated-code-line">            clipfracs = []</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            # Track last minibatch values for logging parity with reference implementation.</div>
+  <div class="math-annotated-code-line">            pg_loss = torch.tensor(0.0, device=self.device)</div>
+  <div class="math-annotated-code-line">            v_loss = torch.tensor(0.0, device=self.device)</div>
+  <div class="math-annotated-code-line">            entropy_loss = torch.tensor(0.0, device=self.device)</div>
+  <div class="math-annotated-code-line">            old_approx_kl = torch.tensor(0.0, device=self.device)</div>
+  <div class="math-annotated-code-line">            approx_kl = torch.tensor(0.0, device=self.device)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            for epoch in range(self.update_epochs):</div>
+  <div class="math-annotated-code-line">                np.random.shuffle(b_inds)</div>
+  <div class="math-annotated-code-line">                for start in range(0, self.batch_size, self.minibatch_size):</div>
+  <div class="math-annotated-code-line">                    end = start + self.minibatch_size</div>
+  <div class="math-annotated-code-line">                    mb_inds = b_inds[start:end]</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(</div>
+  <div class="math-annotated-code-line">                        b_obs[mb_inds], b_actions[mb_inds]</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
-$$
-
-```python
-                    logratio = newlogprob - b_logprobs[mb_inds]
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    logratio = newlogprob - b_logprobs[mb_inds]</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 r_t = \exp(\log r_t)
-$$
-
-```python
-                    ratio = logratio.exp()
-
-                    with torch.no_grad():
-                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    ratio = logratio.exp()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    with torch.no_grad():</div>
+  <div class="math-annotated-code-line">                        # calculate approx_kl http://joschu.net/blog/kl-approx.html</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
-$$
-
-```python
-                        old_approx_kl = (-logratio).mean()
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        old_approx_kl = (-logratio).mean()</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
-$$
-
-```python
-                        approx_kl = ((ratio - 1) - logratio).mean()
-                        clipfracs += [
-                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
-                        ]
-
-                    mb_advantages = b_advantages[mb_inds]
-                    if self.norm_adv:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        approx_kl = ((ratio - 1) - logratio).mean()</div>
+  <div class="math-annotated-code-line">                        clipfracs += [</div>
+  <div class="math-annotated-code-line">                            ((ratio - 1.0).abs() &gt; self.clip_coef).float().mean().item()</div>
+  <div class="math-annotated-code-line">                        ]</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    mb_advantages = b_advantages[mb_inds]</div>
+  <div class="math-annotated-code-line">                    if self.norm_adv:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
-$$
-
-```python
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
-                            mb_advantages.std() + 1e-8
-                        )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (</div>
+  <div class="math-annotated-code-line">                            mb_advantages.std() + 1e-8</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
-$$
-
-```python
-
-                    pg_loss1 = -mb_advantages * ratio
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    pg_loss1 = -mb_advantages * ratio</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
-$$
-
-```python
-                    pg_loss2 = -mb_advantages * torch.clamp(
-                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
-                    )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    pg_loss2 = -mb_advantages * torch.clamp(</div>
+  <div class="math-annotated-code-line">                        ratio, 1 - self.clip_coef, 1 + self.clip_coef</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
-$$
-
-```python
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-
-                    newvalue = newvalue.view(-1)
-                    if self.clip_vloss:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    newvalue = newvalue.view(-1)</div>
+  <div class="math-annotated-code-line">                    if self.clip_vloss:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
-$$
-
-```python
-                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
-$$
-
-```python
-                        v_clipped = b_values[mb_inds] + torch.clamp(
-                            newvalue - b_values[mb_inds],
-                            -self.clip_coef,
-                            self.clip_coef,
-                        )
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        v_clipped = b_values[mb_inds] + torch.clamp(</div>
+  <div class="math-annotated-code-line">                            newvalue - b_values[mb_inds],</div>
+  <div class="math-annotated-code-line">                            -self.clip_coef,</div>
+  <div class="math-annotated-code-line">                            self.clip_coef,</div>
+  <div class="math-annotated-code-line">                        )</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
-$$
-
-```python
-                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2</div>
+  <div class="math-annotated-code-line">                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
-$$
-
-```python
-                        v_loss = 0.5 * v_loss_max.mean()
-                    else:
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        v_loss = 0.5 * v_loss_max.mean()</div>
+  <div class="math-annotated-code-line">                    else:</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
-$$
-
-```python
-                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
-
-                    entropy_loss = entropy.mean()
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    entropy_loss = entropy.mean()</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
-$$
-
-```python
-                    loss = (
-                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
-                    )
-
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    nn.utils.clip_grad_norm_(
-                        self.agent.parameters(), self.max_grad_norm
-                    )
-                    self.optimizer.step()
-
-                if self.target_kl is not None:
-                    if approx_kl > self.target_kl:
-                        break
-
-            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
-            var_y = np.var(y_true)
-```
-
-$$
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">                    loss = (</div>
+  <div class="math-annotated-code-line">                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                    self.optimizer.zero_grad()</div>
+  <div class="math-annotated-code-line">                    loss.backward()</div>
+  <div class="math-annotated-code-line">                    nn.utils.clip_grad_norm_(</div>
+  <div class="math-annotated-code-line">                        self.agent.parameters(), self.max_grad_norm</div>
+  <div class="math-annotated-code-line">                    )</div>
+  <div class="math-annotated-code-line">                    self.optimizer.step()</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">                if self.target_kl is not None:</div>
+  <div class="math-annotated-code-line">                    if approx_kl &gt; self.target_kl:</div>
+  <div class="math-annotated-code-line">                        break</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()</div>
+  <div class="math-annotated-code-line">            var_y = np.var(y_true)</div>
+  <div class="math-annotated-code-line math-annotated-code-formula">
+    <div class="arithmatex">\[
 \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
-$$
-
-```python
-            explained_var = (
-                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-            )
-
-            sps = int(global_step / max(time.time() - start_time, 1e-8))
-            log_wandb(
-                {
-                    "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
-                    "losses/value_loss": v_loss.item(),
-                    "losses/policy_loss": pg_loss.item(),
-                    "losses/entropy": entropy_loss.item(),
-                    "losses/old_approx_kl": old_approx_kl.item(),
-                    "losses/approx_kl": approx_kl.item(),
-                    "losses/clipfrac": float(np.mean(clipfracs)) if clipfracs else 0.0,
-                    "losses/explained_variance": float(explained_var),
-                    "charts/SPS": float(sps),
-                },
-                step=global_step,
-                silent=True,
-            )
-            print("SPS:", sps)
-
-        self.envs.close()
-        self.eval_envs.close()
-```
+\]</div>
+  </div>
+  <div class="math-annotated-code-line">            explained_var = (</div>
+  <div class="math-annotated-code-line">                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">            sps = int(global_step / max(time.time() - start_time, 1e-8))</div>
+  <div class="math-annotated-code-line">            log_wandb(</div>
+  <div class="math-annotated-code-line">                {</div>
+  <div class="math-annotated-code-line">                    &quot;charts/learning_rate&quot;: self.optimizer.param_groups[0][&quot;lr&quot;],</div>
+  <div class="math-annotated-code-line">                    &quot;losses/value_loss&quot;: v_loss.item(),</div>
+  <div class="math-annotated-code-line">                    &quot;losses/policy_loss&quot;: pg_loss.item(),</div>
+  <div class="math-annotated-code-line">                    &quot;losses/entropy&quot;: entropy_loss.item(),</div>
+  <div class="math-annotated-code-line">                    &quot;losses/old_approx_kl&quot;: old_approx_kl.item(),</div>
+  <div class="math-annotated-code-line">                    &quot;losses/approx_kl&quot;: approx_kl.item(),</div>
+  <div class="math-annotated-code-line">                    &quot;losses/clipfrac&quot;: float(np.mean(clipfracs)) if clipfracs else 0.0,</div>
+  <div class="math-annotated-code-line">                    &quot;losses/explained_variance&quot;: float(explained_var),</div>
+  <div class="math-annotated-code-line">                    &quot;charts/SPS&quot;: float(sps),</div>
+  <div class="math-annotated-code-line">                },</div>
+  <div class="math-annotated-code-line">                step=global_step,</div>
+  <div class="math-annotated-code-line">                silent=True,</div>
+  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            print(&quot;SPS:&quot;, sps)</div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        self.envs.close()</div>
+  <div class="math-annotated-code-line">        self.eval_envs.close()</div>
+</div>

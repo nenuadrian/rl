@@ -232,6 +232,43 @@ pre code {
   padding: 0;
 }
 
+.math-annotated-codeblock {
+  border: 1px solid rgba(84, 100, 130, 0.5);
+  border-radius: 14px;
+  background: rgba(7, 13, 24, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  margin: 0.5rem 0 0.9rem;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.math-annotated-code-line {
+  white-space: pre;
+  color: #d8e8ff;
+  line-height: 1.45;
+}
+
+.math-annotated-code-formula {
+  white-space: normal;
+  border: 1px solid rgba(47, 211, 224, 0.35);
+  border-left: 4px solid var(--minerva-accent);
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    rgba(47, 211, 224, 0.12),
+    rgba(13, 30, 43, 0.75)
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  margin: 0.32rem 0 0.45rem 1.1rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.math-annotated-code-formula .MathJax,
+.math-annotated-code-formula mjx-container {
+  font-size: 1.01em !important;
+}
+
 .math-annotation-formula,
 div.arithmatex {
   border: 1px solid rgba(47, 211, 224, 0.35);

@@ -2,7 +2,7 @@
 
 _Source: `minerva/trainers/vmpo/trainer.py`_
 
-The full file is rendered in order as code blocks, with each `# LaTeX:` marker replaced by a rendered formula block.
+The full file is rendered in one continuous code-style block, with each `# LaTeX:` marker replaced inline by a rendered formula.
 
 No `# LaTeX:` annotations were found in this file.
 
@@ -437,7 +437,7 @@ class VMPOTrainer:
         # Current observation is episode start until the first action is taken.
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         self.last_eval = 0
-        self.eval_episodes = 50
+        self.eval_episodes = 15
         self.eval_seed = self.seed + 1000
         self.eval_env = gym.vector.SyncVectorEnv(
             [
