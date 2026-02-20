@@ -18,16 +18,14 @@ _No docstring provided._
 
 Base classes: `nn.Module`
 
-Standard encoder for MPO/V-MPO:
-Linear -> LayerNorm -> Tanh (First Layer)
-Linear -> ELU (Subsequent Layers)
+Encoder for V-MPO: orthogonal Linear + Tanh at each hidden layer.
 
 #### Methods in `MPOEncoder`
 
 ##### `__init__`
 
 ```python
-def __init__(self, in_dim: int, layer_sizes: Tuple[int, ...], activate_final: bool = True, ppo_like: bool = False)
+def __init__(self, in_dim: int, layer_sizes: Tuple[int, ...])
 ```
 
 _No docstring provided._
@@ -51,7 +49,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, obs_dim: int, act_dim: int, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), action_low: np.ndarray | None = None, action_high: np.ndarray | None = None, shared_encoder: bool = False, ppo_like_backbone: bool = False)
+def __init__(self, obs_dim: int, act_dim: int, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), shared_encoder: bool = False)
 ```
 
 _No docstring provided._
@@ -110,8 +108,7 @@ _No docstring provided._
 def log_prob(self, mean: torch.Tensor, log_std: torch.Tensor, actions: torch.Tensor) -> torch.Tensor
 ```
 
-Calculates log prob of actions.
-NOTE: 'actions' are the final environment actions (scaled).
+_No docstring provided._
 
 ##### `sample_action`
 
@@ -119,6 +116,4 @@ NOTE: 'actions' are the final environment actions (scaled).
 def sample_action(self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool = False) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
-Returns:
-    action: Scaled action for environment
-    log_prob: Log probability of that action
+_No docstring provided._

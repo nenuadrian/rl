@@ -14,7 +14,6 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "m_steps": 64,
     "policy_layer_sizes": (512, 256),
     "value_layer_sizes": (512, 256),
-    "ppo_like_backbone": False,
     "gamma": 0.98,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
@@ -60,8 +59,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Humanoid-v5": {
         "total_steps": 5_000_000,
         **SHARED_VMPO_PARAMS,
-        # Keep VMPO objective while matching PPO-style backbone for fairer comparison.
-        "ppo_like_backbone": True,
     },
     "Ant-v5": {
         "total_steps": 5_000_000,

@@ -303,6 +303,7 @@ def _make_env(
 
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
+    env = gym.wrappers.ClipAction(env)
 
     if normalize_observation:
         env = gym.wrappers.NormalizeObservation(env)
@@ -349,7 +350,6 @@ class VMPOTrainer:
         sgd_momentum: float = 0.9,
         num_envs: int = 1,
         shared_encoder: bool = False,
-        ppo_like_backbone: bool = False,
         m_steps: int = 1,
     ):
         self.num_envs = int(num_envs)
@@ -386,15 +386,11 @@ class VMPOTrainer:
             raise ValueError("Action space has no shape.")
         act_shape = act_space.shape
         act_dim = int(np.prod(act_shape))
-        action_low = getattr(act_space, "low", None)
-        action_high = getattr(act_space, "high", None)
         self.act_shape = act_shape
 
         self.agent = VMPOAgent(
             obs_dim=obs_dim,
             act_dim=act_dim,
-            action_low=action_low,
-            action_high=action_high,
             device=device,
             policy_layer_sizes=policy_layer_sizes,
             value_layer_sizes=value_layer_sizes,
@@ -415,7 +411,6 @@ class VMPOTrainer:
             optimizer_type=optimizer_type,
             sgd_momentum=sgd_momentum,
             shared_encoder=shared_encoder,
-            ppo_like_backbone=ppo_like_backbone,
             m_steps=m_steps,
         )
 

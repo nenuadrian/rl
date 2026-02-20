@@ -17,6 +17,15 @@ import shutil
 from pathlib import Path
 from typing import Iterable
 
+try:
+    from pygments import highlight as pygments_highlight
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import PythonLexer
+except Exception:  # pragma: no cover - optional runtime dependency fallback
+    pygments_highlight = None
+    HtmlFormatter = None
+    PythonLexer = None
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = ROOT / "docs"
@@ -30,6 +39,12 @@ LATEX_INLINE_PATTERN = re.compile(
     r"^(?P<code>.*?)(?:\s+#\s*LaTeX:\s*(?P<formula>.+))\s*$"
 )
 LATEX_STANDALONE_PATTERN = re.compile(r"^\s*#\s*LaTeX:\s*(?P<formula>.+?)\s*$")
+PYTHON_LEXER = PythonLexer(stripnl=False) if PythonLexer is not None else None
+INLINE_PYGMENTS_FORMATTER = (
+    HtmlFormatter(nowrap=True, noclasses=True, style="monokai")
+    if HtmlFormatter is not None
+    else None
+)
 
 
 def write_text(path: Path, content: str) -> None:
@@ -270,25 +285,47 @@ def extract_latex_annotations(source: str) -> list[tuple[int, str]]:
     return annotations
 
 
-def build_math_annotated_rows(source: str) -> list[tuple[str, str]]:
+def leading_indent_columns(line: str) -> int:
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip(" "))
+
+
+def highlight_python_line(line: str) -> str:
+    if not line:
+        return " "
+    if pygments_highlight is None or PYTHON_LEXER is None or INLINE_PYGMENTS_FORMATTER is None:
+        return html.escape(line)
+
+    highlighted = pygments_highlight(line, PYTHON_LEXER, INLINE_PYGMENTS_FORMATTER).rstrip("\n")
+    return highlighted if highlighted else " "
+
+
+def build_math_annotated_rows(source: str) -> list[tuple[str, str, int]]:
     """Convert source into code/formula rows with `# LaTeX:` comments replaced."""
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, str, int]] = []
 
     for raw_line in source.splitlines():
         standalone_match = LATEX_STANDALONE_PATTERN.match(raw_line)
         if standalone_match is not None:
-            rows.append(("formula", standalone_match.group("formula").strip()))
+            rows.append(
+                (
+                    "formula",
+                    standalone_match.group("formula").strip(),
+                    leading_indent_columns(raw_line),
+                )
+            )
             continue
 
         inline_match = LATEX_INLINE_PATTERN.match(raw_line)
         if inline_match is not None and inline_match.group("formula") is not None:
             code = inline_match.group("code").rstrip()
             if code:
-                rows.append(("code", code))
-            rows.append(("formula", inline_match.group("formula").strip()))
+                rows.append(("code", code, 0))
+            indent = leading_indent_columns(code if code else raw_line)
+            rows.append(("formula", inline_match.group("formula").strip(), indent))
             continue
 
-        rows.append(("code", raw_line))
+        rows.append(("code", raw_line, 0))
 
     return rows
 
@@ -297,18 +334,20 @@ def render_math_annotated_source(source: str) -> str:
     """Render source as one code-style block with inline rendered formulas."""
     lines = ["<div class=\"math-annotated-codeblock\">"]
 
-    for kind, value in build_math_annotated_rows(source):
+    for kind, value, indent in build_math_annotated_rows(source):
         if kind == "code":
-            escaped = html.escape(value)
-            if not escaped:
-                escaped = " "
-            lines.append(f"  <div class=\"math-annotated-code-line\">{escaped}</div>")
+            lines.append(
+                f"  <div class=\"math-annotated-code-line\">{highlight_python_line(value)}</div>"
+            )
             continue
 
         formula = html.escape(value)
         lines.extend(
             [
-                "  <div class=\"math-annotated-code-line math-annotated-code-formula\">",
+                (
+                    "  <div class=\"math-annotated-code-line math-annotated-code-formula\" "
+                    f"style=\"--formula-indent: {indent}ch;\">"
+                ),
                 "    <div class=\"arithmatex\">\\[",
                 formula,
                 "\\]</div>",

@@ -13,7 +13,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, obs_dim: int, act_dim: int, action_low: np.ndarray, action_high: np.ndarray, device: torch.device, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), normalize_advantages: bool = True, gamma: float = 0.99, advantage_estimator: Literal['returns', 'dae', 'gae'] = 'returns', gae_lambda: float = 0.95, policy_lr: float = 0.0005, value_lr: float = 0.001, topk_fraction: float = 0.5, temperature_init: float = 1.0, temperature_lr: float = 0.0001, epsilon_eta: float = 0.1, epsilon_mu: float = 0.01, epsilon_sigma: float = 0.01, alpha_lr: float = 0.0001, max_grad_norm: float = 10.0, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, shared_encoder: bool = False, ppo_like_backbone: bool = False, m_steps: int = 1)
+def __init__(self, obs_dim: int, act_dim: int, device: torch.device, policy_layer_sizes: Tuple[int, ...] = (256, 256), value_layer_sizes: Tuple[int, ...] = (256, 256), normalize_advantages: bool = True, gamma: float = 0.99, advantage_estimator: Literal['returns', 'dae', 'gae'] = 'returns', gae_lambda: float = 0.95, policy_lr: float = 0.0005, value_lr: float = 0.001, topk_fraction: float = 0.5, temperature_init: float = 1.0, temperature_lr: float = 0.0001, epsilon_eta: float = 0.1, epsilon_mu: float = 0.01, epsilon_sigma: float = 0.01, alpha_lr: float = 0.0001, max_grad_norm: float = 10.0, optimizer_type: str = 'adam', sgd_momentum: float = 0.9, shared_encoder: bool = False, m_steps: int = 1)
 ```
 
 _No docstring provided._

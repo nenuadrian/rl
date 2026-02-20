@@ -7,1018 +7,1018 @@ The full file is rendered in one continuous code-style block, with each `# LaTeX
 ## Annotated Source
 
 <div class="math-annotated-codeblock">
-  <div class="math-annotated-code-line">from __future__ import annotations</div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">from</span><span style="color: #F8F8F2"> __future__ </span><span style="color: #FF4689">import</span> <span style="color: #F8F8F2">annotations</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">import copy</div>
-  <div class="math-annotated-code-line">import math</div>
-  <div class="math-annotated-code-line">from typing import Tuple</div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> copy</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> math</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">from</span><span style="color: #F8F8F2"> typing </span><span style="color: #FF4689">import</span> <span style="color: #F8F8F2">Tuple</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">import numpy as np</div>
-  <div class="math-annotated-code-line">import torch</div>
-  <div class="math-annotated-code-line">import torch.nn as nn</div>
-  <div class="math-annotated-code-line">import torch.nn.functional as F</div>
-  <div class="math-annotated-code-line">from torch.distributions import Normal</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">class LayerNormMLP(nn.Module):</div>
-  <div class="math-annotated-code-line">    def __init__(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        in_dim: int,</div>
-  <div class="math-annotated-code-line">        layer_sizes: Tuple[int, ...],</div>
-  <div class="math-annotated-code-line">        activate_final: bool = False,</div>
-  <div class="math-annotated-code-line">    ):</div>
-  <div class="math-annotated-code-line">        super().__init__()</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        layers = []</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # First layer: Linear → LayerNorm → tanh</div>
-  <div class="math-annotated-code-line">        layers.append(nn.Linear(in_dim, layer_sizes[0]))</div>
-  <div class="math-annotated-code-line">        layers.append(nn.LayerNorm(layer_sizes[0]))</div>
-  <div class="math-annotated-code-line">        layers.append(nn.Tanh())</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Remaining layers: ELU</div>
-  <div class="math-annotated-code-line">        for i in range(1, len(layer_sizes)):</div>
-  <div class="math-annotated-code-line">            layers.append(nn.Linear(layer_sizes[i - 1], layer_sizes[i]))</div>
-  <div class="math-annotated-code-line">            if activate_final or i &lt; len(layer_sizes) - 1:</div>
-  <div class="math-annotated-code-line">                layers.append(nn.ELU())</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.net = nn.Sequential(*layers)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def forward(self, x: torch.Tensor) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        return self.net(x)</div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> numpy </span><span style="color: #66D9EF">as</span><span style="color: #F8F8F2"> np</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> torch</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> torch.nn </span><span style="color: #66D9EF">as</span><span style="color: #F8F8F2"> nn</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">import</span><span style="color: #F8F8F2"> torch.nn.functional </span><span style="color: #66D9EF">as</span><span style="color: #F8F8F2"> F</span></div>
+  <div class="math-annotated-code-line"><span style="color: #FF4689">from</span><span style="color: #F8F8F2"> torch.distributions </span><span style="color: #FF4689">import</span> <span style="color: #F8F8F2">Normal</span></div>
   <div class="math-annotated-code-line"> </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">class SmallInitLinear(nn.Linear):</div>
-  <div class="math-annotated-code-line">    def __init__(self, in_features: int, out_features: int, std: float = 0.01):</div>
-  <div class="math-annotated-code-line">        super().__init__(in_features, out_features)</div>
-  <div class="math-annotated-code-line">        nn.init.trunc_normal_(self.weight, std=std)</div>
-  <div class="math-annotated-code-line">        nn.init.zeros_(self.bias)</div>
+  <div class="math-annotated-code-line"><span style="color: #66D9EF">class</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">LayerNormMLP</span><span style="color: #F8F8F2">(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Module):</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">in_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layer_sizes:</span> <span style="color: #F8F8F2">Tuple[int,</span> <span style="color: #FF4689">...</span><span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">activate_final:</span> <span style="color: #F8F8F2">bool</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">False</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">super()</span><span style="color: #FF4689">.</span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">()</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layers</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">[]</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># First layer: Linear → LayerNorm → tanh</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layers</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">append(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Linear(in_dim,</span> <span style="color: #F8F8F2">layer_sizes[</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">]))</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layers</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">append(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">LayerNorm(layer_sizes[</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">]))</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layers</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">append(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tanh())</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Remaining layers: ELU</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">for</span> <span style="color: #F8F8F2">i</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">range(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">len(layer_sizes)):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">layers</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">append(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Linear(layer_sizes[i</span> <span style="color: #FF4689">-</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">],</span> <span style="color: #F8F8F2">layer_sizes[i]))</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">activate_final</span> <span style="color: #FF4689">or</span> <span style="color: #F8F8F2">i</span> <span style="color: #FF4689">&lt;</span> <span style="color: #F8F8F2">len(layer_sizes)</span> <span style="color: #FF4689">-</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">layers</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">append(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ELU())</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">net</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Sequential(</span><span style="color: #FF4689">*</span><span style="color: #F8F8F2">layers)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">forward</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">x:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">net(x)</span></div>
   <div class="math-annotated-code-line"> </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">class Critic(nn.Module):</div>
-  <div class="math-annotated-code-line">    def __init__(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        obs_dim: int,</div>
-  <div class="math-annotated-code-line">        act_dim: int,</div>
-  <div class="math-annotated-code-line">        layer_sizes: Tuple[int, ...],</div>
-  <div class="math-annotated-code-line">        action_low: np.ndarray,</div>
-  <div class="math-annotated-code-line">        action_high: np.ndarray,</div>
-  <div class="math-annotated-code-line">    ):</div>
-  <div class="math-annotated-code-line">        super().__init__()</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.action_low: torch.Tensor</div>
-  <div class="math-annotated-code-line">        self.action_high: torch.Tensor</div>
-  <div class="math-annotated-code-line">        self.register_buffer(</div>
-  <div class="math-annotated-code-line">            &quot;action_low&quot;, torch.tensor(action_low, dtype=torch.float32)</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        self.register_buffer(</div>
-  <div class="math-annotated-code-line">            &quot;action_high&quot;, torch.tensor(action_high, dtype=torch.float32)</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.encoder = LayerNormMLP(</div>
-  <div class="math-annotated-code-line">            obs_dim + act_dim,</div>
-  <div class="math-annotated-code-line">            layer_sizes,</div>
-  <div class="math-annotated-code-line">            activate_final=True,</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Acme uses a small-init linear head for nondistributional critics.</div>
-  <div class="math-annotated-code-line">        self.head = SmallInitLinear(layer_sizes[-1], 1, std=0.01)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def forward(self, obs: torch.Tensor, act: torch.Tensor) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        act = torch.maximum(torch.minimum(act, self.action_high), self.action_low)</div>
-  <div class="math-annotated-code-line">        x = torch.cat([obs, act], dim=-1)</div>
-  <div class="math-annotated-code-line">        return self.head(self.encoder(x))</div>
+  <div class="math-annotated-code-line"><span style="color: #66D9EF">class</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">SmallInitLinear</span><span style="color: #F8F8F2">(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Linear):</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">in_features:</span> <span style="color: #F8F8F2">int,</span> <span style="color: #F8F8F2">out_features:</span> <span style="color: #F8F8F2">int,</span> <span style="color: #F8F8F2">std:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.01</span><span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">super()</span><span style="color: #FF4689">.</span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(in_features,</span> <span style="color: #F8F8F2">out_features)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">init</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">trunc_normal_(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">weight,</span> <span style="color: #F8F8F2">std</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">std)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">init</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">zeros_(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">bias)</span></div>
   <div class="math-annotated-code-line"> </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">class DiagonalGaussianPolicy(nn.Module):</div>
-  <div class="math-annotated-code-line">    def __init__(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        obs_dim: int,</div>
-  <div class="math-annotated-code-line">        act_dim: int,</div>
-  <div class="math-annotated-code-line">        layer_sizes: Tuple[int, ...],</div>
-  <div class="math-annotated-code-line">        action_low: np.ndarray | None = None,</div>
-  <div class="math-annotated-code-line">        action_high: np.ndarray | None = None,</div>
-  <div class="math-annotated-code-line">    ):</div>
-  <div class="math-annotated-code-line">        super().__init__()</div>
+  <div class="math-annotated-code-line"><span style="color: #66D9EF">class</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">Critic</span><span style="color: #F8F8F2">(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Module):</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">act_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layer_sizes:</span> <span style="color: #F8F8F2">Tuple[int,</span> <span style="color: #FF4689">...</span><span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_low:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_high:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">super()</span><span style="color: #FF4689">.</span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.encoder = LayerNormMLP(</div>
-  <div class="math-annotated-code-line">            obs_dim,</div>
-  <div class="math-annotated-code-line">            layer_sizes,</div>
-  <div class="math-annotated-code-line">            activate_final=True,</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        self.policy_mean = nn.Linear(layer_sizes[-1], act_dim)</div>
-  <div class="math-annotated-code-line">        self.policy_logstd = nn.Linear(layer_sizes[-1], act_dim)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_low:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_high:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">register_buffer(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;action_low&quot;</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(action_low,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">register_buffer(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;action_high&quot;</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(action_high,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        nn.init.kaiming_normal_(</div>
-  <div class="math-annotated-code-line">            self.policy_mean.weight, a=0.0, mode=&quot;fan_in&quot;, nonlinearity=&quot;linear&quot;</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        nn.init.zeros_(self.policy_mean.bias)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">encoder</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">LayerNormMLP(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_dim</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">act_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">layer_sizes,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">activate_final</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        if action_low is None or action_high is None:</div>
-  <div class="math-annotated-code-line">            action_low = -np.ones(act_dim, dtype=np.float32)</div>
-  <div class="math-annotated-code-line">            action_high = np.ones(act_dim, dtype=np.float32)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Acme uses a small-init linear head for nondistributional critics.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">head</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">SmallInitLinear(layer_sizes[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">],</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">std</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.01</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        action_low_t = torch.tensor(action_low, dtype=torch.float32)</div>
-  <div class="math-annotated-code-line">        action_high_t = torch.tensor(action_high, dtype=torch.float32)</div>
-  <div class="math-annotated-code-line">        self.action_low: torch.Tensor</div>
-  <div class="math-annotated-code-line">        self.action_high: torch.Tensor</div>
-  <div class="math-annotated-code-line">        self.register_buffer(&quot;action_low&quot;, action_low_t)</div>
-  <div class="math-annotated-code-line">        self.register_buffer(&quot;action_high&quot;, action_high_t)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def forward(self, obs: torch.Tensor) -&gt; Tuple[torch.Tensor, torch.Tensor]:</div>
-  <div class="math-annotated-code-line">        h = self.encoder(obs)</div>
-  <div class="math-annotated-code-line">        return self.forward_with_features(h)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def forward_with_features(</div>
-  <div class="math-annotated-code-line">        self, features: torch.Tensor</div>
-  <div class="math-annotated-code-line">    ) -&gt; Tuple[torch.Tensor, torch.Tensor]:</div>
-  <div class="math-annotated-code-line">        h = features</div>
-  <div class="math-annotated-code-line">        mean = self.policy_mean(h)</div>
-  <div class="math-annotated-code-line">        log_std = self.policy_logstd(h)</div>
-  <div class="math-annotated-code-line">        mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)</div>
-  <div class="math-annotated-code-line">        log_std = torch.nan_to_num(log_std, nan=0.0, posinf=0.0, neginf=0.0)</div>
-  <div class="math-annotated-code-line">        log_std = torch.clamp(log_std, -20.0, 2.0)</div>
-  <div class="math-annotated-code-line">        return mean, log_std</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def log_prob(</div>
-  <div class="math-annotated-code-line">        self, mean: torch.Tensor, log_std: torch.Tensor, actions_raw: torch.Tensor</div>
-  <div class="math-annotated-code-line">    ) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        log_std = torch.clamp(log_std, -20.0, 2.0)</div>
-  <div class="math-annotated-code-line">        std = log_std.exp()</div>
-  <div class="math-annotated-code-line">        normal = Normal(mean, std)</div>
-  <div class="math-annotated-code-line">        log_prob = normal.log_prob(actions_raw)</div>
-  <div class="math-annotated-code-line">        return log_prob.sum(dim=-1, keepdim=True)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _clip_to_env_bounds(self, actions_raw: torch.Tensor) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        return torch.maximum(</div>
-  <div class="math-annotated-code-line">            torch.minimum(actions_raw, self.action_high), self.action_low</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def sample_action_raw_and_exec(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        mean: torch.Tensor,</div>
-  <div class="math-annotated-code-line">        log_std: torch.Tensor,</div>
-  <div class="math-annotated-code-line">        deterministic: bool,</div>
-  <div class="math-annotated-code-line">        **kwargs,</div>
-  <div class="math-annotated-code-line">    ) -&gt; tuple[torch.Tensor, torch.Tensor]:</div>
-  <div class="math-annotated-code-line">        log_std = torch.clamp(log_std, -20.0, 2.0)</div>
-  <div class="math-annotated-code-line">        if deterministic:</div>
-  <div class="math-annotated-code-line">            actions_raw = mean</div>
-  <div class="math-annotated-code-line">        else:</div>
-  <div class="math-annotated-code-line">            std = log_std.exp()</div>
-  <div class="math-annotated-code-line">            normal = Normal(mean, std)</div>
-  <div class="math-annotated-code-line">            actions_raw = normal.rsample()</div>
-  <div class="math-annotated-code-line">        actions_exec = self._clip_to_env_bounds(actions_raw)</div>
-  <div class="math-annotated-code-line">        return actions_raw, actions_exec</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def sample_action(</div>
-  <div class="math-annotated-code-line">        self, mean: torch.Tensor, log_std: torch.Tensor, deterministic: bool, **kwargs</div>
-  <div class="math-annotated-code-line">    ) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        _, actions_exec = self.sample_action_raw_and_exec(</div>
-  <div class="math-annotated-code-line">            mean, log_std, deterministic, **kwargs</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        return actions_exec</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def sample_actions_raw_and_exec(</div>
-  <div class="math-annotated-code-line">        self, obs: torch.Tensor, num_actions: int</div>
-  <div class="math-annotated-code-line">    ) -&gt; tuple[torch.Tensor, torch.Tensor]:</div>
-  <div class="math-annotated-code-line">        mean, log_std = self.forward(obs)</div>
-  <div class="math-annotated-code-line">        log_std = torch.clamp(log_std, -20.0, 2.0)</div>
-  <div class="math-annotated-code-line">        std = log_std.exp()</div>
-  <div class="math-annotated-code-line">        normal = Normal(mean, std)</div>
-  <div class="math-annotated-code-line">        actions_raw = normal.rsample(sample_shape=(num_actions,))</div>
-  <div class="math-annotated-code-line">        actions_raw = actions_raw.permute(1, 0, 2)</div>
-  <div class="math-annotated-code-line">        actions_exec = self._clip_to_env_bounds(actions_raw)</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        return actions_raw, actions_exec</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def sample_actions(self, obs: torch.Tensor, num_actions: int) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        _, actions_exec = self.sample_actions_raw_and_exec(obs, num_actions)</div>
-  <div class="math-annotated-code-line">        return actions_exec</div>
-  <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def head_parameters(self):</div>
-  <div class="math-annotated-code-line">        return list(self.policy_mean.parameters()) + list(</div>
-  <div class="math-annotated-code-line">            self.policy_logstd.parameters()</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">forward</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">act:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">act</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">maximum(torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">minimum(act,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_high),</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_low)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">x</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">cat([obs,</span> <span style="color: #F8F8F2">act],</span> <span style="color: #F8F8F2">dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">head(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">encoder(x))</span></div>
   <div class="math-annotated-code-line"> </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">class MPOAgent:</div>
-  <div class="math-annotated-code-line">    def __init__(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        obs_dim: int,</div>
-  <div class="math-annotated-code-line">        act_dim: int,</div>
-  <div class="math-annotated-code-line">        action_low: np.ndarray,</div>
-  <div class="math-annotated-code-line">        action_high: np.ndarray,</div>
-  <div class="math-annotated-code-line">        device: torch.device,</div>
-  <div class="math-annotated-code-line">        policy_layer_sizes: Tuple[int, ...],</div>
-  <div class="math-annotated-code-line">        critic_layer_sizes: Tuple[int, ...],</div>
-  <div class="math-annotated-code-line">        gamma: float = 0.99,</div>
-  <div class="math-annotated-code-line">        target_networks_update_period: int = 100,</div>
-  <div class="math-annotated-code-line">        policy_lr: float = 3e-4,</div>
-  <div class="math-annotated-code-line">        q_lr: float = 3e-4,</div>
-  <div class="math-annotated-code-line">        kl_epsilon: float = 0.1,</div>
-  <div class="math-annotated-code-line">        mstep_kl_epsilon: float = 0.1,</div>
-  <div class="math-annotated-code-line">        temperature_init: float = 1.0,</div>
-  <div class="math-annotated-code-line">        temperature_lr: float = 3e-4,</div>
-  <div class="math-annotated-code-line">        lambda_init: float = 1.0,</div>
-  <div class="math-annotated-code-line">        lambda_lr: float = 3e-4,</div>
-  <div class="math-annotated-code-line">        epsilon_penalty: float = 0.001,</div>
-  <div class="math-annotated-code-line">        max_grad_norm: float = 1.0,</div>
-  <div class="math-annotated-code-line">        action_samples: int = 20,</div>
-  <div class="math-annotated-code-line">        use_retrace: bool = False,</div>
-  <div class="math-annotated-code-line">        retrace_steps: int = 2,</div>
-  <div class="math-annotated-code-line">        retrace_mc_actions: int = 8,</div>
-  <div class="math-annotated-code-line">        retrace_lambda: float = 0.95,</div>
-  <div class="math-annotated-code-line">        optimizer_type: str = &quot;adam&quot;,</div>
-  <div class="math-annotated-code-line">        sgd_momentum: float = 0.9,</div>
-  <div class="math-annotated-code-line">        init_log_alpha_mean: float = 10.0,</div>
-  <div class="math-annotated-code-line">        init_log_alpha_stddev: float = 1000.0,</div>
-  <div class="math-annotated-code-line">        m_steps: int = 1,</div>
-  <div class="math-annotated-code-line">    ):</div>
-  <div class="math-annotated-code-line">        self.device = device</div>
-  <div class="math-annotated-code-line">        self.gamma = float(gamma)</div>
-  <div class="math-annotated-code-line">        self.target_networks_update_period = int(target_networks_update_period)</div>
-  <div class="math-annotated-code-line">        self.policy_lr = float(policy_lr)</div>
-  <div class="math-annotated-code-line">        self.q_lr = float(q_lr)</div>
-  <div class="math-annotated-code-line">        self.kl_epsilon = float(kl_epsilon)</div>
-  <div class="math-annotated-code-line">        self.mstep_kl_epsilon = float(mstep_kl_epsilon)</div>
-  <div class="math-annotated-code-line">        self.temperature_init = float(temperature_init)</div>
-  <div class="math-annotated-code-line">        self.temperature_lr = float(temperature_lr)</div>
-  <div class="math-annotated-code-line">        self.lambda_init = float(lambda_init)</div>
-  <div class="math-annotated-code-line">        self.lambda_lr = float(lambda_lr)</div>
-  <div class="math-annotated-code-line">        self.epsilon_penalty = float(epsilon_penalty)</div>
-  <div class="math-annotated-code-line">        self.max_grad_norm = float(max_grad_norm)</div>
-  <div class="math-annotated-code-line">        self.action_samples = int(action_samples)</div>
-  <div class="math-annotated-code-line">        self.use_retrace = bool(use_retrace)</div>
-  <div class="math-annotated-code-line">        self.retrace_steps = int(retrace_steps)</div>
-  <div class="math-annotated-code-line">        self.retrace_mc_actions = int(retrace_mc_actions)</div>
-  <div class="math-annotated-code-line">        self.retrace_lambda = float(retrace_lambda)</div>
-  <div class="math-annotated-code-line">        self.optimizer_type = str(optimizer_type)</div>
-  <div class="math-annotated-code-line">        self.sgd_momentum = float(sgd_momentum)</div>
-  <div class="math-annotated-code-line">        self.m_steps = int(m_steps)</div>
+  <div class="math-annotated-code-line"><span style="color: #66D9EF">class</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">DiagonalGaussianPolicy</span><span style="color: #F8F8F2">(nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Module):</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">act_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">layer_sizes:</span> <span style="color: #F8F8F2">Tuple[int,</span> <span style="color: #FF4689">...</span><span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_low:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray</span> <span style="color: #FF4689">|</span> <span style="color: #66D9EF">None</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_high:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray</span> <span style="color: #FF4689">|</span> <span style="color: #66D9EF">None</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">super()</span><span style="color: #FF4689">.</span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Learner step counter for periodic target synchronization.</div>
-  <div class="math-annotated-code-line">        self._num_steps = 0</div>
-  <div class="math-annotated-code-line">        self._skipped_nonfinite_batches = 0</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">encoder</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">LayerNormMLP(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">layer_sizes,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">activate_final</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Linear(layer_sizes[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">],</span> <span style="color: #F8F8F2">act_dim)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_logstd</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Linear(layer_sizes[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">],</span> <span style="color: #F8F8F2">act_dim)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.policy = DiagonalGaussianPolicy(</div>
-  <div class="math-annotated-code-line">            obs_dim,</div>
-  <div class="math-annotated-code-line">            act_dim,</div>
-  <div class="math-annotated-code-line">            layer_sizes=policy_layer_sizes,</div>
-  <div class="math-annotated-code-line">            action_low=action_low,</div>
-  <div class="math-annotated-code-line">            action_high=action_high,</div>
-  <div class="math-annotated-code-line">        ).to(device)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">init</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">kaiming_normal_(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">weight,</span> <span style="color: #F8F8F2">a</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">mode</span><span style="color: #FF4689">=</span><span style="color: #E6DB74">&quot;fan_in&quot;</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">nonlinearity</span><span style="color: #FF4689">=</span><span style="color: #E6DB74">&quot;linear&quot;</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">init</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">zeros_(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">bias)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.policy_target = copy.deepcopy(self.policy).to(device)</div>
-  <div class="math-annotated-code-line">        self.policy_target.eval()</div>
-  <div class="math-annotated-code-line">        # Single critic using the Acme control-network critic torso.</div>
-  <div class="math-annotated-code-line">        self.q = Critic(</div>
-  <div class="math-annotated-code-line">            obs_dim,</div>
-  <div class="math-annotated-code-line">            act_dim,</div>
-  <div class="math-annotated-code-line">            layer_sizes=critic_layer_sizes,</div>
-  <div class="math-annotated-code-line">            action_low=action_low,</div>
-  <div class="math-annotated-code-line">            action_high=action_high,</div>
-  <div class="math-annotated-code-line">        ).to(device)</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">action_low</span> <span style="color: #FF4689">is</span> <span style="color: #66D9EF">None</span> <span style="color: #FF4689">or</span> <span style="color: #F8F8F2">action_high</span> <span style="color: #FF4689">is</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_low</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones(act_dim,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_high</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones(act_dim,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        print(self.policy)</div>
-  <div class="math-annotated-code-line">        print(self.q)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_low_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(action_low,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_high_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(action_high,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_low:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_high:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">register_buffer(</span><span style="color: #E6DB74">&quot;action_low&quot;</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">action_low_t)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">register_buffer(</span><span style="color: #E6DB74">&quot;action_high&quot;</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">action_high_t)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.q_target = copy.deepcopy(self.q).to(device)</div>
-  <div class="math-annotated-code-line">        self.q_target.eval()</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">forward</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">Tuple[torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">h</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">encoder(obs)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">forward_with_features(h)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Train policy encoder + head together; critics share a separate encoder.</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">forward_with_features</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">features:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">Tuple[torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">h</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">features</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_mean(h)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_logstd(h)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">nan_to_num(mean,</span> <span style="color: #F8F8F2">nan</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">posinf</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">neginf</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">nan_to_num(log_std,</span> <span style="color: #F8F8F2">nan</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">posinf</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">neginf</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clamp(log_std,</span> <span style="color: #FF4689">-</span><span style="color: #AE81FF">20.0</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">2.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">log_prob</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">mean:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">log_std:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">actions_raw:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clamp(log_std,</span> <span style="color: #FF4689">-</span><span style="color: #AE81FF">20.0</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">2.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">log_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">normal</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">Normal(mean,</span> <span style="color: #F8F8F2">std)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_prob</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">normal</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(actions_raw)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">log_prob</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">keepdim</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_clip_to_env_bounds</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">actions_raw:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">maximum(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">minimum(actions_raw,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_high),</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_low</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">sample_action_raw_and_exec</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">deterministic:</span> <span style="color: #F8F8F2">bool,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #FF4689">**</span><span style="color: #F8F8F2">kwargs,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">tuple[torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clamp(log_std,</span> <span style="color: #FF4689">-</span><span style="color: #AE81FF">20.0</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">2.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">deterministic:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_raw</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">else</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">log_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">normal</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">Normal(mean,</span> <span style="color: #F8F8F2">std)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_raw</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">normal</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">rsample()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_clip_to_env_bounds(actions_raw)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">actions_raw,</span> <span style="color: #F8F8F2">actions_exec</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">sample_action</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">mean:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">log_std:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">deterministic:</span> <span style="color: #F8F8F2">bool,</span> <span style="color: #FF4689">**</span><span style="color: #F8F8F2">kwargs</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">_,</span> <span style="color: #F8F8F2">actions_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_action_raw_and_exec(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std,</span> <span style="color: #F8F8F2">deterministic,</span> <span style="color: #FF4689">**</span><span style="color: #F8F8F2">kwargs</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">actions_exec</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">sample_actions_raw_and_exec</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">num_actions:</span> <span style="color: #F8F8F2">int</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">tuple[torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">forward(obs)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clamp(log_std,</span> <span style="color: #FF4689">-</span><span style="color: #AE81FF">20.0</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">2.0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">log_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">normal</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">Normal(mean,</span> <span style="color: #F8F8F2">std)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_raw</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">normal</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">rsample(sample_shape</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">(num_actions,))</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_raw</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions_raw</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">permute(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">,</span> <span style="color: #AE81FF">2</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_clip_to_env_bounds(actions_raw)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">actions_raw,</span> <span style="color: #F8F8F2">actions_exec</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">sample_actions</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">num_actions:</span> <span style="color: #F8F8F2">int)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">_,</span> <span style="color: #F8F8F2">actions_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_actions_raw_and_exec(obs,</span> <span style="color: #F8F8F2">num_actions)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">actions_exec</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">head_parameters</span><span style="color: #F8F8F2">(self):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">list(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters())</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">list(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_logstd</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line"><span style="color: #66D9EF">class</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">MPOAgent</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">__init__</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">act_dim:</span> <span style="color: #F8F8F2">int,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_low:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_high:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">device:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">policy_layer_sizes:</span> <span style="color: #F8F8F2">Tuple[int,</span> <span style="color: #FF4689">...</span><span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">critic_layer_sizes:</span> <span style="color: #F8F8F2">Tuple[int,</span> <span style="color: #FF4689">...</span><span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">gamma:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.99</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">target_networks_update_period:</span> <span style="color: #F8F8F2">int</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">100</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">policy_lr:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">3e-4</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_lr:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">3e-4</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kl_epsilon:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.1</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mstep_kl_epsilon:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.1</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature_init:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1.0</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature_lr:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">3e-4</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">lambda_init:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1.0</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">lambda_lr:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">3e-4</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">epsilon_penalty:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.001</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">max_grad_norm:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1.0</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_samples:</span> <span style="color: #F8F8F2">int</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">20</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">use_retrace:</span> <span style="color: #F8F8F2">bool</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">False</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">retrace_steps:</span> <span style="color: #F8F8F2">int</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">2</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">retrace_mc_actions:</span> <span style="color: #F8F8F2">int</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">8</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">retrace_lambda:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.95</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">optimizer_type:</span> <span style="color: #F8F8F2">str</span> <span style="color: #FF4689">=</span> <span style="color: #E6DB74">&quot;adam&quot;</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">sgd_momentum:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0.9</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">init_log_alpha_mean:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">10.0</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">init_log_alpha_stddev:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1000.0</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">m_steps:</span> <span style="color: #F8F8F2">int</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">device</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">gamma</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(gamma)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">target_networks_update_period</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">int(target_networks_update_period)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_lr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(policy_lr)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_lr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(q_lr)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">kl_epsilon</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(kl_epsilon)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mstep_kl_epsilon</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(mstep_kl_epsilon)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">temperature_init</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(temperature_init)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">temperature_lr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(temperature_lr)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">lambda_init</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(lambda_init)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">lambda_lr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(lambda_lr)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">epsilon_penalty</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(epsilon_penalty)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max_grad_norm</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(max_grad_norm)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_samples</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">int(action_samples)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">use_retrace</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">bool(use_retrace)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_steps</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">int(retrace_steps)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_mc_actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">int(retrace_mc_actions)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_lambda</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(retrace_lambda)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">optimizer_type</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">str(optimizer_type)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sgd_momentum</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(sgd_momentum)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">m_steps</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">int(m_steps)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Learner step counter for periodic target synchronization.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_num_steps</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_skipped_nonfinite_batches</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">0</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">DiagonalGaussianPolicy(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">act_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">layer_sizes</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">policy_layer_sizes,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_low</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">action_low,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_high</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">action_high,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(device)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">copy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">deepcopy(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">eval()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Single critic using the Acme control-network critic torso.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">Critic(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">act_dim,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">layer_sizes</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">critic_layer_sizes,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_low</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">action_low,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_high</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">action_high,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(device)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">print(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">print(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q)</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">copy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">deepcopy(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">eval()</span></div>
+  <div class="math-annotated-code-line"> </div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Train policy encoder + head together; critics share a separate encoder.</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\max(1, M)}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        policy_lr_effective = float(self.policy_lr) / max(1, int(self.m_steps))</div>
-  <div class="math-annotated-code-line">        self.policy_opt = self._build_optimizer(</div>
-  <div class="math-annotated-code-line">            self.policy.parameters(), lr=policy_lr_effective</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">policy_lr_effective</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_lr)</span> <span style="color: #FF4689">/</span> <span style="color: #F8F8F2">max(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">int(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">m_steps))</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_opt</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_build_optimizer(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters(),</span> <span style="color: #F8F8F2">lr</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">policy_lr_effective</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Critic optimizer.</div>
-  <div class="math-annotated-code-line">        self.q_opt = self._build_optimizer(self.q.parameters(), lr=self.q_lr)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Critic optimizer.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_opt</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_build_optimizer(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters(),</span> <span style="color: #F8F8F2">lr</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_lr)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Dual variables (temperature + KL multipliers) in log-space.</div>
-  <div class="math-annotated-code-line">        self.log_temperature = nn.Parameter(</div>
-  <div class="math-annotated-code-line">            torch.tensor(self.temperature_init, device=device)</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Dual variables (temperature + KL multipliers) in log-space.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_temperature</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Parameter(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">temperature_init,</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        lambda_init_t = torch.tensor(self.lambda_init, device=device)</div>
-  <div class="math-annotated-code-line">        lambda_init_t = torch.clamp(lambda_init_t, min=1e-8)</div>
-  <div class="math-annotated-code-line">        dual_shape = (act_dim,)</div>
-  <div class="math-annotated-code-line">        self.log_alpha_mean = nn.Parameter(</div>
-  <div class="math-annotated-code-line">            torch.full(dual_shape, init_log_alpha_mean, device=device)</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">lambda_init_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">lambda_init,</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">lambda_init_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clamp(lambda_init_t,</span> <span style="color: #F8F8F2">min</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">dual_shape</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(act_dim,)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Parameter(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">full(dual_shape,</span> <span style="color: #F8F8F2">init_log_alpha_mean,</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        self.log_alpha_stddev = nn.Parameter(</div>
-  <div class="math-annotated-code-line">            torch.full(dual_shape, init_log_alpha_stddev, device=device)</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Parameter(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">full(dual_shape,</span> <span style="color: #F8F8F2">init_log_alpha_stddev,</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Dual optimizer uses separate LRs for temperature vs alphas.</div>
-  <div class="math-annotated-code-line">        temperature_params = [self.log_temperature]</div>
-  <div class="math-annotated-code-line">        alpha_params = [self.log_alpha_mean, self.log_alpha_stddev]</div>
-  <div class="math-annotated-code-line">        self.dual_opt = self._build_optimizer(</div>
-  <div class="math-annotated-code-line">            [</div>
-  <div class="math-annotated-code-line">                {&quot;params&quot;: temperature_params, &quot;lr&quot;: self.temperature_lr},</div>
-  <div class="math-annotated-code-line">                {&quot;params&quot;: alpha_params, &quot;lr&quot;: self.lambda_lr},</div>
-  <div class="math-annotated-code-line">            ],</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Dual optimizer uses separate LRs for temperature vs alphas.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature_params</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">[self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_temperature]</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">alpha_params</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">[self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev]</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">dual_opt</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_build_optimizer(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">[</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">{</span><span style="color: #E6DB74">&quot;params&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">temperature_params,</span> <span style="color: #E6DB74">&quot;lr&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">temperature_lr},</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">{</span><span style="color: #E6DB74">&quot;params&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">alpha_params,</span> <span style="color: #E6DB74">&quot;lr&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">lambda_lr},</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _build_optimizer(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        params,</div>
-  <div class="math-annotated-code-line">        lr: float | None = None,</div>
-  <div class="math-annotated-code-line">    ) -&gt; torch.optim.Optimizer:</div>
-  <div class="math-annotated-code-line">        optimizer_type = self.optimizer_type.strip().lower()</div>
-  <div class="math-annotated-code-line">        kwargs: dict[str, float] = {}</div>
-  <div class="math-annotated-code-line">        if lr is not None:</div>
-  <div class="math-annotated-code-line">            kwargs[&quot;lr&quot;] = float(lr)</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_build_optimizer</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">params,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">lr:</span> <span style="color: #F8F8F2">float</span> <span style="color: #FF4689">|</span> <span style="color: #66D9EF">None</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">optim</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Optimizer:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">optimizer_type</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">optimizer_type</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">strip()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">lower()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kwargs:</span> <span style="color: #F8F8F2">dict[str,</span> <span style="color: #F8F8F2">float]</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">{}</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">lr</span> <span style="color: #FF4689">is</span> <span style="color: #FF4689">not</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">kwargs[</span><span style="color: #E6DB74">&quot;lr&quot;</span><span style="color: #F8F8F2">]</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(lr)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        if optimizer_type == &quot;sgd&quot;:</div>
-  <div class="math-annotated-code-line">            kwargs[&quot;momentum&quot;] = float(self.sgd_momentum)</div>
-  <div class="math-annotated-code-line">            return torch.optim.SGD(params, **kwargs)</div>
-  <div class="math-annotated-code-line">        else:</div>
-  <div class="math-annotated-code-line">            kwargs[&quot;eps&quot;] = 1e-5</div>
-  <div class="math-annotated-code-line">            return torch.optim.Adam(params, **kwargs)</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">optimizer_type</span> <span style="color: #FF4689">==</span> <span style="color: #E6DB74">&quot;sgd&quot;</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">kwargs[</span><span style="color: #E6DB74">&quot;momentum&quot;</span><span style="color: #F8F8F2">]</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sgd_momentum)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">optim</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">SGD(params,</span> <span style="color: #FF4689">**</span><span style="color: #F8F8F2">kwargs)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">else</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">kwargs[</span><span style="color: #E6DB74">&quot;eps&quot;</span><span style="color: #F8F8F2">]</span> <span style="color: #FF4689">=</span> <span style="color: #AE81FF">1e-5</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">optim</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Adam(params,</span> <span style="color: #FF4689">**</span><span style="color: #F8F8F2">kwargs)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _kl_diag_gaussian_per_dim(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        mean_p,</div>
-  <div class="math-annotated-code-line">        log_std_p,</div>
-  <div class="math-annotated-code-line">        mean_q,</div>
-  <div class="math-annotated-code-line">        log_std_q,</div>
-  <div class="math-annotated-code-line">    ):</div>
-  <div class="math-annotated-code-line">        inv_var_q = torch.exp(-2.0 * log_std_q)</div>
-  <div class="math-annotated-code-line">        var_ratio = torch.exp(2.0 * (log_std_p - log_std_q))</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_kl_diag_gaussian_per_dim</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_p,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std_p,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_q,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_std_q,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">inv_var_q</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">2.0</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">log_std_q)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">var_ratio</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(</span><span style="color: #AE81FF">2.0</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(log_std_p</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">log_std_q))</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        return 0.5 * (var_ratio + (mean_p - mean_q).pow(2) * inv_var_q - 1.0) + (</div>
-  <div class="math-annotated-code-line">            log_std_q - log_std_p</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #AE81FF">0.5</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(var_ratio</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">(mean_p</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">mean_q)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">pow(</span><span style="color: #AE81FF">2</span><span style="color: #F8F8F2">)</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">inv_var_q</span> <span style="color: #FF4689">-</span> <span style="color: #AE81FF">1.0</span><span style="color: #F8F8F2">)</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_q</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">log_std_p</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _compute_weights_and_temperature_loss(</div>
-  <div class="math-annotated-code-line">        self,</div>
-  <div class="math-annotated-code-line">        q_values: torch.Tensor,</div>
-  <div class="math-annotated-code-line">        epsilon: float,</div>
-  <div class="math-annotated-code-line">        temperature: torch.Tensor,</div>
-  <div class="math-annotated-code-line">    ) -&gt; tuple[torch.Tensor, torch.Tensor]:</div>
-  <div class="math-annotated-code-line">        &quot;&quot;&quot;Acme-style E-step weights and dual temperature loss.</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_compute_weights_and_temperature_loss</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_values:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">epsilon:</span> <span style="color: #F8F8F2">float,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">tuple[torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #E6DB74">&quot;&quot;&quot;Acme-style E-step weights and dual temperature loss.</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        q_values shape (B,N). Returns weights (B,N) detached and loss scalar.</div>
-  <div class="math-annotated-code-line">        &quot;&quot;&quot;</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_values</span> <span style="color: #F8F8F2">shape</span> <span style="color: #F8F8F2">(B,N)</span><span style="color: #FF4689">.</span> <span style="color: #F8F8F2">Returns</span> <span style="color: #F8F8F2">weights</span> <span style="color: #F8F8F2">(B,N)</span> <span style="color: #F8F8F2">detached</span> <span style="color: #FF4689">and</span> <span style="color: #F8F8F2">loss</span> <span style="color: #F8F8F2">scalar</span><span style="color: #FF4689">.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #E6DB74">&quot;&quot;&quot;</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \bar{Q}_{b,i} = \frac{Q_{b,i}}{\eta}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        q_detached = q_values.detach() / temperature</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_detached</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">q_values</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span> <span style="color: #FF4689">/</span> <span style="color: #F8F8F2">temperature</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 q_{b,i} = \frac{\exp(\bar{Q}_{b,i})}{\sum_j \exp(\bar{Q}_{b,j})}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        weights = torch.softmax(q_detached, dim=1).detach()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">weights</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softmax(q_detached,</span> <span style="color: #F8F8F2">dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \log Z_b = \log \sum_i \exp(\bar{Q}_{b,i})
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        q_logsumexp = torch.logsumexp(q_detached, dim=1)</div>
-  <div class="math-annotated-code-line">        log_num_actions = math.log(q_values.shape[1])</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_logsumexp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">logsumexp(q_detached,</span> <span style="color: #F8F8F2">dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_num_actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">math</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log(q_values</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\eta} = \eta\left(\epsilon + \frac{1}{B}\sum_b \log Z_b - \log N\right)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_temperature = temperature * (</div>
-  <div class="math-annotated-code-line">            float(epsilon) + q_logsumexp.mean() - log_num_actions</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        return weights, loss_temperature</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_temperature</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">temperature</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">float(epsilon)</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">q_logsumexp</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">log_num_actions</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">weights,</span> <span style="color: #F8F8F2">loss_temperature</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _compute_nonparametric_kl_from_weights(</div>
-  <div class="math-annotated-code-line">        self, weights: torch.Tensor</div>
-  <div class="math-annotated-code-line">    ) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        &quot;&quot;&quot;Estimates KL(nonparametric || target) like Acme&#x27;s diagnostics.</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_compute_nonparametric_kl_from_weights</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">weights:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #E6DB74">&quot;&quot;&quot;Estimates KL(nonparametric || target) like Acme&#39;s diagnostics.</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        weights shape (B,N). Returns (B,) KL.</div>
-  <div class="math-annotated-code-line">        &quot;&quot;&quot;</div>
-  <div class="math-annotated-code-line">        n = float(weights.shape[1])</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">weights</span> <span style="color: #F8F8F2">shape</span> <span style="color: #F8F8F2">(B,N)</span><span style="color: #FF4689">.</span> <span style="color: #F8F8F2">Returns</span> <span style="color: #F8F8F2">(B,)</span> <span style="color: #F8F8F2">KL</span><span style="color: #FF4689">.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #E6DB74">&quot;&quot;&quot;</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">n</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(weights</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \ell_{b,i} = \log\!\left(N q_{b,i}\right)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        integrand = torch.log(n * weights + 1e-8)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">integrand</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log(n</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">weights</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 D_{KL}(q_b\|u) = \sum_i q_{b,i}\log\!\left(N q_{b,i}\right)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        return (weights * integrand).sum(dim=1)</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">(weights</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">integrand)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _to_device_tensor(self, value: np.ndarray | torch.Tensor) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        &quot;&quot;&quot;Fast path for float32 host arrays -&gt; device tensors.&quot;&quot;&quot;</div>
-  <div class="math-annotated-code-line">        if isinstance(value, torch.Tensor):</div>
-  <div class="math-annotated-code-line">            return value.to(</div>
-  <div class="math-annotated-code-line">                device=self.device,</div>
-  <div class="math-annotated-code-line">                dtype=torch.float32,</div>
-  <div class="math-annotated-code-line">                non_blocking=True,</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_to_device_tensor</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">value:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray</span> <span style="color: #FF4689">|</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line"><span style="color: #F8F8F2">        </span><span style="color: #E6DB74">&quot;&quot;&quot;Fast path for float32 host arrays -&gt; device tensors.&quot;&quot;&quot;</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">isinstance(value,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">value</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">non_blocking</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span><span style="color: #F8F8F2">,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        arr = np.asarray(value, dtype=np.float32)</div>
-  <div class="math-annotated-code-line">        if not arr.flags.c_contiguous:</div>
-  <div class="math-annotated-code-line">            arr = np.ascontiguousarray(arr)</div>
-  <div class="math-annotated-code-line">        return torch.from_numpy(arr).to(device=self.device, non_blocking=True)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">arr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">asarray(value,</span> <span style="color: #F8F8F2">dtype</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">float32)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">arr</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">flags</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">c_contiguous:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">arr</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ascontiguousarray(arr)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">from_numpy(arr)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">to(device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device,</span> <span style="color: #F8F8F2">non_blocking</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _assert_finite_tensors(self, tensors: dict[str, torch.Tensor]) -&gt; bool:</div>
-  <div class="math-annotated-code-line">        try:</div>
-  <div class="math-annotated-code-line">            for name, tensor in tensors.items():</div>
-  <div class="math-annotated-code-line">                assert bool(</div>
-  <div class="math-annotated-code-line">                    torch.isfinite(tensor).all()</div>
-  <div class="math-annotated-code-line">                ), f&quot;non-finite values in &#x27;{name}&#x27;&quot;</div>
-  <div class="math-annotated-code-line">        except AssertionError as exc:</div>
-  <div class="math-annotated-code-line">            self._skipped_nonfinite_batches += 1</div>
-  <div class="math-annotated-code-line">            if (</div>
-  <div class="math-annotated-code-line">                self._skipped_nonfinite_batches &lt;= 5</div>
-  <div class="math-annotated-code-line">                or self._skipped_nonfinite_batches % 100 == 0</div>
-  <div class="math-annotated-code-line">            ):</div>
-  <div class="math-annotated-code-line">                print(</div>
-  <div class="math-annotated-code-line">                    &quot;[MPO][warn] &quot;</div>
-  <div class="math-annotated-code-line">                    f&quot;{exc}; skipped batch #{self._skipped_nonfinite_batches}&quot;</div>
-  <div class="math-annotated-code-line">                )</div>
-  <div class="math-annotated-code-line">            return False</div>
-  <div class="math-annotated-code-line">        return True</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_assert_finite_tensors</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">tensors:</span> <span style="color: #F8F8F2">dict[str,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor])</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">bool:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">try</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">for</span> <span style="color: #F8F8F2">name,</span> <span style="color: #F8F8F2">tensor</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">tensors</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">items():</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">assert</span> <span style="color: #F8F8F2">bool(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">isfinite(tensor)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">all()</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">),</span> <span style="color: #E6DB74">f&quot;non-finite values in &#39;{</span><span style="color: #F8F8F2">name</span><span style="color: #E6DB74">}&#39;&quot;</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">except</span> <span style="color: #A6E22E">AssertionError</span> <span style="color: #66D9EF">as</span> <span style="color: #F8F8F2">exc:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_skipped_nonfinite_batches</span> <span style="color: #FF4689">+=</span> <span style="color: #AE81FF">1</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_skipped_nonfinite_batches</span> <span style="color: #FF4689">&lt;=</span> <span style="color: #AE81FF">5</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">or</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_skipped_nonfinite_batches</span> <span style="color: #FF4689">%</span> <span style="color: #AE81FF">100</span> <span style="color: #FF4689">==</span> <span style="color: #AE81FF">0</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">print(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;[MPO][warn] &quot;</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">f&quot;{</span><span style="color: #F8F8F2">exc</span><span style="color: #E6DB74">}; skipped batch #{</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_skipped_nonfinite_batches</span><span style="color: #E6DB74">}&quot;</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">False</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">True</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def act_with_logp(</div>
-  <div class="math-annotated-code-line">        self, obs: np.ndarray, deterministic: bool = False</div>
-  <div class="math-annotated-code-line">    ) -&gt; tuple[np.ndarray, np.ndarray, float]:</div>
-  <div class="math-annotated-code-line">        obs_t = self._to_device_tensor(obs).unsqueeze(0)</div>
-  <div class="math-annotated-code-line">        with torch.inference_mode():</div>
-  <div class="math-annotated-code-line">            mean, log_std = self.policy(obs_t)</div>
-  <div class="math-annotated-code-line">            action_raw, action_exec = self.policy.sample_action_raw_and_exec(</div>
-  <div class="math-annotated-code-line">                mean, log_std, deterministic</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            logp = self.policy.log_prob(mean, log_std, action_raw)</div>
-  <div class="math-annotated-code-line">        return (</div>
-  <div class="math-annotated-code-line">            action_exec.cpu().numpy().squeeze(0),</div>
-  <div class="math-annotated-code-line">            action_raw.cpu().numpy().squeeze(0),</div>
-  <div class="math-annotated-code-line">            float(logp.item()),</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">act_with_logp</span><span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span> <span style="color: #F8F8F2">deterministic:</span> <span style="color: #F8F8F2">bool</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">False</span></div>
+  <div class="math-annotated-code-line">    <span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">tuple[np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span> <span style="color: #F8F8F2">float]:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(obs)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">inference_mode():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy(obs_t)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_raw,</span> <span style="color: #F8F8F2">action_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_action_raw_and_exec(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std,</span> <span style="color: #F8F8F2">deterministic</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">logp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(mean,</span> <span style="color: #F8F8F2">log_std,</span> <span style="color: #F8F8F2">action_raw)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_exec</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">cpu()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">numpy()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">squeeze(</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">action_raw</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">cpu()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">numpy()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">squeeze(</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">float(logp</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def act(self, obs: np.ndarray, deterministic: bool = False) -&gt; np.ndarray:</div>
-  <div class="math-annotated-code-line">        action_exec, _, _ = self.act_with_logp(obs, deterministic=deterministic)</div>
-  <div class="math-annotated-code-line">        return action_exec</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">act</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span> <span style="color: #F8F8F2">deterministic:</span> <span style="color: #F8F8F2">bool</span> <span style="color: #FF4689">=</span> <span style="color: #66D9EF">False</span><span style="color: #F8F8F2">)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">action_exec,</span> <span style="color: #F8F8F2">_,</span> <span style="color: #F8F8F2">_</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">act_with_logp(obs,</span> <span style="color: #F8F8F2">deterministic</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">deterministic)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">action_exec</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _expected_q_current(self, obs: torch.Tensor) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            actions = self.policy_target.sample_actions(</div>
-  <div class="math-annotated-code-line">                obs, num_actions=self.retrace_mc_actions</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            batch_size = obs.shape[0]</div>
-  <div class="math-annotated-code-line">            obs_rep = obs.unsqueeze(1).expand(</div>
-  <div class="math-annotated-code-line">                batch_size, self.retrace_mc_actions, obs.shape[-1]</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            obs_flat = obs_rep.reshape(-1, obs.shape[-1])</div>
-  <div class="math-annotated-code-line">            act_flat = actions.reshape(-1, actions.shape[-1])</div>
-  <div class="math-annotated-code-line">            q = self.q_target(obs_flat, act_flat)</div>
-  <div class="math-annotated-code-line">            return q.reshape(batch_size, self.retrace_mc_actions).mean(</div>
-  <div class="math-annotated-code-line">                dim=1, keepdim=True</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_expected_q_current</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">obs:</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_actions(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">obs,</span> <span style="color: #F8F8F2">num_actions</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_mc_actions</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">batch_size</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_rep</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">expand(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">batch_size,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_mc_actions,</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs_rep</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">act_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">actions</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">q</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target(obs_flat,</span> <span style="color: #F8F8F2">act_flat)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">q</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_mc_actions)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">keepdim</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def _retrace_q_target(self, batch: dict) -&gt; torch.Tensor:</div>
-  <div class="math-annotated-code-line">        obs_seq = self._to_device_tensor(batch[&quot;obs&quot;])</div>
-  <div class="math-annotated-code-line">        actions_exec_seq = self._to_device_tensor(batch[&quot;actions_exec&quot;])</div>
-  <div class="math-annotated-code-line">        actions_raw_seq = self._to_device_tensor(batch[&quot;actions_raw&quot;])</div>
-  <div class="math-annotated-code-line">        rewards_seq = self._to_device_tensor(batch[&quot;rewards&quot;])</div>
-  <div class="math-annotated-code-line">        next_obs_seq = self._to_device_tensor(batch[&quot;next_obs&quot;])</div>
-  <div class="math-annotated-code-line">        dones_seq = self._to_device_tensor(batch[&quot;dones&quot;])</div>
-  <div class="math-annotated-code-line">        behaviour_logp_seq = self._to_device_tensor(batch[&quot;behaviour_logp&quot;])</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">_retrace_q_target</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">batch:</span> <span style="color: #F8F8F2">dict)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_exec_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;actions_exec&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions_raw_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;actions_raw&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">rewards_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">next_obs_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">dones_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">behaviour_logp_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;behaviour_logp&quot;</span><span style="color: #F8F8F2">])</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        batch_size, seq_len, obs_dim = obs_seq.shape</div>
-  <div class="math-annotated-code-line">        act_dim = actions_exec_seq.shape[-1]</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">batch_size,</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #F8F8F2">obs_dim</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">act_dim</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions_exec_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">]</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            obs_flat = obs_seq.reshape(batch_size * seq_len, obs_dim)</div>
-  <div class="math-annotated-code-line">            act_exec_flat = actions_exec_seq.reshape(batch_size * seq_len, act_dim)</div>
-  <div class="math-annotated-code-line">            q_t = self.q_target(obs_flat, act_exec_flat).reshape(batch_size, seq_len, 1)</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #F8F8F2">obs_dim)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">act_exec_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions_exec_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #F8F8F2">act_dim)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">q_t</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target(obs_flat,</span> <span style="color: #F8F8F2">act_exec_flat)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size,</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            next_obs_flat = next_obs_seq.reshape(batch_size * seq_len, obs_dim)</div>
-  <div class="math-annotated-code-line">            v_next = self._expected_q_current(next_obs_flat).reshape(</div>
-  <div class="math-annotated-code-line">                batch_size, seq_len, 1</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">next_obs_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">next_obs_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #F8F8F2">obs_dim)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">v_next</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_expected_q_current(next_obs_flat)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">batch_size,</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #AE81FF">1</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 \delta_t = r_t + \gamma(1-d_t)V(s_{t+1}) - Q(s_t,a_t)
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            delta = rewards_seq + (1.0 - dones_seq) * self.gamma * v_next - q_t</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">delta</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">rewards_seq</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">(</span><span style="color: #AE81FF">1.0</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">dones_seq)</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">gamma</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">v_next</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">q_t</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            mean, log_std = self.policy_target(obs_flat)</div>
-  <div class="math-annotated-code-line">            actions_raw_flat = actions_raw_seq.reshape(batch_size * seq_len, act_dim)</div>
-  <div class="math-annotated-code-line">            log_pi = self.policy_target.log_prob(</div>
-  <div class="math-annotated-code-line">                mean, log_std, actions_raw_flat</div>
-  <div class="math-annotated-code-line">            ).reshape(batch_size, seq_len, 1)</div>
-  <div class="math-annotated-code-line">            log_b = behaviour_logp_seq</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target(obs_flat)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_raw_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions_raw_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #F8F8F2">act_dim)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_pi</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">mean,</span> <span style="color: #F8F8F2">log_std,</span> <span style="color: #F8F8F2">actions_raw_flat</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size,</span> <span style="color: #F8F8F2">seq_len,</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_b</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">behaviour_logp_seq</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 \log \rho_t = \log \pi(a_t|s_t) - \log b(a_t|s_t)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">            log_ratio = log_pi - log_b</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_ratio</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">log_pi</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">log_b</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 \rho_t = \exp(\log \rho_t)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">            rho = torch.exp(log_ratio).squeeze(-1)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">rho</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(log_ratio)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">squeeze(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 c_t = \lambda \min(1, \rho_t)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">            c = (self.retrace_lambda * torch.minimum(torch.ones_like(rho), rho)).detach()</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">c</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_lambda</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">minimum(torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones_like(rho),</span> <span style="color: #F8F8F2">rho))</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            # Correct Retrace recursion:</div>
-  <div class="math-annotated-code-line">            # Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #959077"># Correct Retrace recursion:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #959077"># Qret(s0,a0) = Q(s0,a0) + sum_{t=0}^{T-1} gamma^t (prod_{i=1}^t c_i) delta_t</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 Q^{ret} \leftarrow Q(s_0, a_0)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">            q_ret = q_t[:, 0, :].clone()</div>
-  <div class="math-annotated-code-line">            cont = torch.ones((batch_size, 1), device=self.device)</div>
-  <div class="math-annotated-code-line">            c_prod = torch.ones((batch_size, 1), device=self.device)</div>
-  <div class="math-annotated-code-line">            discount = torch.ones((batch_size, 1), device=self.device)</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">q_ret</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">q_t[:,</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">:]</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clone()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">cont</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones((batch_size,</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">),</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">c_prod</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones((batch_size,</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">),</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">discount</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ones((batch_size,</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">),</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            dones_flat = dones_seq.squeeze(-1)  # (B,T)</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">dones_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">dones_seq</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">squeeze(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,T)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            for t in range(seq_len):</div>
-  <div class="math-annotated-code-line">                if t &gt; 0:</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">for</span> <span style="color: #F8F8F2">t</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">range(seq_len):</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">t</span> <span style="color: #FF4689">&gt;</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 20ch;">
     <div class="arithmatex">\[
 m_t \leftarrow m_{t-1}(1-d_{t-1})
 \]</div>
   </div>
-  <div class="math-annotated-code-line">                    cont = cont * (1.0 - dones_flat[:, t - 1 : t])</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">cont</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">cont</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(</span><span style="color: #AE81FF">1.0</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">dones_flat[:,</span> <span style="color: #F8F8F2">t</span> <span style="color: #FF4689">-</span> <span style="color: #AE81FF">1</span> <span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">t])</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 20ch;">
     <div class="arithmatex">\[
 C_t \leftarrow C_{t-1} c_t
 \]</div>
   </div>
-  <div class="math-annotated-code-line">                    c_prod = c_prod * c[:, t : t + 1]</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">c_prod</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">c_prod</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">c[:,</span> <span style="color: #F8F8F2">t</span> <span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">t</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 20ch;">
     <div class="arithmatex">\[
 \Gamma_t \leftarrow \Gamma_{t-1}\gamma
 \]</div>
   </div>
-  <div class="math-annotated-code-line">                    discount = discount * self.gamma</div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">discount</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">discount</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">gamma</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 16ch;">
     <div class="arithmatex">\[
 Q^{ret} \leftarrow Q^{ret} + m_t \Gamma_t C_t \delta_t
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">                q_ret = q_ret + cont * discount * c_prod * delta[:, t, :]</div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">q_ret</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">q_ret</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">cont</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">discount</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">c_prod</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">delta[:,</span> <span style="color: #F8F8F2">t,</span> <span style="color: #F8F8F2">:]</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        return q_ret</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">q_ret</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">    def update(self, batch: dict) -&gt; dict | None:</div>
-  <div class="math-annotated-code-line">        if self._num_steps % self.target_networks_update_period == 0:</div>
-  <div class="math-annotated-code-line">            self.policy_target.load_state_dict(self.policy.state_dict())</div>
-  <div class="math-annotated-code-line">            self.q_target.load_state_dict(self.q.state_dict())</div>
+  <div class="math-annotated-code-line">    <span style="color: #66D9EF">def</span><span style="color: #F8F8F2"> </span><span style="color: #A6E22E">update</span><span style="color: #F8F8F2">(self,</span> <span style="color: #F8F8F2">batch:</span> <span style="color: #F8F8F2">dict)</span> <span style="color: #FF4689">-&gt;</span> <span style="color: #F8F8F2">dict</span> <span style="color: #FF4689">|</span> <span style="color: #66D9EF">None</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_num_steps</span> <span style="color: #FF4689">%</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">target_networks_update_period</span> <span style="color: #FF4689">==</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">load_state_dict(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">state_dict())</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">load_state_dict(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">state_dict())</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        obs_batch = batch.get(&quot;obs&quot;)</div>
-  <div class="math-annotated-code-line">        is_sequence_batch = isinstance(obs_batch, (np.ndarray, torch.Tensor)) and (</div>
-  <div class="math-annotated-code-line">            obs_batch.ndim == 3</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        use_retrace = self.use_retrace</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">obs_batch</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">batch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">get(</span><span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">is_sequence_batch</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">isinstance(obs_batch,</span> <span style="color: #F8F8F2">(np</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndarray,</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">Tensor))</span> <span style="color: #FF4689">and</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_batch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">ndim</span> <span style="color: #FF4689">==</span> <span style="color: #AE81FF">3</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">use_retrace</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">use_retrace</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        if use_retrace and is_sequence_batch and self.retrace_steps &gt; 1:</div>
-  <div class="math-annotated-code-line">            obs_seq = self._to_device_tensor(batch[&quot;obs&quot;])</div>
-  <div class="math-annotated-code-line">            actions_exec_seq = self._to_device_tensor(batch[&quot;actions_exec&quot;])</div>
-  <div class="math-annotated-code-line">            actions_raw_seq = self._to_device_tensor(batch[&quot;actions_raw&quot;])</div>
-  <div class="math-annotated-code-line">            rewards_seq = self._to_device_tensor(batch[&quot;rewards&quot;])</div>
-  <div class="math-annotated-code-line">            next_obs_seq = self._to_device_tensor(batch[&quot;next_obs&quot;])</div>
-  <div class="math-annotated-code-line">            dones_seq = self._to_device_tensor(batch[&quot;dones&quot;])</div>
-  <div class="math-annotated-code-line">            behaviour_logp_seq = self._to_device_tensor(batch[&quot;behaviour_logp&quot;])</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">use_retrace</span> <span style="color: #FF4689">and</span> <span style="color: #F8F8F2">is_sequence_batch</span> <span style="color: #FF4689">and</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">retrace_steps</span> <span style="color: #FF4689">&gt;</span> <span style="color: #AE81FF">1</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_exec_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;actions_exec&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_raw_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;actions_raw&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">rewards_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">next_obs_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">dones_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">behaviour_logp_seq</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;behaviour_logp&quot;</span><span style="color: #F8F8F2">])</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            if not self._assert_finite_tensors(</div>
-  <div class="math-annotated-code-line">                {</div>
-  <div class="math-annotated-code-line">                    &quot;obs&quot;: obs_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;actions_exec&quot;: actions_exec_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;actions_raw&quot;: actions_raw_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;rewards&quot;: rewards_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;next_obs&quot;: next_obs_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;dones&quot;: dones_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;behaviour_logp&quot;: behaviour_logp_seq,</div>
-  <div class="math-annotated-code-line">                }</div>
-  <div class="math-annotated-code-line">            ):</div>
-  <div class="math-annotated-code-line">                return None</div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_assert_finite_tensors(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">{</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">obs_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;actions_exec&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions_exec_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;actions_raw&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions_raw_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">rewards_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">next_obs_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">dones_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;behaviour_logp&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">behaviour_logp_seq,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">}</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">None</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            target = self._retrace_q_target(</div>
-  <div class="math-annotated-code-line">                {</div>
-  <div class="math-annotated-code-line">                    &quot;obs&quot;: obs_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;actions_exec&quot;: actions_exec_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;actions_raw&quot;: actions_raw_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;rewards&quot;: rewards_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;next_obs&quot;: next_obs_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;dones&quot;: dones_seq,</div>
-  <div class="math-annotated-code-line">                    &quot;behaviour_logp&quot;: behaviour_logp_seq,</div>
-  <div class="math-annotated-code-line">                }</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            obs = obs_seq[:, 0, :]</div>
-  <div class="math-annotated-code-line">            actions = actions_exec_seq[:, 0, :]</div>
-  <div class="math-annotated-code-line">        else:</div>
-  <div class="math-annotated-code-line">            obs = self._to_device_tensor(batch[&quot;obs&quot;])</div>
-  <div class="math-annotated-code-line">            actions_key = (</div>
-  <div class="math-annotated-code-line">                &quot;actions_exec&quot; if &quot;actions_exec&quot; in batch.keys() else &quot;actions&quot;</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            actions = self._to_device_tensor(batch[actions_key])</div>
-  <div class="math-annotated-code-line">            rewards = self._to_device_tensor(batch[&quot;rewards&quot;])</div>
-  <div class="math-annotated-code-line">            next_obs = self._to_device_tensor(batch[&quot;next_obs&quot;])</div>
-  <div class="math-annotated-code-line">            dones = self._to_device_tensor(batch[&quot;dones&quot;])</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_retrace_q_target(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">{</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">obs_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;actions_exec&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions_exec_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;actions_raw&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions_raw_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">rewards_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">next_obs_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">dones_seq,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;behaviour_logp&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">behaviour_logp_seq,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">}</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs_seq[:,</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">:]</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions_exec_seq[:,</span> <span style="color: #AE81FF">0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">:]</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">else</span><span style="color: #F8F8F2">:</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_key</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #E6DB74">&quot;actions_exec&quot;</span> <span style="color: #66D9EF">if</span> <span style="color: #E6DB74">&quot;actions_exec&quot;</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">batch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">keys()</span> <span style="color: #66D9EF">else</span> <span style="color: #E6DB74">&quot;actions&quot;</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[actions_key])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">rewards</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">next_obs</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">dones</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_to_device_tensor(batch[</span><span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">])</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            if not self._assert_finite_tensors(</div>
-  <div class="math-annotated-code-line">                {</div>
-  <div class="math-annotated-code-line">                    &quot;obs&quot;: obs,</div>
-  <div class="math-annotated-code-line">                    &quot;actions&quot;: actions,</div>
-  <div class="math-annotated-code-line">                    &quot;rewards&quot;: rewards,</div>
-  <div class="math-annotated-code-line">                    &quot;next_obs&quot;: next_obs,</div>
-  <div class="math-annotated-code-line">                    &quot;dones&quot;: dones,</div>
-  <div class="math-annotated-code-line">                }</div>
-  <div class="math-annotated-code-line">            ):</div>
-  <div class="math-annotated-code-line">                return None</div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_assert_finite_tensors(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">{</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">obs,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;actions&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;rewards&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">rewards,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;next_obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">next_obs,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #E6DB74">&quot;dones&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">dones,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">}</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">None</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            with torch.no_grad():</div>
-  <div class="math-annotated-code-line">                next_actions = self.policy_target.sample_actions(</div>
-  <div class="math-annotated-code-line">                    next_obs, num_actions=self.action_samples</div>
-  <div class="math-annotated-code-line">                )</div>
-  <div class="math-annotated-code-line">                batch_size = next_obs.shape[0]</div>
-  <div class="math-annotated-code-line">                next_obs_rep = next_obs.unsqueeze(1).expand(</div>
-  <div class="math-annotated-code-line">                    batch_size, self.action_samples, next_obs.shape[-1]</div>
-  <div class="math-annotated-code-line">                )</div>
-  <div class="math-annotated-code-line">                next_obs_flat = next_obs_rep.reshape(-1, next_obs.shape[-1])</div>
-  <div class="math-annotated-code-line">                next_act_flat = next_actions.reshape(-1, next_actions.shape[-1])</div>
-  <div class="math-annotated-code-line">                q_target = self.q_target(next_obs_flat, next_act_flat)</div>
-  <div class="math-annotated-code-line">                q_target = q_target.reshape(batch_size, self.action_samples).mean(</div>
-  <div class="math-annotated-code-line">                    dim=1, keepdim=True</div>
-  <div class="math-annotated-code-line">                )</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">next_actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_actions(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">next_obs,</span> <span style="color: #F8F8F2">num_actions</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_samples</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">batch_size</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">next_obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">next_obs_rep</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">next_obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">expand(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">batch_size,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_samples,</span> <span style="color: #F8F8F2">next_obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">next_obs_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">next_obs_rep</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">next_obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">next_act_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">next_actions</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">next_actions</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">q_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target(next_obs_flat,</span> <span style="color: #F8F8F2">next_act_flat)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">q_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">q_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(batch_size,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_samples)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">keepdim</span><span style="color: #FF4689">=</span><span style="color: #66D9EF">True</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 16ch;">
     <div class="arithmatex">\[
 y_t = r_t + \gamma(1-d_t)\bar{Q}(s_{t+1})
 \]</div>
   </div>
-  <div class="math-annotated-code-line">                target = rewards + (1.0 - dones) * self.gamma * q_target</div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">rewards</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">(</span><span style="color: #AE81FF">1.0</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">dones)</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">gamma</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">q_target</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        if not self._assert_finite_tensors(</div>
-  <div class="math-annotated-code-line">            {&quot;obs&quot;: obs, &quot;actions&quot;: actions, &quot;target&quot;: target}</div>
-  <div class="math-annotated-code-line">        ):</div>
-  <div class="math-annotated-code-line">            return None</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_assert_finite_tensors(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">{</span><span style="color: #E6DB74">&quot;obs&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">obs,</span> <span style="color: #E6DB74">&quot;actions&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">actions,</span> <span style="color: #E6DB74">&quot;target&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">target}</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">None</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        q = self.q(obs, actions)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q(obs,</span> <span style="color: #F8F8F2">actions)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_Q = \mathbb{E}\!\left[(Q(s_t,a_t) - y_t)^2\right]
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        q_loss = F.mse_loss(q, target)</div>
-  <div class="math-annotated-code-line">        if not self._assert_finite_tensors({&quot;q&quot;: q, &quot;q_loss&quot;: q_loss}):</div>
-  <div class="math-annotated-code-line">            return None</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_loss</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mse_loss(q,</span> <span style="color: #F8F8F2">target)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_assert_finite_tensors({</span><span style="color: #E6DB74">&quot;q&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">q,</span> <span style="color: #E6DB74">&quot;q_loss&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">q_loss}):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">None</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Phase A: critic update</div>
-  <div class="math-annotated-code-line">        self.q_opt.zero_grad()</div>
-  <div class="math-annotated-code-line">        q_loss.backward()</div>
-  <div class="math-annotated-code-line">        nn.utils.clip_grad_norm_(</div>
-  <div class="math-annotated-code-line">            self.q.parameters(),</div>
-  <div class="math-annotated-code-line">            self.max_grad_norm,</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        self.q_opt.step()</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Phase A: critic update</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">zero_grad()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">q_loss</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">backward()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">utils</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clip_grad_norm_(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max_grad_norm,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">step()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Phase B (Acme-style): update dual vars then do policy M-step.</div>
-  <div class="math-annotated-code-line">        batch_size = obs.shape[0]</div>
-  <div class="math-annotated-code-line">        num_samples = self.action_samples</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Phase B (Acme-style): update dual vars then do policy M-step.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">batch_size</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">num_samples</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">action_samples</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        mean_online, log_std_online = self.policy(obs)</div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            mean_target, log_std_target = self.policy_target(obs)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_online,</span> <span style="color: #F8F8F2">log_std_online</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy(obs)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target,</span> <span style="color: #F8F8F2">log_std_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target(obs)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            sampled_actions_raw, sampled_actions_exec = (</div>
-  <div class="math-annotated-code-line">                self.policy_target.sample_actions_raw_and_exec(</div>
-  <div class="math-annotated-code-line">                    obs, num_actions=num_samples</div>
-  <div class="math-annotated-code-line">                )</div>
-  <div class="math-annotated-code-line">            )  # (B,N,D)</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">sampled_actions_raw,</span> <span style="color: #F8F8F2">sampled_actions_exec</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sample_actions_raw_and_exec(</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">obs,</span> <span style="color: #F8F8F2">num_actions</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">num_samples</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,N,D)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            obs_rep = obs.unsqueeze(1).expand(batch_size, num_samples, obs.shape[-1])</div>
-  <div class="math-annotated-code-line">            obs_flat = obs_rep.reshape(-1, obs.shape[-1])</div>
-  <div class="math-annotated-code-line">            act_exec_flat = sampled_actions_exec.reshape(</div>
-  <div class="math-annotated-code-line">                -1, sampled_actions_exec.shape[-1]</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_rep</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">expand(batch_size,</span> <span style="color: #F8F8F2">num_samples,</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">obs_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">obs_rep</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">obs</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">])</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">act_exec_flat</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">sampled_actions_exec</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">sampled_actions_exec</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">shape[</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            q_vals = self.q_target(obs_flat, act_exec_flat).reshape(</div>
-  <div class="math-annotated-code-line">                batch_size, num_samples</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">q_vals</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">q_target(obs_flat,</span> <span style="color: #F8F8F2">act_exec_flat)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">reshape(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">batch_size,</span> <span style="color: #F8F8F2">num_samples</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        if not self._assert_finite_tensors({&quot;q_vals&quot;: q_vals}):</div>
-  <div class="math-annotated-code-line">            return None</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">if</span> <span style="color: #FF4689">not</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_assert_finite_tensors({</span><span style="color: #E6DB74">&quot;q_vals&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">q_vals}):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #66D9EF">return</span> <span style="color: #66D9EF">None</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        min_log = torch.tensor(-18.0, device=self.device)</div>
-  <div class="math-annotated-code-line">        log_temp = torch.maximum(self.log_temperature, min_log)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">min_log</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">tensor(</span><span style="color: #FF4689">-</span><span style="color: #AE81FF">18.0</span><span style="color: #F8F8F2">,</span> <span style="color: #F8F8F2">device</span><span style="color: #FF4689">=</span><span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">device)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_temp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">maximum(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_temperature,</span> <span style="color: #F8F8F2">min_log)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        temperature = F.softplus(log_temp) + 1e-8</div>
-  <div class="math-annotated-code-line">        weights, loss_temperature = self._compute_weights_and_temperature_loss(</div>
-  <div class="math-annotated-code-line">            q_vals, self.kl_epsilon, temperature</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(log_temp)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">weights,</span> <span style="color: #F8F8F2">loss_temperature</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_compute_weights_and_temperature_loss(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">q_vals,</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">kl_epsilon,</span> <span style="color: #F8F8F2">temperature</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # KL(nonparametric || target) diagnostic (relative).</div>
-  <div class="math-annotated-code-line">        kl_nonparametric = self._compute_nonparametric_kl_from_weights(weights)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #959077"># KL(nonparametric || target) diagnostic (relative).</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kl_nonparametric</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_compute_nonparametric_kl_from_weights(weights)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathrm{KL}_{rel} = \frac{\mathbb{E}[D_{KL}(q\|u)]}{\epsilon}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        kl_q_rel = kl_nonparametric.mean() / float(self.kl_epsilon)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kl_q_rel</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">kl_nonparametric</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span> <span style="color: #FF4689">/</span> <span style="color: #F8F8F2">float(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">kl_epsilon)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Compute Acme-style decomposed losses.</div>
-  <div class="math-annotated-code-line">        std_online = torch.exp(log_std_online)</div>
-  <div class="math-annotated-code-line">        std_target = torch.exp(log_std_target)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Compute Acme-style decomposed losses.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std_online</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(log_std_online)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std_target</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(log_std_target)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Fixed distributions for decomposition.</div>
-  <div class="math-annotated-code-line">        actions = sampled_actions_raw.detach()  # (B,N,D), stop-gradient wrt sampling.</div>
-  <div class="math-annotated-code-line">        mean_online_exp = mean_online.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">        std_online_exp = std_online.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">        mean_target_exp = mean_target.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">        std_target_exp = std_target.unsqueeze(1)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Fixed distributions for decomposition.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">actions</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">sampled_actions_raw</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span>  <span style="color: #959077"># (B,N,D), stop-gradient wrt sampling.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_online_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std_online_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">std_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_target_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">std_target_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # fixed_stddev: mean=online_mean, std=target_std</div>
-  <div class="math-annotated-code-line">        log_prob_fixed_stddev = (</div>
-  <div class="math-annotated-code-line">            Normal(mean_online_exp, std_target_exp).log_prob(actions).sum(dim=-1)</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        # fixed_mean: mean=target_mean, std=online_std</div>
-  <div class="math-annotated-code-line">        log_prob_fixed_mean = (</div>
-  <div class="math-annotated-code-line">            Normal(mean_target_exp, std_online_exp).log_prob(actions).sum(dim=-1)</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># fixed_stddev: mean=online_mean, std=target_std</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_prob_fixed_stddev</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">Normal(mean_online_exp,</span> <span style="color: #F8F8F2">std_target_exp)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(actions)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># fixed_mean: mean=target_mean, std=online_std</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_prob_fixed_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">Normal(mean_target_exp,</span> <span style="color: #F8F8F2">std_online_exp)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(actions)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Cross entropy / weighted log-prob.</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Cross entropy / weighted log-prob.</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\pi,\mu} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu,\sigma&#x27;}(a_{b,i}|s_b)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_policy_mean = -(weights * log_prob_fixed_stddev).sum(dim=1).mean()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_policy_mean</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">(weights</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">log_prob_fixed_stddev)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\pi,\sigma} = -\mathbb{E}_b\sum_i q_{b,i}\log \pi_{\mu&#x27;,\sigma}(a_{b,i}|s_b)
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_policy_std = -(weights * log_prob_fixed_mean).sum(dim=1).mean()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_policy_std</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">(weights</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">log_prob_fixed_mean)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\pi} = \mathcal{L}_{\pi,\mu} + \mathcal{L}_{\pi,\sigma}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_policy = loss_policy_mean + loss_policy_std</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_policy</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_policy_mean</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_policy_std</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        kl_mean = self._kl_diag_gaussian_per_dim(</div>
-  <div class="math-annotated-code-line">            mean_target.detach(),</div>
-  <div class="math-annotated-code-line">            log_std_target.detach(),</div>
-  <div class="math-annotated-code-line">            mean_online,</div>
-  <div class="math-annotated-code-line">            log_std_target.detach(),</div>
-  <div class="math-annotated-code-line">        )  # (B,D)</div>
-  <div class="math-annotated-code-line">        kl_std = self._kl_diag_gaussian_per_dim(</div>
-  <div class="math-annotated-code-line">            mean_target.detach(),</div>
-  <div class="math-annotated-code-line">            log_std_target.detach(),</div>
-  <div class="math-annotated-code-line">            mean_target.detach(),</div>
-  <div class="math-annotated-code-line">            log_std_online,</div>
-  <div class="math-annotated-code-line">        )  # (B,D)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_kl_diag_gaussian_per_dim(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_online,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,D)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_kl_diag_gaussian_per_dim(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach(),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_online,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,D)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \bar{D}_{\mu,j} = \frac{1}{B}\sum_b D_{\mu,b,j}
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        mean_kl_mean = kl_mean.mean(dim=0)</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">kl_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \bar{D}_{\sigma,j} = \frac{1}{B}\sum_b D_{\sigma,b,j}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        mean_kl_std = kl_std.mean(dim=0)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">mean_kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">kl_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        log_alpha_mean = torch.maximum(self.log_alpha_mean, min_log)</div>
-  <div class="math-annotated-code-line">        log_alpha_stddev = torch.maximum(self.log_alpha_stddev, min_log)</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_alpha_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">maximum(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean,</span> <span style="color: #F8F8F2">min_log)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">log_alpha_stddev</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">maximum(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev,</span> <span style="color: #F8F8F2">min_log)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \alpha_{\mu,j} = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        alpha_mean = F.softplus(log_alpha_mean) + 1e-8</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">alpha_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(log_alpha_mean)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \alpha_{\sigma,j} = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        alpha_std = F.softplus(log_alpha_stddev) + 1e-8</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">alpha_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(log_alpha_stddev)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{KL,\mu} = \sum_j \alpha_{\mu,j}\bar{D}_{\mu,j}
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        loss_kl_mean = (alpha_mean.detach() * mean_kl_mean).sum()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(alpha_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">mean_kl_mean)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{KL,\sigma} = \sum_j \alpha_{\sigma,j}\bar{D}_{\sigma,j}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_kl_std = (alpha_std.detach() * mean_kl_std).sum()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(alpha_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">mean_kl_std)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{KL} = \mathcal{L}_{KL,\mu} + \mathcal{L}_{KL,\sigma}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        loss_kl_penalty = loss_kl_mean + loss_kl_std</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_kl_penalty</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_kl_mean</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_kl_std</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        loss_alpha_mean = (</div>
-  <div class="math-annotated-code-line">            alpha_mean * (self.mstep_kl_epsilon - mean_kl_mean.detach())</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_alpha_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">alpha_mean</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mstep_kl_epsilon</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">mean_kl_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach())</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\alpha_{\mu}} = \sum_j \alpha_{\mu,j}(\epsilon_{KL} - \bar{D}_{\mu,j})
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        ).sum()</div>
-  <div class="math-annotated-code-line">        loss_alpha_std = (</div>
-  <div class="math-annotated-code-line">            alpha_std * (self.mstep_kl_epsilon - mean_kl_std.detach())</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">loss_alpha_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">alpha_std</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mstep_kl_epsilon</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">mean_kl_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach())</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\alpha_{\sigma}} = \sum_j \alpha_{\sigma,j}(\epsilon_{KL} - \bar{D}_{\sigma,j})
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        ).sum()</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Update dual variables (temperature + alphas).</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Update dual variables (temperature + alphas).</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{dual} = \mathcal{L}_{\eta} + \mathcal{L}_{\alpha_{\mu}} + \mathcal{L}_{\alpha_{\sigma}}
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std</div>
-  <div class="math-annotated-code-line">        self.dual_opt.zero_grad()</div>
-  <div class="math-annotated-code-line">        dual_loss.backward()</div>
-  <div class="math-annotated-code-line">        nn.utils.clip_grad_norm_(</div>
-  <div class="math-annotated-code-line">            [</div>
-  <div class="math-annotated-code-line">                p</div>
-  <div class="math-annotated-code-line">                for p in [</div>
-  <div class="math-annotated-code-line">                    self.log_temperature,</div>
-  <div class="math-annotated-code-line">                    self.log_alpha_mean,</div>
-  <div class="math-annotated-code-line">                    self.log_alpha_stddev,</div>
-  <div class="math-annotated-code-line">                ]</div>
-  <div class="math-annotated-code-line">                if p is not None</div>
-  <div class="math-annotated-code-line">            ],</div>
-  <div class="math-annotated-code-line">            self.max_grad_norm,</div>
-  <div class="math-annotated-code-line">        )</div>
-  <div class="math-annotated-code-line">        self.dual_opt.step()</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">dual_loss</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_temperature</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_alpha_mean</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_alpha_std</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">dual_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">zero_grad()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">dual_loss</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">backward()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">utils</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clip_grad_norm_(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">[</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">p</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">for</span> <span style="color: #F8F8F2">p</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">[</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_temperature,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean,</span></div>
+  <div class="math-annotated-code-line">                    <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev,</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">]</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #66D9EF">if</span> <span style="color: #F8F8F2">p</span> <span style="color: #FF4689">is</span> <span style="color: #FF4689">not</span> <span style="color: #66D9EF">None</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">],</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max_grad_norm,</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">dual_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">step()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # ---------- after dual_opt.step() ----------</div>
-  <div class="math-annotated-code-line">        # Recompute the post-update dual multipliers and freeze fixed E-step tensors.</div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            mean_target_det = mean_target.detach()</div>
-  <div class="math-annotated-code-line">            log_std_target_det = log_std_target.detach()</div>
-  <div class="math-annotated-code-line">            std_target_det = std_target.detach()</div>
-  <div class="math-annotated-code-line">            weights_det = weights.detach()  # (B,N)</div>
-  <div class="math-annotated-code-line">            actions_det = actions.detach()  # (B,N,D)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># ---------- after dual_opt.step() ----------</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Recompute the post-update dual multipliers and freeze fixed E-step tensors.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_std_target_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">log_std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">std_target_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">std_target</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">weights_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">weights</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span>  <span style="color: #959077"># (B,N)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">actions_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">actions</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span>  <span style="color: #959077"># (B,N,D)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Recompute dual multipliers AFTER dual_opt.step()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Recompute dual multipliers AFTER dual_opt.step()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \alpha_{\mu,j}&#x27; = \operatorname{softplus}(\tilde{\alpha}_{\mu,j}) + \epsilon
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        alpha_mean_det = (F.softplus(self.log_alpha_mean) + 1e-8).detach()</div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">alpha_mean_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \alpha_{\sigma,j}&#x27; = \operatorname{softplus}(\tilde{\alpha}_{\sigma,j}) + \epsilon
 \]</div>
   </div>
-  <div class="math-annotated-code-line">        alpha_std_det = (F.softplus(self.log_alpha_stddev) + 1e-8).detach()</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">alpha_std_det</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Parameter delta diagnostic: snapshot BEFORE M-step</div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            params_before = (</div>
-  <div class="math-annotated-code-line">                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Parameter delta diagnostic: snapshot BEFORE M-step</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">params_before</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">utils</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters_to_vector(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters())</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clone()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Inner M-step (recompute online outputs each iteration)</div>
-  <div class="math-annotated-code-line">        for _ in range(int(self.m_steps)):</div>
-  <div class="math-annotated-code-line">            mean_online, log_std_online = self.policy(obs)  # (B,D), (B,D)</div>
-  <div class="math-annotated-code-line">            std_online = torch.exp(log_std_online)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Inner M-step (recompute online outputs each iteration)</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">for</span> <span style="color: #F8F8F2">_</span> <span style="color: #FF4689">in</span> <span style="color: #F8F8F2">range(int(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">m_steps)):</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_online,</span> <span style="color: #F8F8F2">log_std_online</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy(obs)</span>  <span style="color: #959077"># (B,D), (B,D)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">std_online</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">exp(log_std_online)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            # expand shapes for (B,N,D)</div>
-  <div class="math-annotated-code-line">            mean_online_exp = mean_online.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">            std_online_exp = std_online.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">            mean_target_exp = mean_target_det.unsqueeze(1)</div>
-  <div class="math-annotated-code-line">            std_target_exp = std_target_det.unsqueeze(1)</div>
+  <div class="math-annotated-code-line">            <span style="color: #959077"># expand shapes for (B,N,D)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_online_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">std_online_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">std_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_target_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">mean_target_det</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">std_target_exp</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">std_target_det</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">unsqueeze(</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            # cross-entropy pieces</div>
-  <div class="math-annotated-code-line">            log_prob_fixed_stddev = (</div>
-  <div class="math-annotated-code-line">                Normal(mean_online_exp, std_target_exp)</div>
-  <div class="math-annotated-code-line">                .log_prob(actions_det)</div>
-  <div class="math-annotated-code-line">                .sum(dim=-1)</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            log_prob_fixed_mean = (</div>
-  <div class="math-annotated-code-line">                Normal(mean_target_exp, std_online_exp)</div>
-  <div class="math-annotated-code-line">                .log_prob(actions_det)</div>
-  <div class="math-annotated-code-line">                .sum(dim=-1)</div>
-  <div class="math-annotated-code-line">            )</div>
+  <div class="math-annotated-code-line">            <span style="color: #959077"># cross-entropy pieces</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_prob_fixed_stddev</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">Normal(mean_online_exp,</span> <span style="color: #F8F8F2">std_target_exp)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(actions_det)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">log_prob_fixed_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">Normal(mean_target_exp,</span> <span style="color: #F8F8F2">std_online_exp)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_prob(actions_det)</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=-</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            loss_policy_mean = -(weights_det * log_prob_fixed_stddev).sum(dim=1).mean()</div>
-  <div class="math-annotated-code-line">            loss_policy_std = -(weights_det * log_prob_fixed_mean).sum(dim=1).mean()</div>
-  <div class="math-annotated-code-line">            loss_policy = loss_policy_mean + loss_policy_std</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_policy_mean</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">(weights_det</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">log_prob_fixed_stddev)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_policy_std</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">(weights_det</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">log_prob_fixed_mean)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_policy</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_policy_mean</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_policy_std</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            # KL penalties (compare online -&gt; frozen target)</div>
-  <div class="math-annotated-code-line">            kl_mean = self._kl_diag_gaussian_per_dim(</div>
-  <div class="math-annotated-code-line">                mean_target_det, log_std_target_det, mean_online, log_std_target_det</div>
-  <div class="math-annotated-code-line">            )  # (B,D)</div>
-  <div class="math-annotated-code-line">            kl_std = self._kl_diag_gaussian_per_dim(</div>
-  <div class="math-annotated-code-line">                mean_target_det, log_std_target_det, mean_target_det, log_std_online</div>
-  <div class="math-annotated-code-line">            )  # (B,D)</div>
-  <div class="math-annotated-code-line">            mean_kl_mean = kl_mean.mean(dim=0)  # (D,)</div>
-  <div class="math-annotated-code-line">            mean_kl_std = kl_std.mean(dim=0)  # (D,)</div>
+  <div class="math-annotated-code-line">            <span style="color: #959077"># KL penalties (compare online -&gt; frozen target)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_kl_diag_gaussian_per_dim(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">mean_target_det,</span> <span style="color: #F8F8F2">log_std_target_det,</span> <span style="color: #F8F8F2">mean_online,</span> <span style="color: #F8F8F2">log_std_target_det</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,D)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_kl_diag_gaussian_per_dim(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">mean_target_det,</span> <span style="color: #F8F8F2">log_std_target_det,</span> <span style="color: #F8F8F2">mean_target_det,</span> <span style="color: #F8F8F2">log_std_online</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (B,D)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">kl_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (D,)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">mean_kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">kl_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">0</span><span style="color: #F8F8F2">)</span>  <span style="color: #959077"># (D,)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            loss_kl_mean = (alpha_mean_det * mean_kl_mean).sum()</div>
-  <div class="math-annotated-code-line">            loss_kl_std = (alpha_std_det * mean_kl_std).sum()</div>
-  <div class="math-annotated-code-line">            loss_kl_penalty = loss_kl_mean + loss_kl_std</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_kl_mean</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(alpha_mean_det</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">mean_kl_mean)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_kl_std</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(alpha_std_det</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">mean_kl_std)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">loss_kl_penalty</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_kl_mean</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_kl_std</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 12ch;">
     <div class="arithmatex">\[
 \mathcal{L}_{\pi}^{total} = \mathcal{L}_{\pi} + \mathcal{L}_{KL}
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            policy_total_loss = loss_policy + loss_kl_penalty</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">policy_total_loss</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">loss_policy</span> <span style="color: #FF4689">+</span> <span style="color: #F8F8F2">loss_kl_penalty</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">            self.policy_opt.zero_grad()</div>
-  <div class="math-annotated-code-line">            policy_total_loss.backward()</div>
-  <div class="math-annotated-code-line">            nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)</div>
-  <div class="math-annotated-code-line">            self.policy_opt.step()</div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">zero_grad()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">policy_total_loss</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">backward()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">utils</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clip_grad_norm_(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters(),</span> <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max_grad_norm)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy_opt</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">step()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # snapshot after M-step</div>
-  <div class="math-annotated-code-line">        with torch.no_grad():</div>
-  <div class="math-annotated-code-line">            params_after = (</div>
-  <div class="math-annotated-code-line">                nn.utils.parameters_to_vector(self.policy.parameters()).detach().clone()</div>
-  <div class="math-annotated-code-line">            )</div>
-  <div class="math-annotated-code-line">            param_delta = torch.norm(params_after - params_before)</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># snapshot after M-step</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">with</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">no_grad():</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">params_after</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">nn</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">utils</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters_to_vector(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">parameters())</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">clone()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">)</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">param_delta</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">norm(params_after</span> <span style="color: #FF4689">-</span> <span style="color: #F8F8F2">params_before)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Increment step counter for target-sync cadence bookkeeping.</div>
-  <div class="math-annotated-code-line">        self._num_steps += 1</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Increment step counter for target-sync cadence bookkeeping.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">_num_steps</span> <span style="color: #FF4689">+=</span> <span style="color: #AE81FF">1</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        # Diagnostics for training monitoring.</div>
-  <div class="math-annotated-code-line">        temperature_val = float(</div>
-  <div class="math-annotated-code-line">            (F.softplus(self.log_temperature) + 1e-8).detach().item()</div>
-  <div class="math-annotated-code-line">        )</div>
+  <div class="math-annotated-code-line">        <span style="color: #959077"># Diagnostics for training monitoring.</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">temperature_val</span> <span style="color: #FF4689">=</span> <span style="color: #F8F8F2">float(</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_temperature)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">)</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line math-annotated-code-formula">
+  <div class="math-annotated-code-line math-annotated-code-formula" style="--formula-indent: 8ch;">
     <div class="arithmatex">\[
 \mathcal{H}(q) = -\mathbb{E}_b\sum_i q_{b,i}\log q_{b,i}
 \]</div>
   </div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()</div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">entropy</span> <span style="color: #FF4689">=</span> <span style="color: #FF4689">-</span><span style="color: #F8F8F2">(weights</span> <span style="color: #FF4689">*</span> <span style="color: #F8F8F2">torch</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log(weights</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">))</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">sum(dim</span><span style="color: #FF4689">=</span><span style="color: #AE81FF">1</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span></div>
   <div class="math-annotated-code-line"> </div>
-  <div class="math-annotated-code-line">        return {</div>
-  <div class="math-annotated-code-line">            &quot;train/param_delta&quot;: float(param_delta.item()),</div>
-  <div class="math-annotated-code-line">            &quot;loss/q&quot;: float(q_loss.item()),</div>
-  <div class="math-annotated-code-line">            &quot;loss/policy&quot;: float(loss_policy.item()),</div>
-  <div class="math-annotated-code-line">            &quot;loss/dual_eta&quot;: float(loss_temperature.detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;loss/dual&quot;: float(dual_loss.detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;kl/q_pi&quot;: float(kl_q_rel.detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;kl/mean&quot;: float(mean_kl_mean.mean().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;kl/std&quot;: float(mean_kl_std.mean().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;eta&quot;: temperature_val,</div>
-  <div class="math-annotated-code-line">            &quot;lambda&quot;: float(</div>
-  <div class="math-annotated-code-line">                (F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()</div>
-  <div class="math-annotated-code-line">            ),</div>
-  <div class="math-annotated-code-line">            &quot;alpha_mean&quot;: float(</div>
-  <div class="math-annotated-code-line">                (F.softplus(self.log_alpha_mean) + 1e-8).mean().detach().item()</div>
-  <div class="math-annotated-code-line">            ),</div>
-  <div class="math-annotated-code-line">            &quot;alpha_std&quot;: float(</div>
-  <div class="math-annotated-code-line">                (F.softplus(self.log_alpha_stddev) + 1e-8).mean().detach().item()</div>
-  <div class="math-annotated-code-line">            ),</div>
-  <div class="math-annotated-code-line">            &quot;q/min&quot;: float(q_vals.min().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;q/max&quot;: float(q_vals.max().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;pi/std_min&quot;: float(std_online.min().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;pi/std_max&quot;: float(std_online.max().detach().item()),</div>
-  <div class="math-annotated-code-line">            &quot;entropy&quot;: float(entropy.detach().item()),</div>
-  <div class="math-annotated-code-line">        }</div>
+  <div class="math-annotated-code-line">        <span style="color: #66D9EF">return</span> <span style="color: #F8F8F2">{</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;train/param_delta&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(param_delta</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;loss/q&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(q_loss</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;loss/policy&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(loss_policy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;loss/dual_eta&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(loss_temperature</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;loss/dual&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(dual_loss</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;kl/q_pi&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(kl_q_rel</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;kl/mean&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(mean_kl_mean</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;kl/std&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(mean_kl_std</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;eta&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">temperature_val,</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;lambda&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;alpha_mean&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_mean)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;alpha_std&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(</span></div>
+  <div class="math-annotated-code-line">                <span style="color: #F8F8F2">(F</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">softplus(self</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">log_alpha_stddev)</span> <span style="color: #FF4689">+</span> <span style="color: #AE81FF">1e-8</span><span style="color: #F8F8F2">)</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">mean()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #F8F8F2">),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;q/min&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(q_vals</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">min()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;q/max&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(q_vals</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;pi/std_min&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(std_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">min()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;pi/std_max&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(std_online</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">max()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">            <span style="color: #E6DB74">&quot;entropy&quot;</span><span style="color: #F8F8F2">:</span> <span style="color: #F8F8F2">float(entropy</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">detach()</span><span style="color: #FF4689">.</span><span style="color: #F8F8F2">item()),</span></div>
+  <div class="math-annotated-code-line">        <span style="color: #F8F8F2">}</span></div>
 </div>
