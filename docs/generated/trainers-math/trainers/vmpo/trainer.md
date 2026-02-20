@@ -12,7 +12,7 @@ No `# LaTeX:` annotations were found in this file.
 from __future__ import annotations
 
 import os
-from typing import Dict, Mapping, Sequence, Tuple
+from typing import Dict, Mapping, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -28,22 +28,6 @@ def _format_metrics(metrics: Mapping[str, float]) -> str:
     return ", ".join(
         f"{key}={float(value):.4f}" for key, value in sorted(metrics.items())
     )
-
-
-def _transform_observation(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformObservation(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
-
-
-def _transform_reward(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformReward(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformReward(env, fn, env.reward_range)
 
 
 def _iter_final_info_entries(infos) -> list[tuple[int, dict]]:
@@ -183,144 +167,49 @@ def _extract_episode_returns(infos) -> list[tuple[int, float]]:
     return returns
 
 
-def _find_wrapper(env: gym.Env, wrapper_type: type[gym.Wrapper]):
-    """Return the first wrapper of type `wrapper_type` in an env wrapper chain."""
+def _resolve_env_id(env_id: str) -> str:
+    if env_id.startswith("dm_control/"):
+        parts = env_id.split("/")
+        if len(parts) != 3:
+            raise ValueError(
+                "Expected dm_control env id format 'dm_control/<domain>/<task>', "
+                f"got '{env_id}'"
+            )
+        _, domain, task = parts
+        return f"dm_control/{domain}-{task}-v0"
+    return env_id
+
+
+def _make_env(
+    gym_id: str,
+    seed: int,
+):
+    def thunk():
+        resolved_env_id = _resolve_env_id(gym_id)
+        env = gym.make(resolved_env_id)
+
+        env = gym.wrappers.FlattenObservation(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.ClipAction(env)
+        # Observation normalization is handled by RunningNorm inside the network.
+        env = gym.wrappers.NormalizeReward(env)
+        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+
+        env.reset(seed=seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
+
+    return thunk
+
+
+def find_wrapper(env, wrapper_type):
     current = env
     while current is not None:
         if isinstance(current, wrapper_type):
             return current
         current = getattr(current, "env", None)
     return None
-
-
-def _merge_obs_rms_stats(
-    stats_seq: Sequence[tuple[np.ndarray, np.ndarray, float]],
-) -> tuple[np.ndarray, np.ndarray, float] | None:
-    """Merge per-env running mean/var stats into a single aggregate RMS state."""
-    if len(stats_seq) == 0:
-        return None
-
-    mean_acc = np.array(stats_seq[0][0], dtype=np.float64, copy=True)
-    var_acc = np.array(stats_seq[0][1], dtype=np.float64, copy=True)
-    count_acc = float(stats_seq[0][2])
-
-    for mean_i, var_i, count_i in stats_seq[1:]:
-        count_i = float(count_i)
-        if count_i <= 0.0:
-            continue
-        mean_i = np.array(mean_i, dtype=np.float64, copy=False)
-        var_i = np.array(var_i, dtype=np.float64, copy=False)
-        if count_acc <= 0.0:
-            mean_acc = mean_i.copy()
-            var_acc = var_i.copy()
-            count_acc = count_i
-            continue
-
-        total = count_acc + count_i
-        delta = mean_i - mean_acc
-        mean_new = mean_acc + delta * (count_i / total)
-        m2_acc = var_acc * count_acc
-        m2_i = var_i * count_i
-        m2_total = m2_acc + m2_i + (delta**2) * (count_acc * count_i / total)
-
-        mean_acc = mean_new
-        var_acc = m2_total / total
-        count_acc = total
-
-    return mean_acc, var_acc, count_acc
-
-
-def _collect_vector_obs_rms_stats(
-    vec_env: gym.vector.VectorEnv,
-) -> tuple[np.ndarray, np.ndarray, float] | None:
-    """Collect merged NormalizeObservation running stats from a vector env."""
-    envs = getattr(vec_env, "envs", None)
-    if envs is None:
-        return None
-
-    stats_seq: list[tuple[np.ndarray, np.ndarray, float]] = []
-    for env in envs:
-        obs_norm = _find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if obs_norm is None or not hasattr(obs_norm, "obs_rms"):
-            continue
-        obs_rms = obs_norm.obs_rms
-        stats_seq.append(
-            (
-                np.array(obs_rms.mean, dtype=np.float64, copy=True),
-                np.array(obs_rms.var, dtype=np.float64, copy=True),
-                float(obs_rms.count),
-            )
-        )
-    return _merge_obs_rms_stats(stats_seq)
-
-
-def _apply_obs_rms_stats(
-    vec_env: gym.vector.VectorEnv,
-    obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None,
-) -> None:
-    """Copy provided observation running stats into all eval envs."""
-    if obs_rms_stats is None:
-        return
-
-    envs = getattr(vec_env, "envs", None)
-    if envs is None:
-        return
-
-    mean, var, count = obs_rms_stats
-    for env in envs:
-        obs_norm = _find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if obs_norm is None or not hasattr(obs_norm, "obs_rms"):
-            continue
-        obs_norm.obs_rms.mean = np.array(mean, dtype=np.float64, copy=True)
-        obs_norm.obs_rms.var = np.array(var, dtype=np.float64, copy=True)
-        obs_norm.obs_rms.count = float(count)
-        if hasattr(obs_norm, "update_running_mean"):
-            try:
-                obs_norm.update_running_mean = False
-            except Exception:
-                pass
-
-
-def _make_env(
-    env_id: str,
-    *,
-    seed: int | None = None,
-    gamma: float = 0.99,
-    normalize_observation: bool = True,
-    clip_observation: float | None = 10.0,
-    normalize_reward: bool = True,
-    clip_reward: float | None = 10.0,
-) -> gym.Env:
-    if env_id.startswith("dm_control/"):
-        _, domain, task = env_id.split("/")
-        env = gym.make(f"dm_control/{domain}-{task}-v0")
-    else:
-        env = gym.make(env_id)
-
-    if seed is not None:
-        env.reset(seed=seed)
-        env.action_space.seed(seed)
-
-    env = gym.wrappers.FlattenObservation(env)
-    env = gym.wrappers.RecordEpisodeStatistics(env)
-    env = gym.wrappers.ClipAction(env)
-
-    if normalize_observation:
-        env = gym.wrappers.NormalizeObservation(env)
-        if clip_observation is not None:
-            env = _transform_observation(
-                env,
-                lambda obs: np.clip(obs, -clip_observation, clip_observation),
-            )
-    if normalize_reward:
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        if clip_reward is not None:
-            env = _transform_reward(
-                env,
-                lambda reward: np.clip(reward, -clip_reward, clip_reward),
-            )
-
-    return env
 
 
 class VMPOTrainer:
@@ -360,26 +249,20 @@ class VMPOTrainer:
         self.gae_lambda = float(gae_lambda)
         self.m_steps = int(m_steps)
 
-        env_fns = [
-            (
-                lambda i=i: self._make_train_env(
-                    env_id=env_id,
+        self.envs = gym.vector.SyncVectorEnv(
+            [
+                _make_env(
+                    gym_id=env_id,
                     seed=seed + i,
-                    env_index=i,
-                    gamma=self.gamma,
                 )
-            )
-            for i in range(self.num_envs)
-        ]
-        # Always use vectorized env, even when num_envs == 1.
-        self.env = gym.vector.SyncVectorEnv(
-            env_fns, autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
+                for i in range(self.num_envs)
+            ],
         )
-        obs_space = self.env.single_observation_space
-        act_space = self.env.single_action_space
+        obs_space = self.envs.single_observation_space
+        act_space = self.envs.single_action_space
 
         obs_dim = infer_obs_dim(obs_space)
-        if not isinstance(self.env.action_space, gym.spaces.Box):
+        if not isinstance(self.envs.action_space, gym.spaces.Box):
             # for vector envs, act_space above already set
             raise ValueError("VMPO only supports continuous action spaces.")
         if act_space.shape is None:
@@ -434,36 +317,6 @@ class VMPOTrainer:
         self.last_eval = 0
         self.eval_episodes = 15
         self.eval_seed = self.seed + 1000
-        self.eval_env = gym.vector.SyncVectorEnv(
-            [
-                (
-                    lambda i=i: _make_env(
-                        self.env_id,
-                        seed=self.eval_seed + i,
-                        gamma=self.gamma,
-                        # Evaluate on raw environment reward so returns are comparable
-                        # across checkpoints/runs. Training can still use reward norm.
-                        normalize_reward=False,
-                    )
-                )
-                for i in range(self.eval_episodes)
-            ]
-        )
-
-    def _make_train_env(
-        self,
-        *,
-        env_id: str,
-        seed: int,
-        env_index: int,
-        gamma: float,
-    ):
-        env = _make_env(
-            env_id,
-            seed=seed,
-            gamma=gamma,
-        )
-        return env
 
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
@@ -486,7 +339,7 @@ class VMPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        eval_interval = max(1, total_steps // 150)
+        eval_interval = min(5000, max(1, total_steps // 150))
         console_log_interval = max(1, min(1_000, eval_interval))
         print(
             "[VMPO] training started: "
@@ -507,7 +360,7 @@ class VMPOTrainer:
         best_eval_score = float("-inf")
         os.makedirs(out_dir, exist_ok=True)
 
-        obs, _ = self.env.reset()
+        obs, _ = self.envs.reset()
         obs = np.asarray(obs, dtype=np.float32)
         self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         global_step = 0
@@ -520,7 +373,7 @@ class VMPOTrainer:
             importance_weights = np.ones(self.num_envs, dtype=np.float32)
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
-            next_obs, reward, terminated, truncated, infos = self.env.step(action)
+            next_obs, reward, terminated, truncated, infos = self.envs.step(action)
             next_obs = np.asarray(next_obs, dtype=np.float32)
             terminated = np.asarray(terminated, dtype=bool)
             truncated = np.asarray(truncated, dtype=bool)
@@ -695,7 +548,9 @@ class VMPOTrainer:
                 metrics = self.agent.update(batch)
                 log_wandb(metrics, step=global_step, silent=True)
                 for key, value in metrics.items():
-                    interval_metric_sums[key] = interval_metric_sums.get(key, 0.0) + float(value)
+                    interval_metric_sums[key] = interval_metric_sums.get(
+                        key, 0.0
+                    ) + float(value)
                 interval_update_count += 1
                 total_update_count += 1
 
@@ -703,11 +558,19 @@ class VMPOTrainer:
 
             if self.last_eval < global_step // eval_interval:
                 self.last_eval = global_step // eval_interval
+                eval_envs = gym.vector.SyncVectorEnv(
+                    [
+                        _make_env(
+                            self.env_id,
+                            seed=self.eval_seed + i,
+                        )
+                        for i in range(self.eval_episodes)
+                    ]
+                )
                 metrics = _evaluate_vectorized(
                     agent=self.agent,
-                    eval_envs=self.eval_env,
+                    eval_envs=eval_envs,
                     seed=self.eval_seed,
-                    obs_rms_stats=_collect_vector_obs_rms_stats(self.env),
                 )
                 log_wandb(metrics, step=global_step, silent=True)
                 print(
@@ -732,7 +595,9 @@ class VMPOTrainer:
                 global_step >= total_steps or global_step % console_log_interval == 0
             )
             if should_print_progress:
-                progress = 100.0 * float(min(global_step, total_steps)) / float(total_steps)
+                progress = (
+                    100.0 * float(min(global_step, total_steps)) / float(total_steps)
+                )
                 print(
                     "[VMPO][progress] "
                     f"step={global_step}/{total_steps} ({progress:.2f}%), "
@@ -762,8 +627,7 @@ class VMPOTrainer:
                     interval_metric_sums.clear()
                     interval_update_count = 0
 
-        self.env.close()
-        self.eval_env.close()
+        self.envs.close()
 
 
 @torch.no_grad()
@@ -771,20 +635,19 @@ def _evaluate_vectorized(
     agent: VMPOAgent,
     eval_envs: gym.vector.VectorEnv,
     seed: int = 42,
-    obs_rms_stats: tuple[np.ndarray, np.ndarray, float] | None = None,
 ) -> Dict[str, float]:
     """
     High-performance vectorized evaluation.
     Runs all n_episodes in parallel using a SyncVectorEnv.
     """
     n_episodes = int(eval_envs.num_envs)
-    _apply_obs_rms_stats(eval_envs, obs_rms_stats)
 
     was_training = agent.policy.training
     agent.policy.eval()
+
     obs, _ = eval_envs.reset(seed=seed)
 
-    episode_returns = np.zeros(n_episodes)
+    episode_returns = np.zeros(n_episodes, dtype=np.float64)
     episode_lengths = np.zeros(n_episodes, dtype=np.int64)
     final_returns = []
     final_lengths = []
@@ -809,22 +672,29 @@ def _evaluate_vectorized(
 
         # Step environment
         next_obs, reward, terminated, truncated, infos = eval_envs.step(action)
-        reward_arr = np.asarray(reward, dtype=np.float32)
+        reward_arr = np.asarray(reward, dtype=np.float64)
         active_mask = ~dones
 
         # Accumulate rewards for envs that haven't finished yet
         episode_returns[active_mask] += reward_arr[active_mask]
         episode_lengths[active_mask] += 1
 
+        episode_stats = _extract_episode_returns(infos)
+        episode_return_by_env = {env_i: ep_ret for env_i, ep_ret in episode_stats}
+
         # Check for completions
         # Gymnasium VectorEnv resets automatically; we catch the return in infos
         for i in range(n_episodes):
             if not dones[i] and (terminated[i] or truncated[i]):
-                final_returns.append(episode_returns[i])
+                if i in episode_return_by_env:
+                    final_returns.append(float(episode_return_by_env[i]))
+                else:
+                    final_returns.append(float(episode_returns[i]))
                 final_lengths.append(int(episode_lengths[i]))
                 dones[i] = True
 
         obs = next_obs
+
     if was_training:
         agent.policy.train()
 

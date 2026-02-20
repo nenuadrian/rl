@@ -4,22 +4,6 @@ _Source: `minerva/trainers/ppo/trainer.py`_
 
 ## Functions
 
-### `_transform_observation`
-
-```python
-def _transform_observation(env: gym.Env, fn)
-```
-
-Gymnasium compatibility shim across wrapper signatures.
-
-### `_transform_reward`
-
-```python
-def _transform_reward(env: gym.Env, fn)
-```
-
-Gymnasium compatibility shim across wrapper signatures.
-
 ### `_resolve_env_id`
 
 ```python
@@ -28,37 +12,21 @@ def _resolve_env_id(env_id: str) -> str
 
 _No docstring provided._
 
-### `make_env`
+### `_make_env`
 
 ```python
-def make_env(gym_id: str, seed: int, normalize_observation: bool = True)
+def _make_env(gym_id: str, seed: int)
 ```
 
 _No docstring provided._
 
-### `make_eval_env`
+### `_extract_episode_stats`
 
 ```python
-def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True)
+def _extract_episode_stats(infos) -> list[tuple[int, float, float]]
 ```
 
-_No docstring provided._
-
-### `find_wrapper`
-
-```python
-def find_wrapper(env, wrapper_type)
-```
-
-_No docstring provided._
-
-### `_sync_obs_rms_to_eval_envs`
-
-```python
-def _sync_obs_rms_to_eval_envs(train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv)
-```
-
-Copy obs RMS stats from the first training env to all eval envs.
+Extract (env_index, episode_return, episode_length) from vector-env infos.
 
 ### `_evaluate_vectorized`
 
@@ -118,6 +86,14 @@ def get_value(self, x)
 
 _No docstring provided._
 
+##### `get_deterministic_action`
+
+```python
+def get_deterministic_action(self, x)
+```
+
+Return mean action after normalizing obs. Used for eval.
+
 ##### `get_action_and_value`
 
 ```python
@@ -135,7 +111,7 @@ _No docstring provided._
 ##### `__init__`
 
 ```python
-def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], rollout_steps: int, gamma: float = 0.99, gae_lambda: float = 0.95, update_epochs: int = 10, minibatch_size: int = 64, policy_lr: float = 0.0003, clip_ratio: float = 0.2, ent_coef: float = 0.0, vf_coef: float = 0.5, max_grad_norm: float = 0.5, target_kl: float = 0.02, norm_adv: bool = True, clip_vloss: bool = True, anneal_lr: bool = True, normalize_obs: bool = True, num_envs: int = 1, optimizer_type: str = 'adam', sgd_momentum: float = 0.9)
+def __init__(self, env_id: str, seed: int, device: torch.device, policy_layer_sizes: Tuple[int, ...], critic_layer_sizes: Tuple[int, ...], rollout_steps: int, gamma: float = 0.99, gae_lambda: float = 0.95, update_epochs: int = 10, minibatch_size: int = 64, policy_lr: float = 0.0003, clip_ratio: float = 0.2, ent_coef: float = 0.0, vf_coef: float = 0.5, max_grad_norm: float = 0.5, target_kl: float = 0.02, norm_adv: bool = True, clip_vloss: bool = True, anneal_lr: bool = True, num_envs: int = 1, optimizer_type: str = 'adam', sgd_momentum: float = 0.9)
 ```
 
 _No docstring provided._

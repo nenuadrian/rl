@@ -8,6 +8,5 @@ Auto-generated reference for all modules in `trainers/`.
 - [`trainers.ppo.trainer`](trainers/ppo/trainer.md)
 - [`trainers.vmpo`](trainers/vmpo.md)
 - [`trainers.vmpo.agent`](trainers/vmpo/agent.md)
-- [`trainers.vmpo.gaussian_mlp_policy`](trainers/vmpo/gaussian_mlp_policy.md)
 - [`trainers.vmpo.targets`](trainers/vmpo/targets.md)
 - [`trainers.vmpo.trainer`](trainers/vmpo/trainer.md)
