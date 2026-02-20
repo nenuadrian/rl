@@ -50,7 +50,7 @@ Given observed data $X = \{x_i\}_{i=1}^N$, MLE finds the parameters that maximiz
 \]
 
 \paragraph{Maximum a posteriori (MAP).}
-MAP adds a prior $p(\theta)$, yielding a regularized objective:
+MAP adds a prior $p(\theta)$, acting as a regularizer on the objective:
 \[
   \theta_{\mathrm{MAP}}
   =
@@ -61,7 +61,7 @@ MAP adds a prior $p(\theta)$, yielding a regularized objective:
     \log p(\theta)
   \bigr).
 \]
-The prior acts as a regularizer; with a uniform prior MAP reduces to MLE.
+MAP reduces to MLE with an uniform prior $\log p(\theta) = \log c$.
 
 \paragraph{Policy gradients.}
 Given a return objective $J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)]$, policy-gradient methods take a direct ascent step in parameter space:
@@ -75,8 +75,8 @@ Given a return objective $J(\theta)=\mathbb{E}_{\tau\sim\pi_\theta}[R(\tau)]$, p
 \]
 optionally with clipping (PPO) or explicit KL penalties to limit step size. The gradient estimate is noisy and acts directly on $\theta$.
 
-\paragraph{EM-style policy iteration.}
-EM-style methods decouple improvement from fitting by introducing an auxiliary distribution $q$. The E-step finds an improved non-parametric target by solving a regularized advantage-maximization:
+\paragraph{EM policy iteration.}
+Introduction an auxiliary distribution $q$ for decoupling of improvement and fitting. The E-step finds an improved non-parametric target by solving a regularized advantage-maximization:
 \[
   q_{k+1}
   =
@@ -94,7 +94,7 @@ EM-style methods decouple improvement from fitting by introducing an auxiliary d
   \pi_k(a\mid s)\,
   \exp\!\Big(\frac{A^{\pi_k}(s,a)}{\eta}\Big).
 \]
-The M-step then projects this target back onto the parametric policy family via weighted maximum likelihood:
+The M-step then projects this target back onto the parametric policy via weighted maximum likelihood:
 \[
   \theta_{k+1}
   =
@@ -102,10 +102,10 @@ The M-step then projects this target back onto the parametric policy family via 
   \mathbb{E}_{a\sim q_{k+1}}
   [\log \pi_\theta(a\mid s)],
 \]
-often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$. This connection to classical EM is direct: the E-step constructs a target distribution (analogous to computing the posterior $q(z) = p_{\theta_k}(z\mid x)$), and the M-step fits the model to that target (analogous to maximizing the expected complete-data log-likelihood).
+often with an additional trust-region term on $\mathrm{KL}(\pi_k\|\pi_\theta)$. Connection to classical EM: the E-step constructs a target distribution (analogous to computing the posterior $q(z) = p_{\theta_k}(z\mid x)$), and the M-step fits the model to that target (analogous to maximizing the expected complete-data log-likelihood).
 
 \paragraph{Key distinction.}
-Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform policy improvement in distribution space first, then do weighted maximum-likelihood fitting. The M-step is structurally identical to supervised learning, which has practical consequences for stability, dropout compatibility, and integration with standard training pipelines---themes that recur throughout this paper.
+Policy gradients optimize parameters directly via noisy first-order steps. EM-style methods perform policy improvement in distribution space first, then do weighted maximum-likelihood fitting. The M-step is structurally identical to supervised learning, which has practical consequences for stability, dropout compatibility, and integration with standard training pipelines.
 
 \paragraph{LLM alignment.}
 Supervised fine-tuning (SFT) is MLE: maximise $\sum_t \log \pi_\theta(y_t \mid y_{<t}, x)$ over demonstration data, with no reward signal or policy comparison. It is the starting point for most alignment pipelines, producing the initial policy that subsequent RL stages improve. PPO is the canonical policy-gradient method for RLHF: it collects on-policy rollouts scored by a reward model and updates $\theta$ via clipped importance-sampling ratios. V-MPO, AWR, and DAR are EM-style alternatives that replace the ratio-based gradient with the E-step/M-step decomposition above---the M-step is weighted cross-entropy over the same rollouts, differing only in how the weights are computed. DPO collapses the EM loop into a single preference-MLE objective by analytically eliminating the E-step, avoiding explicit reward modelling or rollout generation entirely.

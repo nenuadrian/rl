@@ -1,14 +1,127 @@
 from __future__ import annotations
 
-import math
 from typing import Tuple, Dict, Any, Literal
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Normal
 
-from minerva.trainers.vmpo.gaussian_mlp_policy import SquashedGaussianPolicy
+from minerva.utils.running_norm import RunningNorm
+
+
+def layer_init(layer: nn.Linear, std: float = np.sqrt(2.0), bias_const: float = 0.0):
+    nn.init.orthogonal_(layer.weight, std)
+    nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class DiagonalGaussianPolicy(nn.Module):
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        policy_layer_sizes: Tuple[int, ...] = (256, 256),
+        value_layer_sizes: Tuple[int, ...] = (256, 256),
+        shared_encoder: bool = False,
+    ):
+        super().__init__()
+        if len(policy_layer_sizes) == 0:
+            raise ValueError("policy_layer_sizes must contain at least one layer size")
+        if len(value_layer_sizes) == 0:
+            raise ValueError("value_layer_sizes must contain at least one layer size")
+
+        self.shared_encoder = shared_encoder
+        self.obs_normalizer = RunningNorm(obs_dim)
+
+        self.policy_encoder = self._build_mlp(obs_dim, policy_layer_sizes)
+        self.value_encoder = (
+            self.policy_encoder
+            if shared_encoder
+            else self._build_mlp(obs_dim, value_layer_sizes)
+        )
+
+        self.policy_mean = layer_init(
+            nn.Linear(policy_layer_sizes[-1], act_dim), std=0.01
+        )
+        self.policy_logstd = nn.Parameter(torch.zeros(1, act_dim))
+
+        value_head_in_dim = (
+            policy_layer_sizes[-1] if shared_encoder else value_layer_sizes[-1]
+        )
+        self.value_head = layer_init(nn.Linear(value_head_in_dim, 1), std=1.0)
+
+    @staticmethod
+    def _build_mlp(
+        input_dim: int,
+        hidden_layer_sizes: Tuple[int, ...],
+    ) -> nn.Sequential:
+        layers = []
+        last_dim = input_dim
+        for hidden_dim in hidden_layer_sizes:
+            layers.extend([layer_init(nn.Linear(last_dim, hidden_dim)), nn.Tanh()])
+            last_dim = hidden_dim
+        return nn.Sequential(*layers)
+
+    def policy_logstd_parameters(self) -> list[nn.Parameter]:
+        return [self.policy_logstd]
+
+    def _mean_and_log_std(self, encoded_obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mean = self.policy_mean(encoded_obs)
+        log_std = self.policy_logstd.expand_as(mean)
+        return mean, log_std
+
+    def get_policy_dist_params(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Internal helper to get raw distribution parameters."""
+        obs = self.obs_normalizer(obs)
+        h = self.policy_encoder(obs)
+        return self._mean_and_log_std(h)
+
+    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.get_policy_dist_params(obs)
+
+    def get_value(self, obs: torch.Tensor) -> torch.Tensor:
+        obs = self.obs_normalizer(obs)
+        if self.shared_encoder:
+            h = self.policy_encoder(obs)
+        else:
+            h = self.value_encoder(obs)
+        return self.value_head(h)
+
+    def forward_all(self, obs):
+        obs = self.obs_normalizer(obs)
+        h = self.policy_encoder(obs)
+        mean, log_std = self._mean_and_log_std(h)
+        h_val = h if self.shared_encoder else self.value_encoder(obs)
+        v = self.value_head(h_val)
+        return mean, log_std, v
+
+    def log_prob(
+        self,
+        mean: torch.Tensor,
+        log_std: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> torch.Tensor:
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        return normal.log_prob(actions).sum(dim=-1, keepdim=True)
+
+    def sample_action(
+        self,
+        mean: torch.Tensor,
+        log_std: torch.Tensor,
+        deterministic: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if deterministic:
+            return mean, torch.zeros((mean.shape[0], 1), device=mean.device)
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        action = normal.sample()
+        log_prob = normal.log_prob(action).sum(dim=-1, keepdim=True)
+        return action, log_prob
 
 
 class VMPOAgent:
@@ -17,8 +130,6 @@ class VMPOAgent:
         self,
         obs_dim: int,
         act_dim: int,
-        action_low: np.ndarray,
-        action_high: np.ndarray,
         device: torch.device,
         policy_layer_sizes: Tuple[int, ...] = (256, 256),
         value_layer_sizes: Tuple[int, ...] = (256, 256),
@@ -39,7 +150,6 @@ class VMPOAgent:
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
         shared_encoder: bool = False,
-        ppo_like_backbone: bool = False,
         m_steps: int = 1,
     ):
         self.device = device
@@ -61,23 +171,18 @@ class VMPOAgent:
         self.sgd_momentum = float(sgd_momentum)
         self.m_steps = int(m_steps)
 
-        self.policy = SquashedGaussianPolicy(
+        self.policy = DiagonalGaussianPolicy(
             obs_dim=obs_dim,
             act_dim=act_dim,
             policy_layer_sizes=policy_layer_sizes,
             value_layer_sizes=value_layer_sizes,
-            action_low=action_low,
-            action_high=action_high,
             shared_encoder=shared_encoder,
-            ppo_like_backbone=ppo_like_backbone,
         ).to(device)
 
         value_params = list(self.policy.value_head.parameters())
         if not self.policy.shared_encoder:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
-        # LaTeX: \tilde{\lambda}_{\pi} = \frac{\lambda_{\pi}}{\sqrt{M}}
         policy_lr_eff = self.policy_lr
-        # LaTeX: \tilde{\lambda}_{V} = \frac{\lambda_{V}}{\sqrt{M}}
         value_lr_eff = self.value_lr
 
         self.combined_opt = self._build_optimizer(
@@ -95,27 +200,24 @@ class VMPOAgent:
 
         # Lagrange Multipliers (Dual Variables)
 
-        # Temperature (eta) for advantage weighting
+        # Temperature (eta) for advantage weighting: eta = exp(log_temperature)
         temperature_init_t = torch.tensor(
             self.temperature_init, dtype=torch.float32, device=device
         )
         temperature_init_t = torch.clamp(temperature_init_t, min=1e-8)
-        self.log_temperature = nn.Parameter(torch.log(torch.expm1(temperature_init_t)))
+        self.log_temperature = nn.Parameter(torch.log(temperature_init_t))
         self.eta_opt = self._build_optimizer(
             [self.log_temperature], lr=self.temperature_lr
         )
 
-        # KL Penalties (alpha) for trust region
-        def inv_softplus(x):
-            return np.log(np.expm1(x))
-
+        # KL Penalties (alpha) for trust region: alpha = exp(log_alpha)
+        # exp(0.0) = 1.0
         self.log_alpha_mu = nn.Parameter(
-            torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
+            torch.tensor(0.0, dtype=torch.float32, device=device)
         )
         self.log_alpha_sigma = nn.Parameter(
-            torch.tensor(inv_softplus(1.0), dtype=torch.float32, device=device)
+            torch.tensor(0.0, dtype=torch.float32, device=device)
         )
-        # LaTeX: \tilde{\lambda}_{\alpha} = \frac{\lambda_{\alpha}}{\sqrt{M}}
         effective_alpha_lr = self.alpha_lr #/ math.sqrt(self.m_steps)
         self.alpha_opt = self._build_optimizer(
             [self.log_alpha_mu, self.log_alpha_sigma], lr=effective_alpha_lr
@@ -156,7 +258,7 @@ class VMPOAgent:
         action_np = action_t.cpu().numpy()
         value_np = value.cpu().numpy().squeeze(-1)
         mean_np = mean.cpu().numpy()
-        log_std_np = log_std.cpu().numpy()
+        log_std_np = log_std.detach().cpu().numpy()
 
         if not is_batch:
             return (
@@ -217,8 +319,8 @@ class VMPOAgent:
         # ================================================================
         # E-Step: Re-weighting advantages (DeepMind-style semantics)
         # ================================================================
-        # LaTeX: \eta = \operatorname{softplus}(\tilde{\eta}) + \epsilon
-        eta = F.softplus(self.log_temperature) + 1e-8
+        # LaTeX: \eta = \exp(\log \eta)
+        eta = torch.exp(self.log_temperature)
         # LaTeX: s_t = \frac{w_t^{restart}\hat{A}_t}{\eta}
         scaled_advantages = (restarting_weights * advantages) / eta
 
@@ -293,8 +395,8 @@ class VMPOAgent:
 
         # Compute Final Weights for Policy
         with torch.no_grad():
-            # LaTeX: \eta' = \operatorname{softplus}(\tilde{\eta}) + \epsilon
-            eta_final = F.softplus(self.log_temperature) + 1e-8
+            # LaTeX: \eta' = \exp(\log \eta)
+            eta_final = torch.exp(self.log_temperature)
             # Logging: effective sample size and selection stats.
             ess = 1.0 / (weights_detached.pow(2).sum() + 1e-12)
             selected_frac = float(mask_bool.float().mean().item())
@@ -372,10 +474,10 @@ class VMPOAgent:
             )
 
             # -- Alpha Optimization --
-            # LaTeX: \alpha_{\mu} = \operatorname{softplus}(\tilde{\alpha}_{\mu}) + \epsilon
-            alpha_mu = F.softplus(self.log_alpha_mu) + 1e-8
-            # LaTeX: \alpha_{\sigma} = \operatorname{softplus}(\tilde{\alpha}_{\sigma}) + \epsilon
-            alpha_sigma = F.softplus(self.log_alpha_sigma) + 1e-8
+            # LaTeX: \alpha_{\mu} = \exp(\log \alpha_{\mu})
+            alpha_mu = torch.exp(self.log_alpha_mu)
+            # LaTeX: \alpha_{\sigma} = \exp(\log \alpha_{\sigma})
+            alpha_sigma = torch.exp(self.log_alpha_sigma)
 
             # We minimize: alpha * (epsilon - KL)
             # LaTeX: \mathcal{L}_{\alpha} = \alpha_{\mu}(\epsilon_{\mu} - D_{\mu}) + \alpha_{\sigma}(\epsilon_{\sigma} - D_{\sigma})
@@ -389,8 +491,8 @@ class VMPOAgent:
 
             # -- Final Policy Loss --
             with torch.no_grad():
-                alpha_mu_det = F.softplus(self.log_alpha_mu).detach() + 1e-8
-                alpha_sigma_det = F.softplus(self.log_alpha_sigma).detach() + 1e-8
+                alpha_mu_det = torch.exp(self.log_alpha_mu).detach()
+                alpha_sigma_det = torch.exp(self.log_alpha_sigma).detach()
 
             # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi}^{NLL} + \alpha_{\mu}D_{\mu} + \alpha_{\sigma}D_{\sigma}
 

@@ -8,20 +8,19 @@ from hyperparameters._common import get_preset
 SHARED_VMPO_PARAMS: dict[str, Any] = {
     "num_envs": 1,
     "rollout_steps": 4096,
-    "m_steps": 64,
+    "m_steps": 16,
     "policy_layer_sizes": (512, 256),
     "value_layer_sizes": (512, 256),
-    "ppo_like_backbone": False,
     "gamma": 0.98,
     "policy_lr": 1e-4,
     "value_lr": 1e-4,
-    "topk_fraction": 0.7,
-    "temperature_init": 5.0,
+    "topk_fraction": 0.6,
+    "temperature_init": 1.0,
     "temperature_lr": 1e-4,
     "alpha_lr": 1e-4,
     "epsilon_eta": 0.15,
     "epsilon_mu": 0.05,
-    "epsilon_sigma": 0.001,
+    "epsilon_sigma": 0.01,
     "max_grad_norm": 0.5,
     "normalize_advantages": True,
     "optimizer_type": "adam",
@@ -57,8 +56,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Humanoid-v5": {
         "total_steps": 5_000_000,
         **SHARED_VMPO_PARAMS,
-        # Keep VMPO objective while matching PPO-style backbone for fairer comparison.
-        "ppo_like_backbone": True,
     },
     "Ant-v5": {
         "total_steps": 5_000_000,

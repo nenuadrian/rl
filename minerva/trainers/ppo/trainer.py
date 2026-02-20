@@ -12,23 +12,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.normal import Normal
 
+from minerva.utils.running_norm import RunningNorm
 from minerva.utils.wandb_utils import log_wandb
-
-
-def _transform_observation(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformObservation(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformObservation(env, fn, env.observation_space)
-
-
-def _transform_reward(env: gym.Env, fn):
-    """Gymnasium compatibility shim across wrapper signatures."""
-    try:
-        return gym.wrappers.TransformReward(env, fn)
-    except TypeError:
-        return gym.wrappers.TransformReward(env, fn, env.reward_range)
 
 
 def _resolve_env_id(env_id: str) -> str:
@@ -44,24 +29,20 @@ def _resolve_env_id(env_id: str) -> str:
     return env_id
 
 
-def make_env(
+def _make_env(
     gym_id: str,
     seed: int,
-    normalize_observation: bool = True,
 ):
     def thunk():
         resolved_env_id = _resolve_env_id(gym_id)
         env = gym.make(resolved_env_id)
 
-        # Keep dm_control compatibility while preserving implementation-details PPO logic.
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
-        if normalize_observation:
-            env = gym.wrappers.NormalizeObservation(env)
-            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
+        # Observation normalization is handled by RunningNorm inside the network.
         env = gym.wrappers.NormalizeReward(env)
-        env = _transform_reward(env, lambda reward: np.clip(reward, -10, 10))
+        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
 
         env.reset(seed=seed)
         env.action_space.seed(seed)
@@ -71,46 +52,31 @@ def make_env(
     return thunk
 
 
-def make_eval_env(gym_id: str, seed: int, normalize_observation: bool = True):
-    def thunk():
-        resolved_env_id = _resolve_env_id(gym_id)
-        env = gym.make(resolved_env_id)
-        env = gym.wrappers.FlattenObservation(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
-        if normalize_observation:
-            env = gym.wrappers.NormalizeObservation(env)
-            env = _transform_observation(env, lambda obs: np.clip(obs, -10, 10))
-        env.reset(seed=seed)
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
+def _extract_episode_stats(infos) -> list[tuple[int, float, float]]:
+    """Extract (env_index, episode_return, episode_length) from vector-env infos."""
+    stats: list[tuple[int, float, float]] = []
+    if not isinstance(infos, dict):
+        return stats
 
-    return thunk
+    if "episode" in infos:
+        episode = infos["episode"]
+        ep_returns = np.asarray(episode["r"]).reshape(-1)
+        ep_lengths = np.asarray(episode["l"]).reshape(-1)
+        ep_mask = np.asarray(
+            infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
+        ).reshape(-1)
+        for idx in np.where(ep_mask)[0]:
+            stats.append((int(idx), float(ep_returns[idx]), float(ep_lengths[idx])))
+        return stats
 
+    if "final_info" in infos:
+        for idx, item in enumerate(infos["final_info"]):
+            if item and "episode" in item:
+                episode_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
+                episode_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
+                stats.append((int(idx), episode_return, episode_length))
 
-def find_wrapper(env, wrapper_type):
-    current = env
-    while current is not None:
-        if isinstance(current, wrapper_type):
-            return current
-        current = getattr(current, "env", None)
-    return None
-
-
-def _sync_obs_rms_to_eval_envs(
-    train_envs: gym.vector.VectorEnv, eval_envs: gym.vector.VectorEnv
-):
-    """Copy obs RMS stats from the first training env to all eval envs."""
-    train_norm = find_wrapper(train_envs.envs[0], gym.wrappers.NormalizeObservation)
-    if train_norm is None:
-        return
-    for eval_env in eval_envs.envs:
-        eval_norm = find_wrapper(eval_env, gym.wrappers.NormalizeObservation)
-        if eval_norm is not None:
-            eval_norm.obs_rms.mean = np.copy(train_norm.obs_rms.mean)
-            eval_norm.obs_rms.var = np.copy(train_norm.obs_rms.var)
-            eval_norm.obs_rms.count = train_norm.obs_rms.count
+    return stats
 
 
 @torch.no_grad()
@@ -125,12 +91,6 @@ def _evaluate_vectorized(
     was_training = agent.training
     agent.eval()
 
-    # Freeze obs normalization updates during eval.
-    for env in eval_envs.envs:
-        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if norm is not None and hasattr(norm, "update_running_mean"):
-            norm.update_running_mean = False
-
     obs, _ = eval_envs.reset(seed=seed)
     episode_returns = np.zeros(n_episodes, dtype=np.float64)
     episode_lengths = np.zeros(n_episodes, dtype=np.int64)
@@ -140,22 +100,25 @@ def _evaluate_vectorized(
 
     while len(final_returns) < n_episodes:
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
-        action = agent.actor_mean(obs_t).cpu().numpy()
-        obs, reward, terminated, truncated, _ = eval_envs.step(action)
-        episode_returns += np.asarray(reward, dtype=np.float64)
-        episode_lengths += 1
+        action = agent.get_deterministic_action(obs_t).cpu().numpy()
+        obs, reward, terminated, truncated, infos = eval_envs.step(action)
+        reward_arr = np.asarray(reward, dtype=np.float64)
+        active_mask = ~done_mask
+        episode_returns[active_mask] += reward_arr[active_mask]
+        episode_lengths[active_mask] += 1
+        ep_stats = _extract_episode_stats(infos)
+        ep_stats_by_env = {env_i: (ret, length) for env_i, ret, length in ep_stats}
         done = np.asarray(terminated) | np.asarray(truncated)
         for i in range(n_episodes):
             if not done_mask[i] and done[i]:
-                final_returns.append(float(episode_returns[i]))
-                final_lengths.append(int(episode_lengths[i]))
+                if i in ep_stats_by_env:
+                    episode_return, episode_length = ep_stats_by_env[i]
+                    final_returns.append(float(episode_return))
+                    final_lengths.append(int(episode_length))
+                else:
+                    final_returns.append(float(episode_returns[i]))
+                    final_lengths.append(int(episode_lengths[i]))
                 done_mask[i] = True
-
-    # Re-enable obs normalization updates.
-    for env in eval_envs.envs:
-        norm = find_wrapper(env, gym.wrappers.NormalizeObservation)
-        if norm is not None and hasattr(norm, "update_running_mean"):
-            norm.update_running_mean = True
 
     if was_training:
         agent.train()
@@ -164,45 +127,16 @@ def _evaluate_vectorized(
 
 
 def log_episode_stats(infos, global_step: int):
-    if not isinstance(infos, dict):
-        return
-
-    # Vector envs commonly expose episode stats as infos["episode"] with infos["_episode"] mask.
-    if "episode" in infos:
-        episode = infos["episode"]
-        ep_returns = np.asarray(episode["r"]).reshape(-1)
-        ep_lengths = np.asarray(episode["l"]).reshape(-1)
-        ep_mask = np.asarray(
-            infos.get("_episode", np.ones_like(ep_returns, dtype=bool))
-        ).reshape(-1)
-        for idx in np.where(ep_mask)[0]:
-            episode_return = float(ep_returns[idx])
-            episode_length = float(ep_lengths[idx])
-            print(f"global_step={global_step}, episode_return={episode_return}")
-            log_wandb(
-                {
-                    "train/episode_return": episode_return,
-                    "train/episode_length": episode_length,
-                },
-                step=global_step,
-                silent=True,
-            )
-
-    # Some wrappers/setups expose terminal episode stats via final_info.
-    elif "final_info" in infos:
-        for item in infos["final_info"]:
-            if item and "episode" in item:
-                episode_return = float(np.asarray(item["episode"]["r"]).reshape(-1)[0])
-                episode_length = float(np.asarray(item["episode"]["l"]).reshape(-1)[0])
-                print(f"global_step={global_step}, episode_return={episode_return}")
-                log_wandb(
-                    {
-                        "train/episode_return": episode_return,
-                        "train/episode_length": episode_length,
-                    },
-                    step=global_step,
-                    silent=True,
-                )
+    for _, episode_return, episode_length in _extract_episode_stats(infos):
+        print(f"global_step={global_step}, episode_return={episode_return}")
+        log_wandb(
+            {
+                "train/episode_return": episode_return,
+                "train/episode_length": episode_length,
+            },
+            step=global_step,
+            silent=True,
+        )
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -224,6 +158,8 @@ class Agent(nn.Module):
             raise ValueError("policy_layer_sizes must contain at least one layer size")
         if len(value_layer_sizes) == 0:
             raise ValueError("critic_layer_sizes must contain at least one layer size")
+
+        self.obs_normalizer = RunningNorm(obs_dim)
 
         self.critic = self._build_mlp(
             input_dim=obs_dim,
@@ -255,9 +191,16 @@ class Agent(nn.Module):
         return nn.Sequential(*layers)
 
     def get_value(self, x):
+        x = self.obs_normalizer(x)
         return self.critic(x)
 
+    def get_deterministic_action(self, x):
+        """Return mean action after normalizing obs. Used for eval."""
+        x = self.obs_normalizer(x)
+        return self.actor_mean(x)
+
     def get_action_and_value(self, x, action=None):
+        x = self.obs_normalizer(x)
         action_mean = self.actor_mean(x)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         # LaTeX: \sigma_{\theta}(s_t) = \exp(\log \sigma_{\theta}(s_t))
@@ -297,7 +240,6 @@ class PPOTrainer:
         norm_adv: bool = True,
         clip_vloss: bool = True,
         anneal_lr: bool = True,
-        normalize_obs: bool = True,
         num_envs: int = 1,
         optimizer_type: str = "adam",
         sgd_momentum: float = 0.9,
@@ -331,9 +273,7 @@ class PPOTrainer:
         self.optimizer_type = str(optimizer_type).strip().lower()
         self.sgd_momentum = float(sgd_momentum)
 
-        self.normalize_obs = bool(normalize_obs)
-
-        self.eval_episodes = 50
+        self.eval_episodes = 15
         self.eval_deterministic = True
 
         # Keep ppo-implementation-details behavior deterministic.
@@ -344,22 +284,11 @@ class PPOTrainer:
 
         self.envs = gym.vector.SyncVectorEnv(
             [
-                make_env(
+                _make_env(
                     self.env_id,
                     self.seed + i,
-                    normalize_observation=self.normalize_obs,
                 )
                 for i in range(self.num_envs)
-            ]
-        )
-        self.eval_envs = gym.vector.SyncVectorEnv(
-            [
-                make_eval_env(
-                    self.env_id,
-                    self.seed + 10_000 + i,
-                    normalize_observation=self.normalize_obs,
-                )
-                for i in range(self.eval_episodes)
             ]
         )
         assert isinstance(
@@ -409,21 +338,9 @@ class PPOTrainer:
         out_dir: str,
     ):
         total_steps = int(total_steps)
-        # LaTeX: \Delta t_{eval} = \max\left(1, \left\lfloor \frac{T_{total}}{150} \right\rfloor\right)
-        eval_interval = max(1, total_steps // 150)
-
-        # LaTeX: U = \left\lfloor \frac{T_{total}}{N \cdot T} \right\rfloor
+        eval_interval = min(5000, max(1, total_steps // 150))
 
         num_updates = total_steps // self.batch_size
-        if num_updates <= 0:
-            print(
-                "[PPO] no updates scheduled because requested_total_steps < batch_size "
-                f"({total_steps} < {self.batch_size})."
-            )
-            self.envs.close()
-            self.eval_env.close()
-            return
-
         obs = torch.zeros(
             (self.num_steps, self.num_envs) + self.envs.single_observation_space.shape,
             device=self.device,
@@ -490,10 +407,18 @@ class PPOTrainer:
 
                 if global_step // eval_interval > last_eval:
                     last_eval = global_step // eval_interval
-                    _sync_obs_rms_to_eval_envs(self.envs, self.eval_envs)
+                    eval_envs = gym.vector.SyncVectorEnv(
+                        [
+                            _make_env(
+                                self.env_id,
+                                self.seed + 10_000 + i,
+                            )
+                            for i in range(self.eval_episodes)
+                        ]
+                    )
                     eval_returns, eval_lengths = _evaluate_vectorized(
                         self.agent,
-                        self.eval_envs,
+                        eval_envs,
                         self.device,
                         seed=self.seed + 10_000,
                     )
@@ -702,4 +627,3 @@ class PPOTrainer:
             print("SPS:", sps)
 
         self.envs.close()
-        self.eval_envs.close()

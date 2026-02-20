@@ -12,14 +12,10 @@ def test_vmpo_agent_act_and_update():
 
     obs_dim = 6
     act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
 
     agent = VMPOAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         gamma=0.99,
@@ -69,27 +65,22 @@ def test_vmpo_agent_act_and_update():
     assert "kl/std" in metrics
 
 
-def test_vmpo_agent_ppo_like_backbone_act_and_update():
+def test_vmpo_agent_logstd_is_parameter():
     torch.manual_seed(0)
     np.random.seed(0)
 
     obs_dim = 6
     act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
 
     agent = VMPOAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         value_layer_sizes=(32, 32),
-        ppo_like_backbone=True,
     )
-    assert agent.policy.ppo_like_backbone is True
     assert len(agent.policy.policy_logstd_parameters()) == 1
+    assert isinstance(agent.policy.policy_logstd, torch.nn.Parameter)
 
     obs = np.random.randn(obs_dim).astype(np.float32)
     action, value, mean, log_std = agent.act(obs, deterministic=False)
@@ -118,14 +109,10 @@ def test_vmpo_agent_ppo_like_backbone_act_and_update():
 def test_vmpo_agent_supports_sgd_optimizer():
     obs_dim = 6
     act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
 
     agent = VMPOAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         optimizer_type="sgd",
@@ -139,21 +126,17 @@ def test_vmpo_agent_supports_sgd_optimizer():
 def test_vmpo_temperature_init_maps_to_eta_space():
     obs_dim = 6
     act_dim = 2
-    action_low = -np.ones(act_dim, dtype=np.float32)
-    action_high = np.ones(act_dim, dtype=np.float32)
 
     target_temperature = 2.0
     agent = VMPOAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
-        action_low=action_low,
-        action_high=action_high,
         device=torch.device("cpu"),
         policy_layer_sizes=(32, 32),
         temperature_init=target_temperature,
     )
 
-    eta = torch.nn.functional.softplus(agent.log_temperature.detach())
+    eta = torch.exp(agent.log_temperature.detach())
     assert torch.allclose(eta, torch.tensor(target_temperature), rtol=1e-6, atol=1e-6)
 
 

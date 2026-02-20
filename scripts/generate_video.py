@@ -142,7 +142,6 @@ def main() -> None:
             else None
         ),
         shared_encoder=bool(getattr(args, "shared_encoder", False)),
-        ppo_like_backbone=bool(getattr(args, "ppo_like_backbone", False)),
         device=device,
     )
     print(f"Saved video to: {saved_path}")

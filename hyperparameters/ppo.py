@@ -24,7 +24,6 @@ SHARED_PPO_PARAMS: dict[str, Any] = {
     "norm_adv": True,
     "clip_vloss": True,
     "anneal_lr": True,
-    "normalize_obs": True,
 }
 
 
