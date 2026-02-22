@@ -156,14 +156,79 @@ def _extract_episode_returns(infos) -> list[tuple[int, float]]:
     return returns
 
 
+def _format_scalar(value: float) -> str:
+    value_f = float(value)
+    if np.isnan(value_f):
+        return "nan"
+    if np.isposinf(value_f):
+        return "+inf"
+    if np.isneginf(value_f):
+        return "-inf"
+    return f"{value_f:.6g}"
+
+
+def _array_preview(values: np.ndarray, max_items: int = 12) -> str:
+    flat = np.asarray(values).reshape(-1)
+    if flat.size == 0:
+        return "[]"
+    preview = ", ".join(_format_scalar(v) for v in flat[:max_items])
+    if flat.size > max_items:
+        preview = f"{preview}, ..."
+    return f"[{preview}]"
+
+
+def _array_stats(values: np.ndarray) -> str:
+    arr = np.asarray(values, dtype=np.float64)
+    total = int(arr.size)
+    finite_mask = np.isfinite(arr)
+    finite_count = int(finite_mask.sum())
+    if finite_count > 0:
+        finite_vals = arr[finite_mask]
+        min_value = _format_scalar(float(np.min(finite_vals)))
+        max_value = _format_scalar(float(np.max(finite_vals)))
+        range_text = f"{min_value}..{max_value}"
+    else:
+        range_text = "n/a"
+    return (
+        f"shape={arr.shape}, finite={finite_count}/{total}, "
+        f"range={range_text}, sample={_array_preview(arr)}"
+    )
+
+
+def _space_summary(name: str, space: gym.Space) -> list[str]:
+    lines = [f"{name}: type={type(space).__name__}, repr={space!r}"]
+    shape = getattr(space, "shape", None)
+    dtype = getattr(space, "dtype", None)
+    if shape is not None or dtype is not None:
+        lines.append(f"{name}: shape={shape}, dtype={dtype}")
+
+    if isinstance(space, gym.spaces.Box):
+        lines.append(f"{name}: low({_array_stats(space.low)})")
+        lines.append(f"{name}: high({_array_stats(space.high)})")
+    elif isinstance(space, gym.spaces.Discrete):
+        lines.append(f"{name}: n={int(space.n)}")
+    elif isinstance(space, gym.spaces.MultiDiscrete):
+        lines.append(f"{name}: nvec={_array_preview(space.nvec)}")
+    elif isinstance(space, gym.spaces.MultiBinary):
+        lines.append(f"{name}: n={space.n}")
+
+    return lines
+
+
+def _wrapper_chain(env: gym.Env, max_depth: int = 64) -> list[str]:
+    chain: list[str] = []
+    current = env
+    for _ in range(max_depth):
+        if current is None:
+            break
+        chain.append(type(current).__name__)
+        current = getattr(current, "env", None)
+    return chain
+
+
 def _resolve_env_id(env_id: str) -> str:
     if env_id.startswith("dm_control/"):
         parts = env_id.split("/")
-        if len(parts) != 3:
-            raise ValueError(
-                "Expected dm_control env id format 'dm_control/<domain>/<task>', "
-                f"got '{env_id}'"
-            )
         _, domain, task = parts
         return f"dm_control/{domain}-{task}-v0"
     return env_id
@@ -181,8 +246,10 @@ def _make_env(
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
         # Observation normalization is handled by RunningNorm inside the network.
-        env = gym.wrappers.NormalizeReward(env)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+        # dm_control rewards are bounded [0, 1]; normalization is unnecessary and harmful.
+        if not gym_id.startswith("dm_control/"):
+            env = gym.wrappers.NormalizeReward(env)
+            env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
 
         env.reset(seed=seed)
         env.action_space.seed(seed)
@@ -232,6 +299,7 @@ class VMPOTrainer:
     ):
         self.num_envs = int(num_envs)
         self.env_id = env_id
+        self.resolved_env_id = _resolve_env_id(env_id)
         self.seed = seed
         self.gamma = float(gamma)
         self.advantage_estimator = str(advantage_estimator)
@@ -254,10 +322,10 @@ class VMPOTrainer:
         if not isinstance(self.envs.action_space, gym.spaces.Box):
             # for vector envs, act_space above already set
             raise ValueError("VMPO only supports continuous action spaces.")
-        if act_space.shape is None:
-            raise ValueError("Action space has no shape.")
         act_shape = act_space.shape
         act_dim = int(np.prod(act_shape))
+        self.obs_dim = int(obs_dim)
+        self.act_dim = int(act_dim)
         self.act_shape = act_shape
 
         self.agent = VMPOAgent(
@@ -292,8 +360,6 @@ class VMPOTrainer:
         self.actions_buf: list[np.ndarray] = []
         self.rewards_buf: list[np.ndarray] = []
         self.dones_buf: list[np.ndarray] = []
-        self.restarting_weights_buf: list[np.ndarray] = []
-        self.importance_weights_buf: list[np.ndarray] = []
         self.timeout_bootstrap_buf: list[np.ndarray] = []
         self.values_buf: list[np.ndarray] = []
         self.means_buf: list[np.ndarray] = []
@@ -301,19 +367,62 @@ class VMPOTrainer:
 
         # episode returns per environment
         self.episode_return = np.zeros(self.num_envs, dtype=np.float32)
-        # Current observation is episode start until the first action is taken.
-        self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         self.last_eval = 0
         self.eval_episodes = 15
         self.eval_seed = self.seed + 1000
+
+    def _print_env_summary(self) -> None:
+        print(
+            "[VMPO][env] "
+            f"requested_id={self.env_id}, resolved_id={self.resolved_env_id}, "
+            f"num_envs={self.num_envs}, seed_range=[{self.seed}, {self.seed + self.num_envs - 1}]"
+        )
+        print(
+            "[VMPO][env] "
+            f"vector_env_type={type(self.envs).__name__}, "
+            f"obs_dim={self.obs_dim}, act_dim={self.act_dim}, act_shape={self.act_shape}"
+        )
+
+        first_env = None
+        envs_list = getattr(self.envs, "envs", None)
+        if isinstance(envs_list, list) and len(envs_list) > 0:
+            first_env = envs_list[0]
+
+        if first_env is not None:
+            spec = getattr(first_env, "spec", None)
+            if spec is not None:
+                print(
+                    "[VMPO][env] "
+                    f"spec.id={getattr(spec, 'id', None)!r}, "
+                    f"max_episode_steps={getattr(spec, 'max_episode_steps', None)}, "
+                    f"reward_threshold={getattr(spec, 'reward_threshold', None)}"
+                )
+            reward_range = getattr(first_env, "reward_range", None)
+            if reward_range is not None:
+                print(f"[VMPO][env] reward_range={reward_range}")
+            metadata = getattr(first_env, "metadata", None)
+            if isinstance(metadata, dict):
+                print(
+                    "[VMPO][env] "
+                    f"metadata.render_modes={metadata.get('render_modes')}, "
+                    f"metadata.render_fps={metadata.get('render_fps')}"
+                )
+            wrappers = _wrapper_chain(first_env)
+            if wrappers:
+                print(f"[VMPO][env] wrappers[env0]={' -> '.join(wrappers)}")
+
+        for line in _space_summary(
+            "observation_space", self.envs.single_observation_space
+        ):
+            print(f"[VMPO][env] {line}")
+        for line in _space_summary("action_space", self.envs.single_action_space):
+            print(f"[VMPO][env] {line}")
 
     def _reset_rollout(self) -> None:
         self.obs_buf.clear()
         self.actions_buf.clear()
         self.rewards_buf.clear()
         self.dones_buf.clear()
-        self.restarting_weights_buf.clear()
-        self.importance_weights_buf.clear()
         self.timeout_bootstrap_buf.clear()
         self.values_buf.clear()
         self.means_buf.clear()
@@ -330,6 +439,7 @@ class VMPOTrainer:
         total_steps = int(total_steps)
         eval_interval = min(5000, max(1, total_steps // 150))
         console_log_interval = max(1, min(1_000, eval_interval))
+        self._print_env_summary()
         print(
             "[VMPO] training started: "
             f"total_steps={total_steps}, "
@@ -351,15 +461,12 @@ class VMPOTrainer:
 
         obs, _ = self.envs.reset()
         obs = np.asarray(obs, dtype=np.float32)
-        self.episode_start_flags = np.ones(self.num_envs, dtype=bool)
         global_step = 0
         env_steps = 0
 
         while global_step < total_steps:
             env_steps += 1
             global_step += self.num_envs
-            restarting_weights = 1.0 - self.episode_start_flags.astype(np.float32)
-            importance_weights = np.ones(self.num_envs, dtype=np.float32)
             action, value, mean, log_std = self.agent.act(obs, deterministic=False)
 
             next_obs, reward, terminated, truncated, infos = self.envs.step(action)
@@ -400,15 +507,12 @@ class VMPOTrainer:
             self.actions_buf.append(action)
             self.rewards_buf.append(reward)
             self.dones_buf.append(done)
-            self.restarting_weights_buf.append(restarting_weights)
-            self.importance_weights_buf.append(importance_weights)
             self.timeout_bootstrap_buf.append(timeout_bootstrap)
             self.values_buf.append(value)
             self.means_buf.append(mean)
             self.log_stds_buf.append(log_std)
 
             obs = next_obs
-            self.episode_start_flags = done.astype(bool)
 
             self.episode_return += reward
 
@@ -460,12 +564,6 @@ class VMPOTrainer:
                 actions_arr = np.stack(self.actions_buf)
                 rewards_arr = np.asarray(self.rewards_buf, dtype=np.float32)
                 dones_arr = np.asarray(self.dones_buf, dtype=np.float32)
-                restarting_weights_arr = np.asarray(
-                    self.restarting_weights_buf, dtype=np.float32
-                )
-                importance_weights_arr = np.asarray(
-                    self.importance_weights_buf, dtype=np.float32
-                )
                 timeout_bootstrap_arr = np.asarray(
                     self.timeout_bootstrap_buf, dtype=np.float32
                 )
@@ -485,8 +583,6 @@ class VMPOTrainer:
                 actions_flat = actions_arr.reshape(T * N, -1)
                 rewards_flat = rewards_arr.reshape(T, N)
                 dones_flat = dones_arr.reshape(T, N)
-                restarting_weights_flat = restarting_weights_arr.reshape(T * N, 1)
-                importance_weights_flat = importance_weights_arr.reshape(T * N, 1)
                 values_flat = values_arr.reshape(T, N)
                 means_flat = means_arr.reshape(T * N, -1)
                 log_stds_flat = log_stds_arr.reshape(T * N, -1)
@@ -515,16 +611,6 @@ class VMPOTrainer:
                     ),
                     "advantages": torch.as_tensor(
                         advantages_flat, dtype=torch.float32, device=self.agent.device
-                    ),
-                    "restarting_weights": torch.as_tensor(
-                        restarting_weights_flat,
-                        dtype=torch.float32,
-                        device=self.agent.device,
-                    ),
-                    "importance_weights": torch.as_tensor(
-                        importance_weights_flat,
-                        dtype=torch.float32,
-                        device=self.agent.device,
                     ),
                     "old_means": torch.as_tensor(
                         means_flat, dtype=torch.float32, device=self.agent.device
@@ -652,12 +738,6 @@ def _evaluate_vectorized(
         # We call act() with deterministic=True to use the mean of the Gaussian
         action, _, _, _ = agent.act(obs, deterministic=True)
 
-        # Clip actions to valid range
-        action = np.clip(
-            action,
-            eval_envs.single_action_space.low,
-            eval_envs.single_action_space.high,
-        )
 
         # Step environment
         next_obs, reward, terminated, truncated, infos = eval_envs.step(action)

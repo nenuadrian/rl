@@ -387,7 +387,7 @@ class MPOTrainer:
                         eval_envs=self.eval_envs,
                         seed=self.eval_seed,
                     )
-                    log_wandb(metrics, step=step)
+                    log_wandb(metrics, step=step, silent=True)
                     print(
                         f"[MPO][eval] step={step}/{total_steps}: {_format_metrics(metrics)}"
                     )
@@ -500,11 +500,6 @@ def _evaluate_vectorized(
             agent.policy.sample_action(mean=mean, log_std=log_std, deterministic=True)
             .cpu()
             .numpy()
-        )
-        action = np.clip(
-            action,
-            eval_envs.single_action_space.low,
-            eval_envs.single_action_space.high,
         )
 
         next_obs, reward, terminated, truncated, _ = eval_envs.step(action)

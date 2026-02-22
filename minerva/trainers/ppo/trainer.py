@@ -41,8 +41,10 @@ def _make_env(
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
         # Observation normalization is handled by RunningNorm inside the network.
-        env = gym.wrappers.NormalizeReward(env)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+        # dm_control rewards are bounded [0, 1]; normalization is unnecessary and harmful.
+        if not gym_id.startswith("dm_control/"):
+            env = gym.wrappers.NormalizeReward(env)
+            env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
 
         env.reset(seed=seed)
         env.action_space.seed(seed)
@@ -128,7 +130,11 @@ def _evaluate_vectorized(
 
 def log_episode_stats(infos, global_step: int):
     for _, episode_return, episode_length in _extract_episode_stats(infos):
-        print(f"global_step={global_step}, episode_return={episode_return}")
+        print(
+            f"global_step={global_step}, "
+            f"episode_return={episode_return}, "
+            f"episode_length={episode_length}"
+        )
         log_wandb(
             {
                 "train/episode_return": episode_return,
@@ -390,12 +396,45 @@ class PPOTrainer:
                 next_obs_np, reward, terminated, truncated, infos = self.envs.step(
                     action.cpu().numpy()
                 )
-                # LaTeX: d_t = d_t^{term} \lor d_t^{trunc}
                 done = np.logical_or(terminated, truncated)
 
-                rewards[step] = torch.as_tensor(
+                reward_t = torch.as_tensor(
                     reward, dtype=torch.float32, device=self.device
                 ).view(-1)
+
+                # Time-limit bootstrap: for truncated (not terminated) episodes,
+                # add gamma * V(final_obs) so GAE doesn't treat the artificial
+                # episode boundary as a true terminal state.
+                timeout_mask = np.asarray(truncated, dtype=bool) & ~np.asarray(
+                    terminated, dtype=bool
+                )
+                if np.any(timeout_mask):
+                    timeout_indices = np.flatnonzero(timeout_mask)
+                    timeout_obs = []
+                    for idx in timeout_indices:
+                        fo = None
+                        if isinstance(infos, dict):
+                            for key in ("final_observation", "final_obs"):
+                                if key in infos and infos[key][idx] is not None:
+                                    fo = np.asarray(
+                                        infos[key][idx], dtype=np.float32
+                                    )
+                                    break
+                        if fo is None:
+                            fo = np.asarray(next_obs_np[idx], dtype=np.float32)
+                        timeout_obs.append(fo)
+                    with torch.no_grad():
+                        bootstrap_v = self.agent.get_value(
+                            torch.as_tensor(
+                                np.stack(timeout_obs),
+                                dtype=torch.float32,
+                                device=self.device,
+                            )
+                        ).flatten()
+                    for i, idx in enumerate(timeout_indices):
+                        reward_t[idx] += self.gamma * bootstrap_v[i]
+
+                rewards[step] = reward_t
                 next_obs = torch.as_tensor(
                     next_obs_np, dtype=torch.float32, device=self.device
                 )
@@ -524,106 +563,162 @@ class PPOTrainer:
             old_approx_kl = torch.tensor(0.0, device=self.device)
             approx_kl = torch.tensor(0.0, device=self.device)
 
-            for epoch in range(self.update_epochs):
-                np.random.shuffle(b_inds)
-                for start in range(0, self.batch_size, self.minibatch_size):
-                    end = start + self.minibatch_size
-                    mb_inds = b_inds[start:end]
+            # Keep observation stats tied to fresh rollout data only (not
+            # multiplied by PPO epochs/minibatches).
+            obs_normalizer = self.agent.obs_normalizer
+            was_obs_norm_training = bool(obs_normalizer.training)
+            if b_obs.numel() > 0:
+                with torch.no_grad():
+                    obs_normalizer.update_stats(b_obs.detach())
+            obs_normalizer.eval()
+            try:
+                for epoch in range(self.update_epochs):
+                    np.random.shuffle(b_inds)
+                    for start in range(0, self.batch_size, self.minibatch_size):
+                        end = start + self.minibatch_size
+                        mb_inds = b_inds[start:end]
 
-                    _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
-                        b_obs[mb_inds], b_actions[mb_inds]
-                    )
-                    # LaTeX: \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
-                    logratio = newlogprob - b_logprobs[mb_inds]
-                    # LaTeX: r_t = \exp(\log r_t)
-                    ratio = logratio.exp()
+                        _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
+                            b_obs[mb_inds], b_actions[mb_inds]
+                        )
+                        # LaTeX: \log r_t = \log \pi_{\theta}(a_t|s_t) - \log \pi_{\theta_{old}}(a_t|s_t)
+                        logratio = newlogprob - b_logprobs[mb_inds]
+                        # LaTeX: r_t = \exp(\log r_t)
+                        ratio = logratio.exp()
 
-                    with torch.no_grad():
-                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                        # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
-                        old_approx_kl = (-logratio).mean()
-                        # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
-                        approx_kl = ((ratio - 1) - logratio).mean()
-                        clipfracs += [
-                            ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
-                        ]
+                        with torch.no_grad():
+                            # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                            # LaTeX: \widehat{D}_{KL}^{old} \approx \mathbb{E}[-\log r_t]
+                            old_approx_kl = (-logratio).mean()
+                            # LaTeX: \widehat{D}_{KL} \approx \mathbb{E}[r_t - 1 - \log r_t]
+                            approx_kl = ((ratio - 1) - logratio).mean()
+                            clipfracs += [
+                                ((ratio - 1.0).abs() > self.clip_coef).float().mean().item()
+                            ]
 
-                    mb_advantages = b_advantages[mb_inds]
-                    if self.norm_adv:
-                        # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
-                            mb_advantages.std() + 1e-8
+                        mb_advantages = b_advantages[mb_inds]
+                        if self.norm_adv:
+                            # LaTeX: \hat{A}_t = \frac{A_t - \mu_A}{\sigma_A + \epsilon}
+                            mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                                mb_advantages.std() + 1e-8
+                            )
+
+                        # LaTeX: \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
+
+                        pg_loss1 = -mb_advantages * ratio
+                        # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
+                        pg_loss2 = -mb_advantages * torch.clamp(
+                            ratio, 1 - self.clip_coef, 1 + self.clip_coef
+                        )
+                        # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
+                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                        newvalue = newvalue.view(-1)
+                        if self.clip_vloss:
+                            # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
+                            v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                            # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
+                            v_clipped = b_values[mb_inds] + torch.clamp(
+                                newvalue - b_values[mb_inds],
+                                -self.clip_coef,
+                                self.clip_coef,
+                            )
+                            # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
+                            v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                            v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                            # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
+                            v_loss = 0.5 * v_loss_max.mean()
+                        else:
+                            # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
+                            v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                        entropy_loss = entropy.mean()
+                        # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
+                        loss = (
+                            pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
                         )
 
-                    # LaTeX: \mathcal{L}_{pg}^{(1)} = -\hat{A}_t r_t
+                        self.optimizer.zero_grad()
+                        loss.backward()
 
-                    pg_loss1 = -mb_advantages * ratio
-                    # LaTeX: \mathcal{L}_{pg}^{(2)} = -\hat{A}_t \operatorname{clip}(r_t, 1-\epsilon, 1+\epsilon)
-                    pg_loss2 = -mb_advantages * torch.clamp(
-                        ratio, 1 - self.clip_coef, 1 + self.clip_coef
-                    )
-                    # LaTeX: \mathcal{L}_{pg} = \mathbb{E}\left[\max\left(\mathcal{L}_{pg}^{(1)}, \mathcal{L}_{pg}^{(2)}\right)\right]
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+                        # Capture gradient norms before clipping
+                        with torch.no_grad():
+                            policy_params = (
+                                list(self.agent.actor_mean.parameters()) +
+                                [self.agent.actor_logstd]
+                            )
+                            value_params = list(self.agent.critic.parameters())
 
-                    newvalue = newvalue.view(-1)
-                    if self.clip_vloss:
-                        # LaTeX: \mathcal{L}_{V}^{unclip} = (V_{\theta}(s_t)-R_t)^2
-                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                        # LaTeX: V_{\theta}^{clip}(s_t) = V_{\theta_{old}}(s_t) + \operatorname{clip}(V_{\theta}(s_t)-V_{\theta_{old}}(s_t), -\epsilon, \epsilon)
-                        v_clipped = b_values[mb_inds] + torch.clamp(
-                            newvalue - b_values[mb_inds],
-                            -self.clip_coef,
-                            self.clip_coef,
+                            grad_policy_norm = torch.nn.utils.clip_grad_norm_(
+                                policy_params, float("inf")
+                            ).item()
+                            grad_value_norm = torch.nn.utils.clip_grad_norm_(
+                                value_params, float("inf")
+                            ).item()
+
+                        nn.utils.clip_grad_norm_(
+                            self.agent.parameters(), self.max_grad_norm
                         )
-                        # LaTeX: \mathcal{L}_{V}^{clip} = (V_{\theta}^{clip}(s_t)-R_t)^2
-                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[\max(\mathcal{L}_{V}^{unclip}, \mathcal{L}_{V}^{clip})\right]
-                        v_loss = 0.5 * v_loss_max.mean()
-                    else:
-                        # LaTeX: \mathcal{L}_{V} = \frac{1}{2}\mathbb{E}\left[(V_{\theta}(s_t)-R_t)^2\right]
-                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                        self.optimizer.step()
 
-                    entropy_loss = entropy.mean()
-                    # LaTeX: \mathcal{L} = \mathcal{L}_{pg} - c_H \mathcal{H} + c_V \mathcal{L}_{V}
-                    loss = (
-                        pg_loss - self.ent_coef * entropy_loss + v_loss * self.vf_coef
+                    if self.target_kl is not None:
+                        if approx_kl > self.target_kl:
+                            break
+
+                y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+                var_y = np.var(y_true)
+                # LaTeX: \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
+                explained_var = (
+                    np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+                )
+
+                sps = int(global_step / max(time.time() - start_time, 1e-8))
+
+                # Policy std diagnostics
+                with torch.no_grad():
+                    _, _, _, _ = self.agent.get_action_and_value(b_obs[:1])
+                    action_logstd = self.agent.actor_logstd
+                    action_std = torch.exp(action_logstd)
+                    policy_std_mean = float(action_std.mean().item())
+                    policy_std_min = float(action_std.min().item())
+                    policy_std_max = float(action_std.max().item())
+                    policy_logstd_mean = float(action_logstd.mean().item())
+
+                    # Obs normalizer diagnostics
+                    obs_norm_mean_norm = float(self.agent.obs_normalizer.mean.norm().item())
+                    obs_norm_std_mean = float(
+                        torch.sqrt(self.agent.obs_normalizer.var + self.agent.obs_normalizer.eps).mean().item()
                     )
+                    obs_norm_count = float(self.agent.obs_normalizer.count.item())
+            finally:
+                obs_normalizer.train(was_obs_norm_training)
 
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    nn.utils.clip_grad_norm_(
-                        self.agent.parameters(), self.max_grad_norm
-                    )
-                    self.optimizer.step()
-
-                if self.target_kl is not None:
-                    if approx_kl > self.target_kl:
-                        break
-
-            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
-            var_y = np.var(y_true)
-            # LaTeX: \operatorname{EV} = 1 - \frac{\operatorname{Var}[R - V]}{\operatorname{Var}[R]}
-            explained_var = (
-                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            update_metrics = {
+                "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
+                "losses/value_loss": v_loss.item(),
+                "losses/policy_loss": pg_loss.item(),
+                "losses/entropy": entropy_loss.item(),
+                "losses/old_approx_kl": old_approx_kl.item(),
+                "losses/approx_kl": approx_kl.item(),
+                "losses/clipfrac": float(np.mean(clipfracs)) if clipfracs else 0.0,
+                "losses/explained_variance": float(explained_var),
+                "grad/policy_norm": grad_policy_norm,
+                "grad/value_norm": grad_value_norm,
+                "policy/std_mean": policy_std_mean,
+                "policy/std_min": policy_std_min,
+                "policy/std_max": policy_std_max,
+                "policy/logstd_mean": policy_logstd_mean,
+                "obs_norm/mean_norm": obs_norm_mean_norm,
+                "obs_norm/std_mean": obs_norm_std_mean,
+                "obs_norm/count": obs_norm_count,
+                "charts/SPS": float(sps),
+            }
+            log_wandb(update_metrics, step=global_step, silent=True)
+            print(
+                f"[PPO][update] step={global_step}/{total_steps}, "
+                + ", ".join(
+                    f"{k}={v:.4f}" for k, v in update_metrics.items()
+                )
             )
-
-            sps = int(global_step / max(time.time() - start_time, 1e-8))
-            log_wandb(
-                {
-                    "charts/learning_rate": self.optimizer.param_groups[0]["lr"],
-                    "losses/value_loss": v_loss.item(),
-                    "losses/policy_loss": pg_loss.item(),
-                    "losses/entropy": entropy_loss.item(),
-                    "losses/old_approx_kl": old_approx_kl.item(),
-                    "losses/approx_kl": approx_kl.item(),
-                    "losses/clipfrac": float(np.mean(clipfracs)) if clipfracs else 0.0,
-                    "losses/explained_variance": float(explained_var),
-                    "charts/SPS": float(sps),
-                },
-                step=global_step,
-                silent=True,
-            )
-            print("SPS:", sps)
 
         self.envs.close()

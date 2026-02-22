@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Tuple, Dict, Any, Literal
 
 import numpy as np
@@ -27,11 +28,6 @@ class DiagonalGaussianPolicy(nn.Module):
         shared_encoder: bool = False,
     ):
         super().__init__()
-        if len(policy_layer_sizes) == 0:
-            raise ValueError("policy_layer_sizes must contain at least one layer size")
-        if len(value_layer_sizes) == 0:
-            raise ValueError("value_layer_sizes must contain at least one layer size")
-
         self.shared_encoder = shared_encoder
         self.obs_normalizer = RunningNorm(obs_dim)
 
@@ -68,6 +64,7 @@ class DiagonalGaussianPolicy(nn.Module):
         return [self.policy_logstd]
 
     def _mean_and_log_std(self, encoded_obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Output raw (unbounded) mean, will be clipped by environment
         mean = self.policy_mean(encoded_obs)
         log_std = self.policy_logstd.expand_as(mean)
         return mean, log_std
@@ -105,6 +102,7 @@ class DiagonalGaussianPolicy(nn.Module):
         log_std: torch.Tensor,
         actions: torch.Tensor,
     ) -> torch.Tensor:
+        """Compute log probability of actions under the policy."""
         std = log_std.exp()
         normal = Normal(mean, std)
         return normal.log_prob(actions).sum(dim=-1, keepdim=True)
@@ -182,8 +180,8 @@ class VMPOAgent:
         value_params = list(self.policy.value_head.parameters())
         if not self.policy.shared_encoder:
             value_params = list(self.policy.value_encoder.parameters()) + value_params
-        policy_lr_eff = self.policy_lr
-        value_lr_eff = self.value_lr
+        policy_lr_eff = self.policy_lr / math.sqrt(self.m_steps)
+        value_lr_eff = self.value_lr / math.sqrt(self.m_steps)
 
         self.combined_opt = self._build_optimizer(
             [
@@ -218,7 +216,7 @@ class VMPOAgent:
         self.log_alpha_sigma = nn.Parameter(
             torch.tensor(0.0, dtype=torch.float32, device=device)
         )
-        effective_alpha_lr = self.alpha_lr #/ math.sqrt(self.m_steps)
+        effective_alpha_lr = self.alpha_lr / math.sqrt(self.m_steps)
         self.alpha_opt = self._build_optimizer(
             [self.log_alpha_mu, self.log_alpha_sigma], lr=effective_alpha_lr
         )
@@ -292,16 +290,15 @@ class VMPOAgent:
 
         returns_raw = batch["returns"].squeeze(-1)
         advantages = batch["advantages"].squeeze(-1)
-        restarting_weights = batch.get("restarting_weights", None)
-        importance_weights = batch.get("importance_weights", None)
-        if restarting_weights is None:
-            restarting_weights = torch.ones_like(advantages)
-        else:
-            restarting_weights = restarting_weights.squeeze(-1)
-        if importance_weights is None:
-            importance_weights = torch.ones_like(advantages)
-        else:
-            importance_weights = importance_weights.squeeze(-1)
+
+        # Update obs stats once per rollout batch, then freeze during repeated
+        # m-step passes so normalization does not depend on optimizer epochs.
+        obs_normalizer = self.policy.obs_normalizer
+        was_obs_norm_training = bool(obs_normalizer.training)
+        if obs.numel() > 0:
+            with torch.no_grad():
+                obs_normalizer.update_stats(obs.detach())
+        obs_normalizer.eval()
 
         # Advantage normalization
         if self.normalize_advantages:
@@ -321,62 +318,44 @@ class VMPOAgent:
         # ================================================================
         # LaTeX: \eta = \exp(\log \eta)
         eta = torch.exp(self.log_temperature)
-        # LaTeX: s_t = \frac{w_t^{restart}\hat{A}_t}{\eta}
-        scaled_advantages = (restarting_weights * advantages) / eta
+        # LaTeX: s_t = \frac{\hat{A}_t}{\eta}
+        scaled_advantages = advantages / eta
 
         # Numerical stability: subtract global max before exponentiation.
         max_scaled_advantage = scaled_advantages.max().detach()
 
         with torch.no_grad():
-            if not 0.0 < self.topk_fraction <= 1.0:
-                raise ValueError(
-                    f"`topk_fraction` must be in (0, 1], got {self.topk_fraction}"
-                )
-
             if self.topk_fraction < 1.0:
-                # Exclude restarting states from top-k selection.
-                valid_scaled_advantages = scaled_advantages.detach().clone()
-                valid_scaled_advantages[restarting_weights <= 0.0] = -torch.inf
                 # LaTeX: k = \lfloor \rho N \rfloor
-                k = int(self.topk_fraction * valid_scaled_advantages.numel())
-                if k <= 0:
-                    raise ValueError(
-                        "topk_fraction too low to select any scaled advantages."
-                    )
-                topk_vals, _ = torch.topk(valid_scaled_advantages, k)
+                k = int(self.topk_fraction * scaled_advantages.numel())
+                topk_vals, _ = torch.topk(scaled_advantages.detach(), k)
                 # LaTeX: \tau = \min(\operatorname{TopK}(s, k))
                 threshold = topk_vals.min()
                 # LaTeX: m_t = \mathbf{1}[s_t \ge \tau]
-                topk_weights = (valid_scaled_advantages >= threshold).to(
-                    restarting_weights.dtype
+                topk_weights = (scaled_advantages.detach() >= threshold).to(
+                    scaled_advantages.dtype
                 )
-                # LaTeX: \bar{w}_t = w_t^{restart} \cdot m_t
-                topk_restarting_weights = restarting_weights * topk_weights
             else:
                 # LaTeX: \tau = \min_t s_t
                 threshold = scaled_advantages.detach().min()
-                # LaTeX: \bar{w}_t = w_t^{restart}
-                topk_restarting_weights = restarting_weights
+                topk_weights = torch.ones_like(scaled_advantages)
 
             # Mask for selected samples (used for KL terms and diagnostics).
-            mask_bool = topk_restarting_weights > 0.0
+            mask_bool = topk_weights > 0.0
             if not bool(mask_bool.any()):
                 # Fallback to avoid empty reductions on tiny rollouts.
                 mask_bool = torch.ones_like(mask_bool, dtype=torch.bool)
-                topk_restarting_weights = torch.ones_like(topk_restarting_weights)
+                topk_weights = torch.ones_like(topk_weights)
 
-        # Use stop-gradient semantics for importance weights.
-        importance_weights_sg = importance_weights.detach()
-        # LaTeX: \tilde{\psi}_t = \bar{w}_t \, w_t^{imp} \exp(s_t - s_{\max})
+        # LaTeX: \tilde{\psi}_t = m_t \exp(s_t - s_{\max})
         unnormalized_weights = (
-            topk_restarting_weights
-            * importance_weights_sg
+            topk_weights
             * torch.exp(scaled_advantages - max_scaled_advantage)
         )
         # LaTeX: Z = \sum_t \tilde{\psi}_t
         sum_weights = unnormalized_weights.sum() + 1e-8
-        # LaTeX: N_{sel} = \sum_t \bar{w}_t
-        num_samples = topk_restarting_weights.sum() + 1e-8
+        # LaTeX: N_{sel} = \sum_t m_t
+        num_samples = topk_weights.sum() + 1e-8
         # LaTeX: \psi_t = \frac{\tilde{\psi}_t}{Z}
         weights = unnormalized_weights / sum_weights
         weights_detached = weights.detach()
@@ -413,93 +392,106 @@ class VMPOAgent:
             current_mean, current_log_std, v_pred_fw = self.policy.forward_all(obs)
             v_pred = v_pred_fw.squeeze(-1)
 
-            # -- Policy Loss --
-            log_prob = self.policy.log_prob(
-                current_mean, current_log_std, actions
-            ).squeeze(-1)
-            # LaTeX: \mathcal{L}_{\pi}^{NLL} = -\sum_t \psi_t \log \pi_{\theta}(a_t|s_t)
-            weighted_nll = -(weights_detached * log_prob).sum()
+            # -- Decomposed Policy Loss (MPO-style) --
+            # Separate mean and std optimization to ensure both get
+            # independent gradient signals.  Using the joint NLL allows
+            # the mean to "absorb" all the learning, leaving logstd
+            # with near-zero gradients and kl/std stuck at 0.
 
-            # -- KL Divergence (Full Batch Diagnostics) --
-            # We compute this for logging purposes to see global drift
-            with torch.no_grad():
-                old_std = old_log_stds.exp()
-                new_std = current_log_std.exp()
-                # LaTeX: D_{\mu}^{all} = \mathbb{E}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
-                kl_mean_all = (
-                    ((current_mean - old_means) ** 2 / (2.0 * old_std**2 + 1e-8))
-                    .sum(dim=-1)
-                    .mean()
-                )
-                # LaTeX: D_{\sigma}^{all} = \mathbb{E}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
-                kl_std_all = (
+            # Mean loss: cross-entropy with current mean but FIXED (old) std
+            # LaTeX: \mathcal{L}_{\mu} = -\sum_t \psi_t \log \mathcal{N}(a_t; \mu_\theta(s_t), \sigma_{old})
+            log_prob_fixed_std = self.policy.log_prob(
+                current_mean, old_log_stds, actions
+            ).squeeze(-1)
+            weighted_nll_mean = -(weights_detached * log_prob_fixed_std).sum()
+
+            # Std loss: cross-entropy with FIXED (old) mean but current std
+            # LaTeX: \mathcal{L}_{\sigma} = -\sum_t \psi_t \log \mathcal{N}(a_t; \mu_{old}, \sigma_\theta(s_t))
+            log_prob_fixed_mean = self.policy.log_prob(
+                old_means, current_log_std, actions
+            ).squeeze(-1)
+            weighted_nll_std = -(weights_detached * log_prob_fixed_mean).sum()
+
+            # Combined NLL with decomposed gradients
+            weighted_nll = weighted_nll_mean + weighted_nll_std
+
+            # -- KL Divergence (Full Batch D, per paper Eq. 5) --
+            # Paper: "Note that here we use the full batch D, not ˜D."
+            # The KL constraint must be over ALL states, not just selected ones.
+            old_std = old_log_stds.exp()
+            new_std = current_log_std.exp()
+
+            # Decoupled KL over full batch (Appendix C, Eqs. 25-26)
+            # LaTeX: D_{\mu} = \frac{1}{|D|}\sum_{s \in D} \frac{1}{2}(\mu_\theta - \mu_{old})^T \Sigma_{old}^{-1} (\mu_\theta - \mu_{old})
+            kl_mu = (
+                (0.5 * ((current_mean - old_means) ** 2 / (old_std**2 + 1e-8)))
+                .sum(dim=-1)
+                .mean()
+            )
+            # LaTeX: D_{\Sigma} = \frac{1}{|D|}\sum_{s \in D} \frac{1}{2}\left(\text{Tr}(\Sigma_\theta^{-1}\Sigma_{old}) - d + \log\frac{|\Sigma_\theta|}{|\Sigma_{old}|}\right)
+            kl_sigma = (
+                (
                     0.5
                     * (
                         (old_std**2) / (new_std**2 + 1e-8)
                         - 1.0
                         + 2.0 * (current_log_std - old_log_stds)
                     )
+                )
+                .sum(dim=-1)
+                .mean()
+            )
+
+            # Diagnostic: KL on selected samples only (for logging)
+            with torch.no_grad():
+                mean_sel = current_mean[mask_bool]
+                old_mean_sel = old_means[mask_bool]
+                old_std_sel = old_log_stds[mask_bool].exp()
+                log_std_sel = current_log_std[mask_bool]
+                new_std_sel = log_std_sel.exp()
+                kl_mu_sel = (
+                    (0.5 * ((mean_sel - old_mean_sel) ** 2 / (old_std_sel**2 + 1e-8)))
+                    .sum(dim=-1)
+                    .mean()
+                )
+                kl_sigma_sel = (
+                    (
+                        0.5
+                        * (
+                            (old_std_sel**2) / (new_std_sel**2 + 1e-8)
+                            - 1.0
+                            + 2.0 * (log_std_sel - old_log_stds[mask_bool])
+                        )
+                    )
                     .sum(dim=-1)
                     .mean()
                 )
 
-            # -- KL Divergence (Selected Samples for Optimization) --
-            mean_sel = current_mean[mask_bool]
-            log_std_sel = current_log_std[mask_bool]
-            old_mean_sel = old_means[mask_bool]
-            old_log_std_sel = old_log_stds[mask_bool]
-
-            old_std_sel = old_log_std_sel.exp()
-            new_std_sel = log_std_sel.exp()
-
-            # Decoupled KL
-            # LaTeX: D_{\mu} = \mathbb{E}_{t \in \mathcal{S}}\left[\sum_j \frac{(\mu_j-\mu_j^{old})^2}{2(\sigma_j^{old})^2}\right]
-            kl_mu_sel = (
-                (0.5 * ((mean_sel - old_mean_sel) ** 2 / (old_std_sel**2 + 1e-8)))
-                .sum(dim=-1)
-                .mean()
-            )
-            # LaTeX: D_{\sigma} = \mathbb{E}_{t \in \mathcal{S}}\left[\frac{1}{2}\sum_j\left(\frac{(\sigma_j^{old})^2}{\sigma_j^2} - 1 + 2(\log \sigma_j - \log \sigma_j^{old})\right)\right]
-            kl_sigma_sel = (
-                (
-                    0.5
-                    * (
-                        (old_std_sel**2) / (new_std_sel**2 + 1e-8)
-                        - 1.0
-                        + 2.0 * (log_std_sel - old_log_std_sel)
-                    )
-                )
-                .sum(dim=-1)
-                .mean()
-            )
-
-            # -- Alpha Optimization --
+            # -- Alpha Optimization (Eq. 5, first term with sg on KL) --
             # LaTeX: \alpha_{\mu} = \exp(\log \alpha_{\mu})
             alpha_mu = torch.exp(self.log_alpha_mu)
             # LaTeX: \alpha_{\sigma} = \exp(\log \alpha_{\sigma})
             alpha_sigma = torch.exp(self.log_alpha_sigma)
 
-            # We minimize: alpha * (epsilon - KL)
-            # LaTeX: \mathcal{L}_{\alpha} = \alpha_{\mu}(\epsilon_{\mu} - D_{\mu}) + \alpha_{\sigma}(\epsilon_{\sigma} - D_{\sigma})
+            # LaTeX: \mathcal{L}_{\alpha} = \alpha_{\mu}(\epsilon_{\mu} - \text{sg}[D_{\mu}]) + \alpha_{\sigma}(\epsilon_{\sigma} - \text{sg}[D_{\sigma}])
             alpha_loss = alpha_mu * (
-                self.epsilon_mu - kl_mu_sel.detach()
-            ) + alpha_sigma * (self.epsilon_sigma - kl_sigma_sel.detach())
+                self.epsilon_mu - kl_mu.detach()
+            ) + alpha_sigma * (self.epsilon_sigma - kl_sigma.detach())
 
             self.alpha_opt.zero_grad()
             alpha_loss.backward()
             self.alpha_opt.step()
 
-            # -- Final Policy Loss --
+            # -- Final Policy Loss (Eq. 5, second term with sg on alpha) --
             with torch.no_grad():
                 alpha_mu_det = torch.exp(self.log_alpha_mu).detach()
                 alpha_sigma_det = torch.exp(self.log_alpha_sigma).detach()
 
-            # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi}^{NLL} + \alpha_{\mu}D_{\mu} + \alpha_{\sigma}D_{\sigma}
-
+            # LaTeX: \mathcal{L}_{\pi} = \mathcal{L}_{\pi}^{NLL} + \text{sg}[\alpha_{\mu}]D_{\mu} + \text{sg}[\alpha_{\sigma}]D_{\sigma}
             policy_loss = (
                 weighted_nll
-                + (alpha_mu_det * kl_mu_sel)
-                + (alpha_sigma_det * kl_sigma_sel)
+                + (alpha_mu_det * kl_mu)
+                + (alpha_sigma_det * kl_sigma)
             )
 
             # -- Critic Loss --
@@ -511,16 +503,34 @@ class VMPOAgent:
             total_loss = policy_loss + value_loss
             self.combined_opt.zero_grad()
             total_loss.backward()
-            nn.utils.clip_grad_norm_(
-                list(self.policy.policy_encoder.parameters())
-                + list(self.policy.policy_mean.parameters())
-                + self.policy.policy_logstd_parameters()
-                + (
-                    []
-                    if self.policy.shared_encoder
-                    else list(self.policy.value_encoder.parameters())
+
+            # Capture gradient norms before clipping (last m-step only).
+            with torch.no_grad():
+                policy_params = (
+                    list(self.policy.policy_encoder.parameters())
+                    + list(self.policy.policy_mean.parameters())
                 )
-                + list(self.policy.value_head.parameters()),
+                logstd_params = self.policy.policy_logstd_parameters()
+                value_params = (
+                    (
+                        []
+                        if self.policy.shared_encoder
+                        else list(self.policy.value_encoder.parameters())
+                    )
+                    + list(self.policy.value_head.parameters())
+                )
+                grad_policy_norm = torch.nn.utils.clip_grad_norm_(
+                    policy_params, float("inf")
+                ).item()
+                grad_logstd_norm = torch.nn.utils.clip_grad_norm_(
+                    logstd_params, float("inf")
+                ).item()
+                grad_value_norm = torch.nn.utils.clip_grad_norm_(
+                    value_params, float("inf")
+                ).item()
+
+            nn.utils.clip_grad_norm_(
+                policy_params + logstd_params + value_params,
                 self.max_grad_norm,
             )
             self.combined_opt.step()
@@ -552,20 +562,38 @@ class VMPOAgent:
             # LaTeX: \mathcal{H} = \mathbb{E}\left[\sum_j \frac{1}{2}\left(1 + \log(2\pi\sigma_j^2)\right)\right]
 
             entropy = (
-                (0.5 * (1 + torch.log(2 * torch.pi * new_std_sel**2))).sum(-1).mean()
+                (0.5 * (1 + torch.log(2 * torch.pi * new_std**2))).sum(-1).mean()
             )
+
+            # 4. Policy std diagnostics
+            std_eval = log_std_eval.exp()
+            policy_std_mean = float(std_eval.mean().item())
+            policy_std_min = float(std_eval.min().item())
+            policy_std_max = float(std_eval.max().item())
+            policy_logstd_mean = float(log_std_eval.mean().item())
+
+            # 5. Obs normalizer diagnostics
+            obs_norm_mean_norm = float(obs_normalizer.mean.norm().item())
+            obs_norm_std_mean = float(
+                torch.sqrt(obs_normalizer.var + obs_normalizer.eps).mean().item()
+            )
+            obs_norm_count = float(obs_normalizer.count.item())
+
+        obs_normalizer.train(was_obs_norm_training)
 
         return {
             "loss/total": float(total_loss.item()),
             "loss/value": float(value_loss.item()),
             "loss/policy": float(policy_loss.item()),
             "loss/policy_weighted_nll": float(weighted_nll.item()),
-            "loss/policy_kl_mean_pen": float((alpha_mu_det * kl_mu_sel).item()),
-            "loss/policy_kl_std_pen": float((alpha_sigma_det * kl_sigma_sel).item()),
+            "loss/nll_mean": float(weighted_nll_mean.item()),
+            "loss/nll_std": float(weighted_nll_std.item()),
+            "loss/policy_kl_mean_pen": float((alpha_mu_det * kl_mu).item()),
+            "loss/policy_kl_std_pen": float((alpha_sigma_det * kl_sigma).item()),
             "loss/alpha": float(alpha_loss.item()),
-            # KL Diagnostics
-            "kl/mean": float(kl_mean_all.item()),
-            "kl/std": float(kl_std_all.item()),
+            # KL Diagnostics (full batch D, used in optimization)
+            "kl/mean": float(kl_mu.detach().item()),
+            "kl/std": float(kl_sigma.detach().item()),
             "kl/mean_sel": float(kl_mu_sel.item()),
             "kl/std_sel": float(kl_sigma_sel.item()),
             # Dual Variables
@@ -579,14 +607,23 @@ class VMPOAgent:
             "vmpo/selected_frac": float(selected_frac),
             "vmpo/threshold": float(threshold.item()),
             "vmpo/ess": float(ess.item()),
-            "vmpo/restarting_frac": float(
-                (restarting_weights <= 0.0).float().mean().item()
-            ),
-            "vmpo/importance_mean": float(importance_weights_sg.mean().item()),
             # Training Dynamics
             "train/entropy": float(entropy.item()),
             "train/param_delta": float(param_delta),
             "train/mean_abs_action": float(mean_abs_action),
+            # Gradient norms (pre-clip, last m-step)
+            "grad/policy_norm": grad_policy_norm,
+            "grad/logstd_norm": grad_logstd_norm,
+            "grad/value_norm": grad_value_norm,
+            # Policy std diagnostics
+            "policy/std_mean": policy_std_mean,
+            "policy/std_min": policy_std_min,
+            "policy/std_max": policy_std_max,
+            "policy/logstd_mean": policy_logstd_mean,
+            # Obs normalizer diagnostics
+            "obs_norm/mean_norm": obs_norm_mean_norm,
+            "obs_norm/std_mean": obs_norm_std_mean,
+            "obs_norm/count": obs_norm_count,
             # Data Stats
             "adv/raw_mean": float(advantages.mean().item()),
             "adv/raw_std": float((advantages.std(unbiased=False) + 1e-8).item()),

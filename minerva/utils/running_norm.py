@@ -57,6 +57,12 @@ class RunningNorm(nn.Module):
         self.count.copy_(total_count)
 
     # ------------------------------------------------------------------
+    @torch.no_grad()
+    def update_stats(self, x: torch.Tensor) -> None:
+        """Update running stats without normalizing."""
+        self._update(x)
+
+    # ------------------------------------------------------------------
     def _normalize(self, x: torch.Tensor) -> torch.Tensor:
         return ((x - self.mean) / torch.sqrt(self.var + self.eps)).clamp(
             -self.clip, self.clip

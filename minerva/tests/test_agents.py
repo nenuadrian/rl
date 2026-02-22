@@ -65,6 +65,39 @@ def test_vmpo_agent_act_and_update():
     assert "kl/std" in metrics
 
 
+def test_vmpo_obs_normalizer_updates_once_per_batch():
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    obs_dim = 6
+    act_dim = 2
+    batch_size = 10
+    agent = VMPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        device=torch.device("cpu"),
+        policy_layer_sizes=(32, 32),
+        value_layer_sizes=(32, 32),
+        m_steps=4,
+    )
+
+    batch = {
+        "obs": torch.randn(batch_size, obs_dim),
+        "actions": torch.randn(batch_size, act_dim),
+        "returns": torch.randn(batch_size, 1),
+        "advantages": torch.randn(batch_size, 1),
+        "old_means": torch.randn(batch_size, act_dim),
+        "old_log_stds": torch.randn(batch_size, act_dim),
+    }
+
+    count_before = float(agent.policy.obs_normalizer.count.item())
+    agent.update(batch)
+    count_after = float(agent.policy.obs_normalizer.count.item())
+
+    count_delta = count_after - count_before
+    assert np.isclose(count_delta, float(batch_size), rtol=0.0, atol=1e-4)
+
+
 def test_vmpo_agent_logstd_is_parameter():
     torch.manual_seed(0)
     np.random.seed(0)

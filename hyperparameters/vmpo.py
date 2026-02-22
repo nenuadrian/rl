@@ -20,8 +20,8 @@ SHARED_VMPO_PARAMS: dict[str, Any] = {
     "alpha_lr": 1e-4,
     "epsilon_eta": 0.15,
     "epsilon_mu": 0.05,
-    "epsilon_sigma": 0.01,
-    "max_grad_norm": 0.5,
+    "epsilon_sigma": 0.05,
+    "max_grad_norm": 2.0,
     "normalize_advantages": True,
     "optimizer_type": "adam",
     "shared_encoder": False,
@@ -81,6 +81,6 @@ def get(env_id: str) -> dict[str, Any]:
             "optimizer_type": "adam",
             "sgd_momentum": 0.9,
             "advantage_estimator": "gae",
-            "gae_lambda": 0.92,
+            "gae_lambda": 0.95,
         },
     )

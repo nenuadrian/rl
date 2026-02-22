@@ -611,6 +611,13 @@ class MPOAgent:
         # Phase A: critic update
         self.q_opt.zero_grad()
         q_loss.backward()
+
+        # Capture Q-network gradient norm before clipping
+        with torch.no_grad():
+            grad_q_norm = torch.nn.utils.clip_grad_norm_(
+                self.q.parameters(), float("inf")
+            ).item()
+
         nn.utils.clip_grad_norm_(
             self.q.parameters(),
             self.max_grad_norm,
@@ -735,16 +742,24 @@ class MPOAgent:
         dual_loss = loss_temperature + loss_alpha_mean + loss_alpha_std
         self.dual_opt.zero_grad()
         dual_loss.backward()
+
+        # Capture dual variables gradient norm before clipping
+        dual_params = [
+            p
+            for p in [
+                self.log_temperature,
+                self.log_alpha_mean,
+                self.log_alpha_stddev,
+            ]
+            if p is not None
+        ]
+        with torch.no_grad():
+            grad_dual_norm = torch.nn.utils.clip_grad_norm_(
+                dual_params, float("inf")
+            ).item()
+
         nn.utils.clip_grad_norm_(
-            [
-                p
-                for p in [
-                    self.log_temperature,
-                    self.log_alpha_mean,
-                    self.log_alpha_stddev,
-                ]
-                if p is not None
-            ],
+            dual_params,
             self.max_grad_norm,
         )
         self.dual_opt.step()
@@ -817,6 +832,13 @@ class MPOAgent:
 
             self.policy_opt.zero_grad()
             policy_total_loss.backward()
+
+            # Capture policy gradient norm before clipping (save from last M-step)
+            with torch.no_grad():
+                grad_policy_norm = torch.nn.utils.clip_grad_norm_(
+                    self.policy.parameters(), float("inf")
+                ).item()
+
             nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy_opt.step()
 
@@ -839,6 +861,11 @@ class MPOAgent:
 
         entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
 
+        # Policy std diagnostics
+        with torch.no_grad():
+            std_online_mean = float(std_online.mean().detach().item())
+            logstd_online_mean = float(log_std_online.mean().detach().item())
+
         return {
             "train/param_delta": float(param_delta.item()),
             "loss/q": float(q_loss.item()),
@@ -858,6 +885,11 @@ class MPOAgent:
             "alpha_std": float(
                 (F.softplus(self.log_alpha_stddev) + 1e-8).mean().detach().item()
             ),
+            "grad/q_norm": grad_q_norm,
+            "grad/dual_norm": grad_dual_norm,
+            "grad/policy_norm": grad_policy_norm,
+            "pi/std_mean": std_online_mean,
+            "pi/logstd_mean": logstd_online_mean,
             "q/min": float(q_vals.min().detach().item()),
             "q/max": float(q_vals.max().detach().item()),
             "pi/std_min": float(std_online.min().detach().item()),
