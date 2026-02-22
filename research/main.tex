@@ -977,7 +977,7 @@ This can be re-written as a normalised exponential,
 Given a current parameter set $\{\phi_u\}$ and prior cluster weights, the posterior responsibility
 (or soft assignment) of cluster $u$ for datum $(x,y_1,y_2)$ is proportional to the product of the
 cluster prior and the pairwise likelihood. Under equal priors (or when priors are absorbed in normalisation)
-the local responsibility used in the paper's hard-assignment E-step reduces to the BT soft-likelihood:
+the local responsibility used in hard-assignment E-step reduces to the BT soft-likelihood:
 \begin{equation}
   w(\phi_u; x,y_1,y_2)
   \;=\;
@@ -1172,7 +1172,6 @@ with gradient (their Eq.~(7))
   \label{eq:virel_mstep_grad}
 \end{equation}
 
-For this manuscript's LLM notation, the direct mapping is $s\leftrightarrow x$, $a\leftrightarrow y$, and $h=(x,y)$. Under that identification, VIREL is explicitly EM-like: the E-step performs policy improvement by reducing $\mathrm{KL}(q_\theta\|p_\omega)$, while the M-step performs policy evaluation via critic updates.
 
 \section{Generalized EM Policy Improvement (GEMPI)}
 This is an attempt to describe a generalised EM policy improvement method that encompasses a wide range of algorithms as special cases. The key idea is to allow multiple anchor policies and multiple divergence functionals in the E-step, as well as flexible temperature and filtering mechanisms.
@@ -1193,6 +1192,43 @@ A Generalized EM Policy Improvement method is specified by
   \big),
 \]
 where $\{D_j\}$ are divergence functionals used in the E-step, $\{\pi_j\}$ are anchor policies, $\{\lambda_j > 0\}$ are regularization coefficients, $\mathcal{T}$ is the temperature mechanism (fixed, dual-adaptive, or closed-form), $\mathcal{F}$ is a filtering mechanism (identity or top-$k$), and $D_M$ with budget $\varepsilon_M$ is an optional M-step trust-region divergence.
+
+\subsection{Relation to VIREL}
+
+\paragraph{Overlap (E-step structure).}
+At the policy-improvement level, GEMPI and VIREL share the same exponential-tilting form.
+VIREL uses a Boltzmann target \eqref{eq:virel_boltzmann} / \eqref{eq:virel_l_p}:
+\[
+  p_\omega(y\mid x)
+  \propto
+  \exp\!\Big(\frac{\hat Q_\omega(x,y)}{\varepsilon_\omega}\Big).
+\]
+GEMPI's KL E-step gives
+\[
+  q^\star(y\mid x)
+  \propto
+  \pi_1(y\mid x)\exp\!\Big(\frac{A(x,y)}{\lambda_1}\Big)
+  \quad (m=1).
+\]
+Choosing a uniform anchor $\pi_1$ (or absorbing $\log\pi_1$ into $A$), setting
+$A(x,y)=\hat Q_\omega(x,y)$, and $\lambda_1=\varepsilon_\omega$ recovers the same Boltzmann family.
+So GEMPI subsumes VIREL's \emph{policy-improvement form} as a special case.
+
+\paragraph{What GEMPI can express that VIREL (as originally formulated) does not.}
+\begin{itemize}
+  \item \textbf{Multi-anchor improvement:} GEMPI supports $m>1$ anchors (e.g.\ $\pi_{\mathrm{ref}}$ and $\pi_t$ simultaneously), yielding geometric mixtures such as DAR's dual-anchor target.
+  \item \textbf{Divergence/filtering modularity:} GEMPI makes divergence choice and filtering ($\mathcal{F}$, including top-$k$) first-class knobs in one template.
+  \item \textbf{Collapsed single-stage variants:} GEMPI naturally includes collapsed E-step constructions (e.g.\ DPO-style elimination), while VIREL is explicitly a two-stage variational EM loop.
+\end{itemize}
+
+\paragraph{What VIREL can do that base GEMPI does not encode.}
+\begin{itemize}
+  \item \textbf{Critic-learning M-step:} VIREL's M-step updates value parameters $\omega$ via \eqref{eq:virel_mstep_update}--\eqref{eq:virel_mstep_grad}. GEMPI's M-step \eqref{eq:gempi_mstep} is a policy projection and does not by itself specify Bellman-style critic learning.
+  \item \textbf{Residual-coupled adaptive exploration:} VIREL ties temperature to Bellman residual $\varepsilon_\omega$ in \eqref{eq:virel_eps}, linking exploration strength to critic error. GEMPI temperatures/regularizers are generic coefficients or duals, without this specific coupling unless added explicitly.
+  \item \textbf{VIREL-specific optimality guarantees:} VIREL provides ELBO-to-policy optimality and deterministic-limit results. GEMPI is a unifying design template and does not, on its own, imply those guarantees.
+\end{itemize}
+
+GEMPI is strictly broader as a \emph{policy-improvement parameterisation}; VIREL is richer as a \emph{full actor-critic variational inference framework}. They are therefore complementary: GEMPI generalises the E-step design space, while VIREL contributes a specific critic-coupled semantics and theory.
 
 % ============================================================
 \subsection{General Regularized E-Step}
