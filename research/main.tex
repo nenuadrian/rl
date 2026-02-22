@@ -1057,6 +1057,123 @@ This iterated max--min policy iteration is summarised in Algorithm~\ref{alg:maxm
   \item \textbf{Return:} $\{\phi_u\}$ and cluster assignments.
 \end{enumerate}
 
+\section{VIREL: A Variational Inference Framework for RL}
+\label{sec:virel}
+
+VIREL \parencite{fellows2020virel} formulates reinforcement learning as variational inference with an explicit EM decomposition. The paper defines state-action pairs as $h=(s,a)$, a critic $\hat Q_\omega(h)$, and a residual temperature $\varepsilon_\omega$:
+\begin{equation}
+  \varepsilon_\omega
+  \coloneqq
+  c\left\lVert T_\omega \hat Q_\omega(h)-\hat Q_\omega(h)\right\rVert_p^p,
+  \qquad
+  T_\omega = T^{\pi_\omega}\!\cdot
+  \coloneqq
+  r(h)+\gamma\mathbb{E}_{h'\sim p(s'|h)\pi_\omega(a'|s')}[\cdot].
+  \label{eq:virel_eps}
+\end{equation}
+The induced Boltzmann policy (their Eq.~(3)) is
+\begin{equation}
+  \pi_\omega(a|s)
+  \coloneqq
+  \frac{\exp\!\big(\hat Q_\omega(h)/\varepsilon_\omega\big)}
+  {\int_{\mathcal{A}}\exp\!\big(\hat Q_\omega(h')/\varepsilon_\omega\big)\,da'},
+  \label{eq:virel_boltzmann}
+\end{equation}
+where $h'=(s,a')$.
+
+\paragraph{ELBO objective.}
+VIREL maximises the ELBO (their Eq.~(4)):
+\begin{equation}
+  L(\omega,\theta)
+  \coloneqq
+  \mathbb{E}_{s\sim d(s)}\mathbb{E}_{a\sim\pi_\theta(a|s)}
+  \left[
+    \frac{\hat Q_\omega(h)}{\varepsilon_\omega}
+  \right]
+  +
+  \mathcal{H}\!\big(\pi_\theta(a|s)\big),
+  \label{eq:virel_elbo}
+\end{equation}
+with $q_\theta(h)\coloneqq d(s)\pi_\theta(a|s)$. They rewrite (Eq.~(5)):
+\begin{equation}
+  L(\omega,\theta)
+  =
+  \ell(\omega)
+  -
+  \mathrm{KL}\!\big(q_\theta(h)\,\|\,p_\omega(h)\big)
+  -
+  \mathcal{H}(d(s)),
+  \label{eq:virel_decomp}
+\end{equation}
+where
+\begin{equation}
+  \ell(\omega)
+  \coloneqq
+  \log\!\int_{\mathcal{H}}
+  \exp\!\left(\frac{\hat Q_\omega(h)}{\varepsilon_\omega}\right)\,dh,
+  \qquad
+  p_\omega(h)
+  \coloneqq
+  \frac{\exp\!\big(\hat Q_\omega(h)/\varepsilon_\omega\big)}
+  {\int_{\mathcal{H}}\exp\!\big(\hat Q_\omega(h)/\varepsilon_\omega\big)\,dh}.
+  \label{eq:virel_l_p}
+\end{equation}
+
+\paragraph{Variational EM updates (actor-critic as EM).}
+The E-step updates actor parameters by maximising $L(\omega_k,\theta)$:
+\begin{equation}
+  \theta_{k+1}
+  \leftarrow
+  \arg\max_\theta L(\omega_k,\theta),
+  \quad
+  \theta_{i+1}
+  \leftarrow
+  \theta_i + \alpha_{\mathrm{actor}}
+  \big(\varepsilon_{\omega_k}\nabla_\theta L(\omega_k,\theta)\big)\big|_{\theta=\theta_i},
+  \label{eq:virel_estep_update}
+\end{equation}
+with gradient (their Eq.~(6))
+\begin{equation}
+  \varepsilon_{\omega_k}\nabla_\theta L(\omega_k,\theta)
+  =
+  \mathbb{E}_{s\sim d(s),\,a\sim\pi_\theta(a|s)}
+  \Big[
+    \hat Q_{\omega_k}(h)\nabla_\theta\log\pi_\theta(a|s)
+    +
+    \varepsilon_{\omega_k}\nabla_\theta\mathcal{H}\!\big(\pi_\theta(a|s)\big)
+  \Big].
+  \label{eq:virel_estep_grad}
+\end{equation}
+
+The M-step updates critic parameters by maximising $L(\omega,\theta_{k+1})$:
+\begin{equation}
+  \omega_{k+1}
+  \leftarrow
+  \arg\max_\omega L(\omega,\theta_{k+1}),
+  \quad
+  \omega_{i+1}
+  \leftarrow
+  \omega_i
+  +
+  \alpha_{\mathrm{critic}}(\varepsilon_{\omega_i})^2
+  \nabla_\omega L(\omega,\theta_{k+1})\big|_{\omega=\omega_i},
+  \label{eq:virel_mstep_update}
+\end{equation}
+with gradient (their Eq.~(7))
+\begin{equation}
+  (\varepsilon_{\omega_i})^2\nabla_\omega L(\omega,\theta_{k+1})
+  =
+  \varepsilon_{\omega_i}
+  \mathbb{E}_{d(s)\pi_{\theta_{k+1}}(a|s)}
+  \big[\nabla_\omega \hat Q_\omega(h)\big]
+  -
+  \mathbb{E}_{d(s)\pi_{\theta_{k+1}}(a|s)}
+  \big[\hat Q_{\omega_i}(h)\nabla_\omega \varepsilon_\omega\big].
+  \label{eq:virel_mstep_grad}
+\end{equation}
+
+For this manuscript's LLM notation, the direct mapping is $s\leftrightarrow x$, $a\leftrightarrow y$, and $h=(x,y)$. Under that identification, VIREL is explicitly EM-like: the E-step performs policy improvement by reducing $\mathrm{KL}(q_\theta\|p_\omega)$, while the M-step performs policy evaluation via critic updates.
+
 \section{Generalized EM Policy Improvement (GEMPI)}
 This is an attempt to describe a generalised EM policy improvement method that encompasses a wide range of algorithms as special cases. The key idea is to allow multiple anchor policies and multiple divergence functionals in the E-step, as well as flexible temperature and filtering mechanisms.
 
